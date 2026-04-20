@@ -262,9 +262,9 @@ export default function Admin() {
           <span style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>Administrador</span>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {VISTAS.map(v => (
+          {VISTAS.filter(v => v !== 'efectivos').map(v => (
             <button key={v} className="btn btn-sm"
-              style={{ fontWeight: vista === v ? 500 : 400, background: vista === v ? '#f0f0ee' : '', borderColor: v === 'edicion' && vista !== 'edicion' ? '#EF9F27' : '' }}
+              style={{ fontWeight: vista === v ? 500 : 400, background: vista === v ? '#c8a84b' : 'transparent', color: vista === v ? '#000' : '#e8eaf0', border: vista === v ? '1px solid #c8a84b' : '0.5px solid rgba(255,255,255,0.15)' }}
               onClick={() => setVista(v)}>
               {LABELS[v]}
             </button>
