@@ -40,7 +40,7 @@ export default function Login() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', background: '#0a0c12' }}>
 
-      <img src={LOGO} alt="Logo PDS" style={{ width: 180, height: 180, objectFit: 'contain', marginBottom: 10, borderRadius: '50%' }} />
+      <img src={LOGO} alt="Logo PDS" style={{ width: 220, height: 250, objectFit: 'contain', marginBottom: 10 }} />
 
       <h1 style={{ fontSize: 22, fontWeight: 600, color: '#e8eaf0', marginBottom: 2, letterSpacing: '0.04em', textAlign: 'center' }}>POLAD · HIGA-UPA</h1>
       <p style={{ fontSize: 12, color: '#c8a84b', marginBottom: 28, letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'center' }}>Policía de Seguridad · Pcia. de Buenos Aires</p>
