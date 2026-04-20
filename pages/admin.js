@@ -147,6 +147,7 @@ export default function Admin() {
   const [generando, setGenerando] = useState(false)
   const [msgGen, setMsgGen] = useState(null)
   const [modalTurno, setModalTurno] = useState(null)
+  const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroSector, setFiltroSector] = useState('Todos')
   const [filtroDia, setFiltroDia] = useState(0)
 
@@ -246,7 +247,7 @@ export default function Admin() {
     .sort((a, b) => a.dia - b.dia || a.sector.localeCompare(b.sector) || a.turno.localeCompare(b.turno))
 
   const VISTAS = ['resumen', 'efectivos', 'disponibilidad', 'turnos', 'edicion']
-  const LABELS = { resumen: 'Resumen', efectivos: 'Efectivos', disponibilidad: 'Disponibilidad', turnos: 'Turnos', edicion: 'Edición manual' }
+  const LABELS = { resumen: 'Resumen', efectivos: 'Efectivos', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual' }
 
   return (
     <div>
@@ -264,7 +265,7 @@ export default function Admin() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {VISTAS.filter(v => v !== 'efectivos').map(v => (
             <button key={v} className="btn btn-sm"
-              style={{ fontWeight: vista === v ? 500 : 400, background: vista === v ? '#c8a84b' : 'transparent', color: vista === v ? '#000' : '#e8eaf0', border: vista === v ? '1px solid #c8a84b' : '0.5px solid rgba(255,255,255,0.15)' }}
+              style={{ fontWeight: vista === v ? 600 : 400, background: vista === v ? 'rgba(200,168,75,0.15)' : 'transparent', color: vista === v ? '#c8a84b' : '#8b90a0', border: vista === v ? '0.5px solid rgba(200,168,75,0.6)' : '0.5px solid rgba(255,255,255,0.1)' }}
               onClick={() => setVista(v)}>
               {LABELS[v]}
             </button>
@@ -431,45 +432,104 @@ export default function Admin() {
           )
         })()}
 
-        {vista === 'disponibilidad' && (
-          <div className="panel">
-            <div className="panel-header"><h3>Disponibilidad cargada — {NOMBRE_MES}</h3></div>
-            <div style={{ padding: 14, overflowX: 'auto' }}>
-              <table style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: 130 }}>Efectivo</th>
-                    {Array.from({ length: DIAS_MES }, (_, i) => (
-                      <th key={i} style={{ width: 26, textAlign: 'center', padding: '8px 1px' }}>{i + 1}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {efectivos.map(e => (
-                    <tr key={e.legajo}>
-                      <td style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.nombre}</td>
-                      {Array.from({ length: DIAS_MES }, (_, i) => {
-                        const v = (disponibilidad[e.legajo] || {})[i + 1] || ''
-                        const bg = v === 'dn' ? '#EAF3DE' : v === 'd' ? '#FAEEDA' : v === 'n' ? '#E6F1FB' : '#f5f5f3'
-                        const label = v === 'dn' ? 'A' : v === 'd' ? 'D' : v === 'n' ? 'N' : '·'
-                        return (
-                          <td key={i} style={{ textAlign: 'center', padding: '3px 1px' }}>
-                            <span style={{ display: 'inline-block', width: 20, height: 16, background: bg, borderRadius: 3, fontSize: 9, fontWeight: 500, lineHeight: '16px', color: v ? '#444' : '#bbb' }}>{label}</span>
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ marginTop: 10, display: 'flex', gap: 12, fontSize: 11, color: '#666' }}>
-                <span><span style={{ background: '#EAF3DE', padding: '1px 5px', borderRadius: 2 }}>A</span> Ambos</span>
-                <span><span style={{ background: '#FAEEDA', padding: '1px 5px', borderRadius: 2 }}>D</span> Solo día</span>
-                <span><span style={{ background: '#E6F1FB', padding: '1px 5px', borderRadius: 2 }}>N</span> Solo noche</span>
+        {vista === 'disponibilidad' && (() => {
+          const efSelDisp = efectivos[0]?.legajo
+          return (
+            <div>
+              <div className="panel" style={{ marginBottom: 14 }}>
+                <div className="panel-header"><h3>Disponibilidad cargada — {NOMBRE_MES}</h3></div>
+                <div style={{ padding: 14, overflowX: 'auto' }}>
+                  <table style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 130 }}>Efectivo</th>
+                        {Array.from({ length: DIAS_MES }, (_, i) => (
+                          <th key={i} style={{ width: 26, textAlign: 'center', padding: '8px 1px' }}>{i + 1}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {efectivos.map(e => (
+                        <tr key={e.legajo} style={{ cursor: 'pointer' }} onClick={() => setEfectivoDetalle(efDetalle === e.legajo ? null : e.legajo)}>
+                          <td style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: efDetalle === e.legajo ? '#c8a84b' : 'var(--text)', fontWeight: efDetalle === e.legajo ? 500 : 400 }}>{e.nombre}</td>
+                          {Array.from({ length: DIAS_MES }, (_, i) => {
+                            const v = (disponibilidad[e.legajo] || {})[i + 1] || ''
+                            const bg = v === 'dn' ? '#0d2b1a' : v === 'd' ? '#3a2a0a' : v === 'n' ? '#0d2040' : 'var(--surface2)'
+                            const label = v === 'dn' ? 'A' : v === 'd' ? 'D' : v === 'n' ? 'N' : '·'
+                            const color = v === 'dn' ? '#5DCAA5' : v === 'd' ? '#EF9F27' : v === 'n' ? '#85B7EB' : '#444'
+                            return (
+                              <td key={i} style={{ textAlign: 'center', padding: '3px 1px' }}>
+                                <span style={{ display: 'inline-block', width: 20, height: 16, background: bg, borderRadius: 3, fontSize: 9, fontWeight: 500, lineHeight: '16px', color }}>{label}</span>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+                    <span><span style={{ background: '#0d2b1a', color: '#5DCAA5', padding: '1px 5px', borderRadius: 2 }}>A</span> Ambos</span>
+                    <span><span style={{ background: '#3a2a0a', color: '#EF9F27', padding: '1px 5px', borderRadius: 2 }}>D</span> Día</span>
+                    <span><span style={{ background: '#0d2040', color: '#85B7EB', padding: '1px 5px', borderRadius: 2 }}>N</span> Noche</span>
+                    <span style={{ color: '#c8a84b' }}>Hacé clic en un efectivo para ver su calendario completo</span>
+                  </div>
+                </div>
               </div>
+
+              {efDetalle && (() => {
+                const e = efectivos.find(x => x.legajo === efDetalle)
+                if (!e) return null
+                const disp = disponibilidad[e.legajo] || {}
+                const primerDia = (new Date(ANIO, MES - 1, 1).getDay() + 6) % 7
+                const hs = horasAsig[e.legajo] || 0
+                const turnosEf = (turnos[e.legajo] || [])
+                return (
+                  <div className="panel">
+                    <div className="panel-header" style={{ background: 'rgba(200,168,75,0.08)', borderBottom: '0.5px solid rgba(200,168,75,0.2)' }}>
+                      <div>
+                        <h3 style={{ color: '#c8a84b' }}>{e.nombre} — Leg. {e.legajo}</h3>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{e.tipo} · {e.sector} · {hs} hs asignadas</div>
+                      </div>
+                      <button className="btn btn-sm" onClick={() => setEfectivoDetalle(null)} style={{ color: 'var(--text-muted)' }}>Cerrar</button>
+                    </div>
+                    <div style={{ padding: 14 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 6 }}>
+                        {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => (
+                          <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>{d}</div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                        {Array.from({ length: primerDia }).map((_, i) => <div key={`e-${i}`}></div>)}
+                        {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+                          const v = disp[dia] || ''
+                          const turnoAsig = turnosEf.filter(t => t.dia === dia)
+                          const bg = v === 'dn' ? '#0d2b1a' : v === 'd' ? '#3a2a0a' : v === 'n' ? '#0d2040' : 'var(--surface2)'
+                          const borderColor = v === 'dn' ? '#1D9E75' : v === 'd' ? '#BA7517' : v === 'n' ? '#378ADD' : 'var(--border)'
+                          return (
+                            <div key={dia} style={{ border: `0.5px solid ${borderColor}`, borderRadius: 6, padding: '5px 4px', minHeight: 54, background: bg, cursor: 'pointer' }}
+                              onClick={() => setModalTurno({ dia, sector: SECTORES[0], turno: 'd', legajo: e.legajo })}>
+                              <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 2 }}>{dia}</div>
+                              {v && <div style={{ fontSize: 9, color: v === 'dn' ? '#5DCAA5' : v === 'd' ? '#EF9F27' : '#85B7EB', marginBottom: 2 }}>{v === 'dn' ? 'Ambos' : v === 'd' ? 'Día' : 'Noche'}</div>}
+                              {turnoAsig.map(t => (
+                                <div key={t.id} style={{ fontSize: 8, background: t.turno === 'd' ? '#3a2a0a' : '#0d2040', color: t.turno === 'd' ? '#EF9F27' : '#85B7EB', borderRadius: 2, padding: '1px 3px', marginTop: 1 }}>
+                                  {t.turno === 'd' ? 'D' : 'N'} {t.sector.split(' ')[0]}
+                                </div>
+                              ))}
+                              {!v && <div style={{ fontSize: 9, color: '#444', textAlign: 'center', marginTop: 4 }}>+</div>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)' }}>
+                        Hacé clic en cualquier día para agregar un turno manual a este efectivo.
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {vista === 'turnos' && (
           <div>
