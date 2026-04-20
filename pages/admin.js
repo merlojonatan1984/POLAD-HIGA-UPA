@@ -599,82 +599,97 @@ export default function Admin() {
           </div>
         )}
 
-        {vista === 'edicion' && (
-          <div>
-            <div className="alert alert-warn" style={{ marginBottom: 14 }}>
-              Desde acá podés modificar cualquier turno individualmente, eliminarlo o agregar uno nuevo de forma manual, sin afectar el resto del cronograma.
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Filtrar:</span>
-                <select style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }} value={filtroSector} onChange={e => setFiltroSector(e.target.value)}>
-                  <option value="Todos">Todos los sectores</option>
-                  {SECTORES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }} value={filtroDia} onChange={e => setFiltroDia(parseInt(e.target.value))}>
-                  <option value={0}>Todos los días</option>
-                  {Array.from({ length: DIAS_MES }, (_, i) => <option key={i + 1} value={i + 1}>Día {i + 1}</option>)}
-                </select>
+        {vista === 'edicion' && (() => {
+          const diaActual = filtroDia || 1
+          return (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Día del mes:</span>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(d => (
+                    <button key={d} className="btn btn-sm"
+                      style={{ minWidth: 32, padding: '4px 6px', fontSize: 11,
+                        background: d === diaActual ? 'rgba(200,168,75,0.15)' : 'transparent',
+                        color: d === diaActual ? '#c8a84b' : 'var(--text-muted)',
+                        border: d === diaActual ? '0.5px solid rgba(200,168,75,0.6)' : '0.5px solid rgba(255,255,255,0.1)'
+                      }}
+                      onClick={() => setFiltroDia(d)}>{d}</button>
+                  ))}
+                </div>
               </div>
-              <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia: filtroDia || 1, sector: filtroSector !== 'Todos' ? filtroSector : SECTORES[0], turno: 'd', legajo: '' })}>
-                + Agregar turno manual
-              </button>
-            </div>
 
-            {!hayTurnos ? (
-              <div className="alert alert-warn">No hay turnos generados. Primero generá el cronograma desde la pestaña Turnos.</div>
-            ) : (
-              <div className="panel">
-                <div className="panel-header">
-                  <h3>{turnosFiltrados.length} turnos — hacé clic para editar</h3>
-                  <span style={{ fontSize: 11, color: '#666' }}>Podés cambiar el efectivo, el turno o eliminar directamente</span>
-                </div>
-                <div style={{ overflowY: 'auto', maxHeight: 560 }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style={{ width: 60 }}>Día</th>
-                        <th style={{ width: 100 }}>Turno</th>
-                        <th>Sector</th>
-                        <th>Efectivo asignado</th>
-                        <th style={{ width: 90 }}>Horas mes</th>
-                        <th style={{ width: 80 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {turnosFiltrados.map(t => {
-                        const hs = horasAsig[t.legajo] || 0
-                        const color = hs >= 180 ? '#A32D2D' : hs >= 150 ? '#BA7517' : '#1D9E75'
-                        return (
-                          <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setModalTurno(t)}>
-                            <td>
-                              <div style={{ width: 32, height: 32, borderRadius: 8, background: t.turno === 'd' ? '#FAEEDA' : '#E6F1FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500, color: t.turno === 'd' ? '#633806' : '#042C53' }}>
-                                {t.dia}
-                              </div>
-                            </td>
-                            <td><span className={`chip ${t.turno === 'd' ? 'chip-d' : 'chip-n'}`}>{t.turno === 'd' ? '08–20' : '20–08'}</span></td>
-                            <td>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                <span className="dot" style={{ background: SEC_COLORS[t.sector] }}></span>{t.sector}
-                              </span>
-                            </td>
-                            <td style={{ fontWeight: 500, fontSize: 12 }}>{nombreCompleto(t.legajo)}</td>
-                            <td><span style={{ fontSize: 12, fontWeight: 500, color }}>{hs} hs</span></td>
-                            <td>
-                              <button className="btn btn-sm" style={{ fontSize: 11 }} onClick={ev => { ev.stopPropagation(); setModalTurno(t) }}>
-                                Editar
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>Día {diaActual} — {NOMBRE_MES}</h3>
+                <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia: diaActual, sector: SECTORES[0], turno: 'd', legajo: '' })}>
+                  + Agregar turno
+                </button>
               </div>
-            )}
-          </div>
-        )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {SECTORES.map(sector => {
+                  const tDia = todosLosTurnos.filter(t => t.dia === diaActual && t.turno === 'd' && t.sector === sector)
+                  const tNoche = todosLosTurnos.filter(t => t.dia === diaActual && t.turno === 'n' && t.sector === sector)
+                  return (
+                    <div key={sector} style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ padding: '8px 12px', background: 'var(--surface2)', borderBottom: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="dot" style={{ background: SEC_COLORS[sector] }}></span>
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>{sector}</span>
+                      </div>
+                      <div style={{ padding: 10 }}>
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, color: '#EF9F27', fontWeight: 500, marginBottom: 5 }}>TURNO DÍA 08-20</div>
+                          {tDia.length === 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text-hint)', fontStyle: 'italic' }}>Sin cubrir</span>
+                              <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px', color: '#EF9F27', borderColor: 'rgba(239,159,39,0.4)' }}
+                                onClick={() => setModalTurno({ dia: diaActual, sector, turno: 'd', legajo: '' })}>+ Asignar</button>
+                            </div>
+                          )}
+                          {tDia.map(t => (
+                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'rgba(239,159,39,0.06)', borderRadius: 6, marginBottom: 3 }}>
+                              <span style={{ fontSize: 12, fontWeight: 500 }}>{nombreCompleto(t.legajo)}</span>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => setModalTurno(t)}>Cambiar</button>
+                                <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => handleEliminarTurno(t)}>✕</button>
+                              </div>
+                            </div>
+                          ))}
+                          {tDia.length > 0 && tDia.length < 2 && (
+                            <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px', marginTop: 3, color: '#EF9F27', borderColor: 'rgba(239,159,39,0.3)' }}
+                              onClick={() => setModalTurno({ dia: diaActual, sector, turno: 'd', legajo: '' })}>+ Agregar segundo</button>
+                          )}
+                        </div>
+                        <div style={{ borderTop: '0.5px solid var(--border)', paddingTop: 8 }}>
+                          <div style={{ fontSize: 10, color: '#85B7EB', fontWeight: 500, marginBottom: 5 }}>TURNO NOCHE 20-08</div>
+                          {tNoche.length === 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text-hint)', fontStyle: 'italic' }}>Sin cubrir</span>
+                              <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px', color: '#85B7EB', borderColor: 'rgba(133,183,235,0.4)' }}
+                                onClick={() => setModalTurno({ dia: diaActual, sector, turno: 'n', legajo: '' })}>+ Asignar</button>
+                            </div>
+                          )}
+                          {tNoche.map(t => (
+                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'rgba(133,183,235,0.06)', borderRadius: 6, marginBottom: 3 }}>
+                              <span style={{ fontSize: 12, fontWeight: 500 }}>{nombreCompleto(t.legajo)}</span>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => setModalTurno(t)}>Cambiar</button>
+                                <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => handleEliminarTurno(t)}>✕</button>
+                              </div>
+                            </div>
+                          ))}
+                          {tNoche.length > 0 && tNoche.length < 2 && (
+                            <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 8px', marginTop: 3, color: '#85B7EB', borderColor: 'rgba(133,183,235,0.3)' }}
+                              onClick={() => setModalTurno({ dia: diaActual, sector, turno: 'n', legajo: '' })}>+ Agregar segundo</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
