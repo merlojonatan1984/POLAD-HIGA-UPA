@@ -243,7 +243,7 @@ export default function Admin() {
       await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, sector: datos.sector }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado correctamente.')
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, sector: datos.sector, es_admin: false }])
+      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, sector: 'Sin asignar', es_admin: false }])
       if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
       setMsgPersonal('Efectivo dado de alta correctamente. Clave inicial: ' + datos.legajo)
     }
@@ -300,22 +300,13 @@ export default function Admin() {
                     onChange={e => setModalPersonal({...modalPersonal, nombre: e.target.value})}
                     style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div>
-                    <label>Tipo</label>
-                    <select value={modalPersonal.tipo || 'Uniformado'} onChange={e => setModalPersonal({...modalPersonal, tipo: e.target.value})}
-                      style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
-                      <option>Uniformado</option>
-                      <option>Serv. General</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Sector</label>
-                    <select value={modalPersonal.sector || SECTORES[0]} onChange={e => setModalPersonal({...modalPersonal, sector: e.target.value})}
-                      style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
-                      {SECTORES.map(s => <option key={s}>{s}</option>)}
-                    </select>
-                  </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label>Tipo</label>
+                  <select value={modalPersonal.tipo || 'Uniformado'} onChange={e => setModalPersonal({...modalPersonal, tipo: e.target.value})}
+                    style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
+                    <option>Uniformado</option>
+                    <option>Serv. General</option>
+                  </select>
                 </div>
               </div>
               <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
