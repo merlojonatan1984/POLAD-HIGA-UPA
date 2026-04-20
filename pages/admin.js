@@ -148,6 +148,9 @@ export default function Admin() {
   const [msgGen, setMsgGen] = useState(null)
   const [modalTurno, setModalTurno] = useState(null)
   const [efDetalle, setEfectivoDetalle] = useState(null)
+  const [modalPersonal, setModalPersonal] = useState(null)
+  const [guardandoPersonal, setGuardandoPersonal] = useState(false)
+  const [msgPersonal, setMsgPersonal] = useState(null)
   const [filtroSector, setFiltroSector] = useState('Todos')
   const [filtroDia, setFiltroDia] = useState(0)
 
@@ -234,6 +237,27 @@ export default function Admin() {
     await cargarTodo()
   }
 
+  async function handleGuardarPersonal(datos) {
+    setGuardandoPersonal(true)
+    if (datos.id) {
+      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, sector: datos.sector }).eq('id', datos.id)
+      setMsgPersonal('Efectivo actualizado correctamente.')
+    } else {
+      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, sector: datos.sector, es_admin: false }])
+      if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
+      setMsgPersonal('Efectivo dado de alta correctamente. Clave inicial: ' + datos.legajo)
+    }
+    setModalPersonal(null)
+    setGuardandoPersonal(false)
+    await cargarTodo()
+  }
+
+  async function handleEliminarPersonal(ef) {
+    await supabase.from('efectivos').delete().eq('id', ef.id)
+    setModalPersonal(null)
+    await cargarTodo()
+  }
+
   if (loading) return <div className="loading">Cargando panel...</div>
 
   const cargaron = efectivos.filter(e => disponibilidad[e.legajo] && Object.keys(disponibilidad[e.legajo]).length > 0).length
@@ -246,11 +270,77 @@ export default function Admin() {
     .filter(t => (filtroSector === 'Todos' || t.sector === filtroSector) && (filtroDia === 0 || t.dia === filtroDia))
     .sort((a, b) => a.dia - b.dia || a.sector.localeCompare(b.sector) || a.turno.localeCompare(b.turno))
 
-  const VISTAS = ['resumen', 'efectivos', 'disponibilidad', 'turnos', 'edicion']
-  const LABELS = { resumen: 'Resumen', efectivos: 'Efectivos', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual' }
+  const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion']
+  const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual' }
 
   return (
     <div>
+      {modalPersonal && (() => {
+        const esNuevo = !modalPersonal.id
+        const [form, setForm] = [modalPersonal, (f) => setModalPersonal({...modalPersonal, ...f})]
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(200,168,75,0.2)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(200,168,75,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(200,168,75,0.06)' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 500, color: '#c8a84b' }}>{esNuevo ? 'Dar de alta efectivo' : 'Editar efectivo'}</h3>
+                <button className="btn btn-sm" onClick={() => { setModalPersonal(null); setMsgPersonal(null) }}>Cerrar</button>
+              </div>
+              <div style={{ padding: 16 }}>
+                {msgPersonal && <div className={`alert ${msgPersonal.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom: 12 }}>{msgPersonal}</div>}
+                <div style={{ marginBottom: 12 }}>
+                  <label>Legajo</label>
+                  <input type="text" placeholder="Ej: 71234" value={modalPersonal.legajo || ''} disabled={!esNuevo}
+                    onChange={e => setModalPersonal({...modalPersonal, legajo: e.target.value})}
+                    style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: esNuevo ? '#1e2130' : '#111', color: '#e8eaf0', outline: 'none' }} />
+                  {esNuevo && <p style={{ fontSize: 11, color: '#555b6e', marginTop: 4 }}>La contraseña inicial será el mismo número de legajo</p>}
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label>Apellido y nombre</label>
+                  <input type="text" placeholder="Ej: García, Marcos" value={modalPersonal.nombre || ''}
+                    onChange={e => setModalPersonal({...modalPersonal, nombre: e.target.value})}
+                    style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label>Tipo</label>
+                    <select value={modalPersonal.tipo || 'Uniformado'} onChange={e => setModalPersonal({...modalPersonal, tipo: e.target.value})}
+                      style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
+                      <option>Uniformado</option>
+                      <option>Serv. General</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Sector</label>
+                    <select value={modalPersonal.sector || SECTORES[0]} onChange={e => setModalPersonal({...modalPersonal, sector: e.target.value})}
+                      style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
+                      {SECTORES.map(s => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+                <div>
+                  {!esNuevo && (
+                    <button className="btn btn-sm" style={{ color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }}
+                      onClick={() => { if(confirm('¿Eliminar este efectivo?')) handleEliminarPersonal(modalPersonal) }}>
+                      Eliminar
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-sm" onClick={() => { setModalPersonal(null); setMsgPersonal(null) }}>Cancelar</button>
+                  <button className="btn btn-sm" disabled={guardandoPersonal || !modalPersonal.legajo || !modalPersonal.nombre}
+                    style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
+                    onClick={() => handleGuardarPersonal(modalPersonal)}>
+                    {guardandoPersonal ? 'Guardando...' : esNuevo ? 'Dar de alta' : 'Guardar cambios'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {modalTurno && (
         <ModalEdicion turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig}
           onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion}
@@ -336,7 +426,7 @@ export default function Admin() {
           )
         })()}
 
-        {vista === 'efectivos' && (() => {
+        {vista === 'personal' && (() => {
           const totalHs = efectivos.reduce((sum, e) => sum + (horasAsig[e.legajo] || 0), 0)
           const promedioHs = efectivos.length ? Math.round(totalHs / efectivos.length) : 0
           const enTope = efectivos.filter(e => (horasAsig[e.legajo] || 0) >= 180).length
@@ -351,6 +441,12 @@ export default function Admin() {
                 <div className="metric"><div className="metric-label">Sin disponibilidad</div><div className="metric-val" style={{ color: sinCargar > 0 ? '#BA7517' : '#1D9E75' }}>{sinCargar}</div><div className="metric-sub">aún no cargaron</div></div>
               </div>
 
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <button className="btn btn-sm" style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
+                  onClick={() => { setMsgPersonal(null); setModalPersonal({ legajo: '', nombre: '', tipo: 'Uniformado', sector: SECTORES[0] }) }}>
+                  + Dar de alta efectivo
+                </button>
+              </div>
               {/* Fichas de efectivos */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
                 {efectivos.map(e => {
@@ -366,7 +462,7 @@ export default function Admin() {
                   const hsRestantes = 180 - hs
 
                   return (
-                    <div key={e.legajo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                    <div key={e.legajo} className="card" style={{ padding: 0, overflow: 'hidden', cursor: 'pointer' }} onClick={() => { setMsgPersonal(null); setModalPersonal({...e}) }}>
                       {/* Header de la ficha */}
                       <div style={{ padding: '12px 14px', borderBottom: '0.5px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ width: 42, height: 42, borderRadius: '50%', background: colorBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 500, color, flexShrink: 0 }}>
