@@ -38,35 +38,57 @@ export default function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', background: '#0f1117' }}>
-      <div style={{ width: '100%', maxWidth: '380px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <img src={LOGO} alt="Logo PDS" style={{ width: 120, height: 120, objectFit: 'contain', marginBottom: 14, borderRadius: '50%' }} />
-          <h1 style={{ fontSize: 20, fontWeight: 500, color: '#e8eaf0', marginBottom: 4 }}>POLAD · HIGA-UPA</h1>
-        </div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', background: '#0a0c12' }}>
 
-        <div style={{ background: '#1a1d27', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '1.25rem' }}>
-          <form onSubmit={handleLogin}>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b90a0', marginBottom: 5 }}>Legajo</label>
-              <input type="text" placeholder="Ej: 45231" value={legajo} onChange={e => setLegajo(e.target.value)} required autoFocus style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.14)', borderRadius: 8, fontSize: 14, background: '#222637', color: '#e8eaf0', outline: 'none' }} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b90a0', marginBottom: 5 }}>Contraseña</label>
-              <input type="password" placeholder="••••••••" value={pass} onChange={e => setPass(e.target.value)} required style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.14)', borderRadius: 8, fontSize: 14, background: '#222637', color: '#e8eaf0', outline: 'none' }} />
-              <p style={{ fontSize: 11, color: '#555b6e', marginTop: 5 }}>Clave inicial: tu número de legajo</p>
-            </div>
-            {error && <div style={{ padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 12, background: '#2b0d0d', color: '#F09595', border: '0.5px solid #E24B4A' }}>{error}</div>}
-            <button type="submit" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', padding: '10px 16px', borderRadius: 8, border: 'none', background: '#378ADD', cursor: 'pointer', fontSize: 14, color: '#fff', fontWeight: 500 }} disabled={loading}>
-              {loading ? 'Ingresando...' : 'Ingresar'}
-            </button>
-          </form>
-        </div>
+      <img src={LOGO} alt="Logo PDS" style={{ width: 180, height: 180, objectFit: 'contain', marginBottom: 10, borderRadius: '50%' }} />
 
-        <p style={{ textAlign: 'center', fontSize: 11, color: '#555b6e', marginTop: 16 }}>
-          Policía de la Provincia de Buenos Aires
-        </p>
+      <h1 style={{ fontSize: 22, fontWeight: 600, color: '#e8eaf0', marginBottom: 2, letterSpacing: '0.04em', textAlign: 'center' }}>POLAD · HIGA-UPA</h1>
+      <p style={{ fontSize: 12, color: '#c8a84b', marginBottom: 28, letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'center' }}>Policía de Seguridad · Pcia. de Buenos Aires</p>
+
+      <div style={{ width: '100%', maxWidth: '360px', background: '#13151f', border: '0.5px solid rgba(200,168,75,0.2)', borderRadius: 12, padding: '1.5rem' }}>
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#8b90a0', marginBottom: 5 }}>Legajo</label>
+            <input
+              type="text"
+              placeholder="Número de legajo"
+              value={legajo}
+              onChange={e => setLegajo(e.target.value)}
+              required
+              autoFocus
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}
+            />
+          </div>
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#8b90a0', marginBottom: 5 }}>Contraseña</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              value={pass}
+              onChange={e => setPass(e.target.value)}
+              required
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}
+            />
+            <p style={{ fontSize: 11, color: '#444a5e', marginTop: 5 }}>Clave inicial: tu número de legajo</p>
+          </div>
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 12, background: '#2b0d0d', color: '#F09595', border: '0.5px solid #E24B4A' }}>
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '11px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #c8a84b, #a07830)', cursor: 'pointer', fontSize: 14, color: '#0a0c12', fontWeight: 600, letterSpacing: '0.04em' }}
+          >
+            {loading ? 'Ingresando...' : 'INGRESAR'}
+          </button>
+        </form>
       </div>
+
+      <p style={{ textAlign: 'center', fontSize: 10, color: '#333849', marginTop: 24, letterSpacing: '0.04em' }}>
+        SISTEMA DE GESTIÓN DE TURNOS POLAD
+      </p>
     </div>
   )
 }
