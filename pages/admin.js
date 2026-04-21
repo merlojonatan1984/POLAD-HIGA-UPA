@@ -240,10 +240,10 @@ export default function Admin() {
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
-      await supabase.from('efectivos').update({ nombre: datos.nombre.toUpperCase(), tipo: datos.tipo, sector: datos.sector }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ nombre: datos.nombre.toUpperCase(), tipo: datos.tipo, sector: datos.sector, email: datos.email || '' }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado correctamente.')
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre.toUpperCase(), tipo: datos.tipo, sector: 'Sin asignar', es_admin: false }])
+      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre.toUpperCase(), tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false }])
       if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
       setMsgPersonal('Efectivo dado de alta correctamente. Clave inicial: ' + datos.legajo)
     }
@@ -301,7 +301,14 @@ export default function Admin() {
                     style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label>Tipo</label>
+                  <label>Email</label>
+                  <input type="email" placeholder="ejemplo@gmail.com" value={modalPersonal.email || ''}
+                    onChange={e => setModalPersonal({...modalPersonal, email: e.target.value})}
+                    style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label>Escalafón</label>
+                  
                   <select value={modalPersonal.tipo || 'Uniformado'} onChange={e => setModalPersonal({...modalPersonal, tipo: e.target.value})}
                     style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
                     <option>Uniformado</option>
@@ -502,13 +509,34 @@ export default function Admin() {
                         </div>
 
                         {/* Pie de la ficha */}
-                        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '0.5px solid rgba(0,0,0,0.06)' }}>
-                          <span style={{ fontSize: 11, color: diasDisp > 0 ? '#1D9E75' : '#BA7517' }}>
-                            {diasDisp > 0 ? `${diasDisp} días disponibles cargados` : 'Sin disponibilidad'}
-                          </span>
-                          <span style={{ fontSize: 11, color: hsRestantes <= 0 ? '#A32D2D' : '#666' }}>
-                            {hsRestantes > 0 ? `Restan ${hsRestantes} hs` : 'Tope alcanzado'}
-                          </span>
+                        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '0.5px solid rgba(255,255,255,0.06)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, color: diasDisp > 0 ? '#1D9E75' : '#BA7517' }}>
+                              {diasDisp > 0 ? `${diasDisp} días cargados` : 'Sin disponibilidad'}
+                            </span>
+                            <span style={{ fontSize: 11, color: hsRestantes <= 0 ? '#E24B4A' : '#8b90a0' }}>
+                              {hsRestantes > 0 ? `Restan ${hsRestantes} hs` : 'Tope alcanzado'}
+                            </span>
+                          </div>
+                          {e.email && turnosEf.length > 0 && (
+                            <a href={(() => {
+                              const lineas = turnosEf.sort((a,b) => a.dia - b.dia).map(t =>
+                                `📅 Día ${t.dia} · ${t.turno === 'd' ? 'Turno DÍA 08:00-20:00' : 'Turno NOCHE 20:00-08:00'} · ${t.sector}`
+                              ).join('%0A')
+                              const msg = `*POLAD · HIGA-UPA*%0A%0AEstimado/a ${e.nombre}%0ALegajo: ${e.legajo}%0A%0ATus guardias confirmadas para ${NOMBRE_MES}:%0A%0A${lineas}%0A%0A✅ Total asignado: ${turnosEf.length * 12} hs%0A%0APOLAD · HIGA-UPA`
+                              return `mailto:${e.email}?subject=Guardias POLAD - ${NOMBRE_MES}&body=${msg}`
+                            })()}
+                              onClick={ev => ev.stopPropagation()}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, border: '0.5px solid rgba(200,168,75,0.4)', background: 'rgba(200,168,75,0.08)', color: '#c8a84b', fontSize: 11, fontWeight: 500, textDecoration: 'none', cursor: 'pointer' }}>
+                              ✉ Notificar guardias por email
+                            </a>
+                          )}
+                          {!e.email && (
+                            <div style={{ fontSize: 10, color: '#555b6e', textAlign: 'center' }}>Sin email registrado</div>
+                          )}
+                          {e.email && turnosEf.length === 0 && (
+                            <div style={{ fontSize: 10, color: '#555b6e', textAlign: 'center' }}>Sin guardias asignadas aún</div>
+                          )}
                         </div>
                       </div>
                     </div>
