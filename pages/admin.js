@@ -130,6 +130,110 @@ function ModalEdicion({ turno, efectivos, horasAsig, onClose, onGuardar, onElimi
             </button>
           </div>
         </div>
+
+        {vista === 'config' && (() => {
+          const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
+          const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+          const hsU = Math.round(config.totalHoras * config.pctUniformados / 100)
+          const hsG = Math.round(config.totalHoras * config.pctGeneral / 100)
+          const maxU = uniformados.length ? Math.min(180, Math.round(hsU / uniformados.length)) : 0
+          const maxG = servGeneral.length ? Math.min(180, Math.round(hsG / servGeneral.length)) : 0
+          const total = config.pctUniformados + config.pctGeneral
+
+          // SVG pie chart
+          const r = 80
+          const cx = 100, cy = 100
+          const angU = (config.pctUniformados / 100) * 2 * Math.PI
+          const x1 = cx + r * Math.sin(angU)
+          const y1 = cy - r * Math.cos(angU)
+          const largeArc = config.pctUniformados > 50 ? 1 : 0
+
+          return (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="panel">
+                  <div className="panel-header"><h3>Horas otorgadas por Provincia</h3></div>
+                  <div style={{ padding: 16 }}>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                        Total de horas del mes
+                      </label>
+                      <input type="number" value={config.totalHoras} min="0" max="99999"
+                        onChange={e => setConfig({...config, totalHoras: parseInt(e.target.value)||0})}
+                        style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.3)', borderRadius: 8, fontSize: 18, fontWeight: 500, background: '#1e2130', color: '#c8a84b', outline: 'none', textAlign: 'center' }} />
+                      <p style={{ fontSize: 11, color: 'var(--text-hint)', marginTop: 4, textAlign: 'center' }}>horas totales otorgadas por Provincia</p>
+                    </div>
+
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 12, color: '#AFA9EC', marginBottom: 6, display: 'block' }}>
+                        % Uniformados — {config.pctUniformados}%
+                      </label>
+                      <input type="range" min="0" max="100" value={config.pctUniformados}
+                        onChange={e => { const v = parseInt(e.target.value); setConfig({...config, pctUniformados: v, pctGeneral: 100-v}) }}
+                        style={{ width: '100%', accentColor: '#AFA9EC' }} />
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: 12, color: '#5DCAA5', marginBottom: 6, display: 'block' }}>
+                        % Servicio General — {config.pctGeneral}%
+                      </label>
+                      <input type="range" min="0" max="100" value={config.pctGeneral}
+                        onChange={e => { const v = parseInt(e.target.value); setConfig({...config, pctGeneral: v, pctUniformados: 100-v}) }}
+                        style={{ width: '100%', accentColor: '#5DCAA5' }} />
+                    </div>
+
+                    <button className="btn" style={{ width: '100%', justifyContent: 'center', background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
+                      onClick={() => { setConfigGuardada(true); setTimeout(() => setConfigGuardada(false), 2500) }}>
+                      Guardar configuración
+                    </button>
+                    {configGuardada && <div className="alert alert-ok" style={{ marginTop: 10, textAlign: 'center' }}>Configuración guardada. Se aplicará al generar los próximos turnos.</div>}
+                  </div>
+                </div>
+
+                <div className="panel">
+                  <div className="panel-header"><h3>Distribución de horas</h3></div>
+                  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <svg width="200" height="200" viewBox="0 0 200 200">
+                      {config.pctUniformados === 0 ? (
+                        <circle cx={cx} cy={cy} r={r} fill="#1D4A3A" />
+                      ) : config.pctUniformados === 100 ? (
+                        <circle cx={cx} cy={cy} r={r} fill="#2a2560" />
+                      ) : (
+                        <>
+                          <path d={`M ${cx} ${cy} L ${cx} ${cy-r} A ${r} ${r} 0 ${largeArc} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`} fill="#3d3a8a" />
+                          <path d={`M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${1-largeArc} 1 ${cx} ${cy-r} Z`} fill="#1D4A3A" />
+                        </>
+                      )}
+                      <circle cx={cx} cy={cy} r={50} fill="#13151f" />
+                      <text x={cx} y={cy-8} textAnchor="middle" fill="#e8eaf0" fontSize="18" fontWeight="500">{config.totalHoras}</text>
+                      <text x={cx} y={cy+10} textAnchor="middle" fill="#8b90a0" fontSize="10">hs totales</text>
+                    </svg>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, width: '100%', marginTop: 8 }}>
+                      <div style={{ background: 'rgba(42,37,96,0.4)', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(175,169,236,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#AFA9EC', marginBottom: 4 }}>UNIFORMADOS</div>
+                        <div style={{ fontSize: 20, fontWeight: 500, color: '#AFA9EC' }}>{hsU} hs</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{uniformados.length} efectivos</div>
+                        <div style={{ fontSize: 11, color: '#AFA9EC', marginTop: 4, fontWeight: 500 }}>Hasta {maxU} hs c/u</div>
+                      </div>
+                      <div style={{ background: 'rgba(13,51,40,0.4)', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(93,202,165,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#5DCAA5', marginBottom: 4 }}>SERV. GENERAL</div>
+                        <div style={{ fontSize: 20, fontWeight: 500, color: '#5DCAA5' }}>{hsG} hs</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{servGeneral.length} efectivos</div>
+                        <div style={{ fontSize: 11, color: '#5DCAA5', marginTop: 4, fontWeight: 500 }}>Hasta {maxG} hs c/u</div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(200,168,75,0.06)', borderRadius: 8, border: '0.5px solid rgba(200,168,75,0.15)', width: '100%', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Al generar turnos automáticos el sistema respeta estos límites</div>
+                      <div style={{ fontSize: 12, color: '#c8a84b', fontWeight: 500 }}>Tope máx. por efectivo: 180 hs</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -151,6 +255,8 @@ export default function Admin() {
   const [modalPersonal, setModalPersonal] = useState(null)
   const [guardandoPersonal, setGuardandoPersonal] = useState(false)
   const [msgPersonal, setMsgPersonal] = useState(null)
+  const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
+  const [configGuardada, setConfigGuardada] = useState(false)
   const [filtroSector, setFiltroSector] = useState('Todos')
   const [filtroDia, setFiltroDia] = useState(0)
 
@@ -193,7 +299,18 @@ export default function Admin() {
     setGenerando(true)
     setMsgGen(null)
     await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO)
-    const pool = efectivos.map(e => ({ ...e, hs: 0 }))
+
+    const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
+    const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+    const hsUniformados = Math.round(config.totalHoras * config.pctUniformados / 100)
+    const hsGeneral = Math.round(config.totalHoras * config.pctGeneral / 100)
+    const maxPorUniformado = uniformados.length ? Math.min(180, Math.round(hsUniformados / uniformados.length)) : 180
+    const maxPorGeneral = servGeneral.length ? Math.min(180, Math.round(hsGeneral / servGeneral.length)) : 180
+
+    const pool = efectivos.map(e => ({
+      ...e, hs: 0,
+      maxHs: e.tipo === 'Uniformado' ? maxPorUniformado : maxPorGeneral
+    }))
     const nuevos = []
     for (let dia = 1; dia <= DIAS_MES; dia++) {
       for (const turno of ['d', 'n']) {
@@ -201,7 +318,7 @@ export default function Admin() {
           const candidatos = pool.filter(e => {
             const avail = (disponibilidad[e.legajo] || {})[dia] || ''
             return ((turno === 'd' && (avail === 'd' || avail === 'dn')) ||
-                    (turno === 'n' && (avail === 'n' || avail === 'dn'))) && e.hs < 180
+                    (turno === 'n' && (avail === 'n' || avail === 'dn'))) && e.hs < e.maxHs
           })
           candidatos.sort((a, b) => a.hs - b.hs)
           candidatos.slice(0, 2).forEach(e => {
@@ -214,7 +331,7 @@ export default function Admin() {
     for (let i = 0; i < nuevos.length; i += 500) {
       await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
     }
-    setMsgGen(`Se generaron ${nuevos.length} asignaciones para ${NOMBRE_MES}.`)
+    setMsgGen(`Se generaron ${nuevos.length} asignaciones. Uniformados: hasta ${maxPorUniformado} hs c/u · Serv. General: hasta ${maxPorGeneral} hs c/u.`)
     await cargarTodo()
     setGenerando(false)
   }
@@ -270,8 +387,8 @@ export default function Admin() {
     .filter(t => (filtroSector === 'Todos' || t.sector === filtroSector) && (filtroDia === 0 || t.dia === filtroDia))
     .sort((a, b) => a.dia - b.dia || a.sector.localeCompare(b.sector) || a.turno.localeCompare(b.turno))
 
-  const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion']
-  const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual' }
+  const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config']
+  const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración' }
 
   return (
     <div>
@@ -801,6 +918,110 @@ export default function Admin() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+          )
+        })()}
+
+        {vista === 'config' && (() => {
+          const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
+          const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+          const hsU = Math.round(config.totalHoras * config.pctUniformados / 100)
+          const hsG = Math.round(config.totalHoras * config.pctGeneral / 100)
+          const maxU = uniformados.length ? Math.min(180, Math.round(hsU / uniformados.length)) : 0
+          const maxG = servGeneral.length ? Math.min(180, Math.round(hsG / servGeneral.length)) : 0
+          const total = config.pctUniformados + config.pctGeneral
+
+          // SVG pie chart
+          const r = 80
+          const cx = 100, cy = 100
+          const angU = (config.pctUniformados / 100) * 2 * Math.PI
+          const x1 = cx + r * Math.sin(angU)
+          const y1 = cy - r * Math.cos(angU)
+          const largeArc = config.pctUniformados > 50 ? 1 : 0
+
+          return (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="panel">
+                  <div className="panel-header"><h3>Horas otorgadas por Provincia</h3></div>
+                  <div style={{ padding: 16 }}>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>
+                        Total de horas del mes
+                      </label>
+                      <input type="number" value={config.totalHoras} min="0" max="99999"
+                        onChange={e => setConfig({...config, totalHoras: parseInt(e.target.value)||0})}
+                        style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.3)', borderRadius: 8, fontSize: 18, fontWeight: 500, background: '#1e2130', color: '#c8a84b', outline: 'none', textAlign: 'center' }} />
+                      <p style={{ fontSize: 11, color: 'var(--text-hint)', marginTop: 4, textAlign: 'center' }}>horas totales otorgadas por Provincia</p>
+                    </div>
+
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 12, color: '#AFA9EC', marginBottom: 6, display: 'block' }}>
+                        % Uniformados — {config.pctUniformados}%
+                      </label>
+                      <input type="range" min="0" max="100" value={config.pctUniformados}
+                        onChange={e => { const v = parseInt(e.target.value); setConfig({...config, pctUniformados: v, pctGeneral: 100-v}) }}
+                        style={{ width: '100%', accentColor: '#AFA9EC' }} />
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: 12, color: '#5DCAA5', marginBottom: 6, display: 'block' }}>
+                        % Servicio General — {config.pctGeneral}%
+                      </label>
+                      <input type="range" min="0" max="100" value={config.pctGeneral}
+                        onChange={e => { const v = parseInt(e.target.value); setConfig({...config, pctGeneral: v, pctUniformados: 100-v}) }}
+                        style={{ width: '100%', accentColor: '#5DCAA5' }} />
+                    </div>
+
+                    <button className="btn" style={{ width: '100%', justifyContent: 'center', background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
+                      onClick={() => { setConfigGuardada(true); setTimeout(() => setConfigGuardada(false), 2500) }}>
+                      Guardar configuración
+                    </button>
+                    {configGuardada && <div className="alert alert-ok" style={{ marginTop: 10, textAlign: 'center' }}>Configuración guardada. Se aplicará al generar los próximos turnos.</div>}
+                  </div>
+                </div>
+
+                <div className="panel">
+                  <div className="panel-header"><h3>Distribución de horas</h3></div>
+                  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <svg width="200" height="200" viewBox="0 0 200 200">
+                      {config.pctUniformados === 0 ? (
+                        <circle cx={cx} cy={cy} r={r} fill="#1D4A3A" />
+                      ) : config.pctUniformados === 100 ? (
+                        <circle cx={cx} cy={cy} r={r} fill="#2a2560" />
+                      ) : (
+                        <>
+                          <path d={`M ${cx} ${cy} L ${cx} ${cy-r} A ${r} ${r} 0 ${largeArc} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`} fill="#3d3a8a" />
+                          <path d={`M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${1-largeArc} 1 ${cx} ${cy-r} Z`} fill="#1D4A3A" />
+                        </>
+                      )}
+                      <circle cx={cx} cy={cy} r={50} fill="#13151f" />
+                      <text x={cx} y={cy-8} textAnchor="middle" fill="#e8eaf0" fontSize="18" fontWeight="500">{config.totalHoras}</text>
+                      <text x={cx} y={cy+10} textAnchor="middle" fill="#8b90a0" fontSize="10">hs totales</text>
+                    </svg>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, width: '100%', marginTop: 8 }}>
+                      <div style={{ background: 'rgba(42,37,96,0.4)', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(175,169,236,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#AFA9EC', marginBottom: 4 }}>UNIFORMADOS</div>
+                        <div style={{ fontSize: 20, fontWeight: 500, color: '#AFA9EC' }}>{hsU} hs</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{uniformados.length} efectivos</div>
+                        <div style={{ fontSize: 11, color: '#AFA9EC', marginTop: 4, fontWeight: 500 }}>Hasta {maxU} hs c/u</div>
+                      </div>
+                      <div style={{ background: 'rgba(13,51,40,0.4)', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(93,202,165,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#5DCAA5', marginBottom: 4 }}>SERV. GENERAL</div>
+                        <div style={{ fontSize: 20, fontWeight: 500, color: '#5DCAA5' }}>{hsG} hs</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{servGeneral.length} efectivos</div>
+                        <div style={{ fontSize: 11, color: '#5DCAA5', marginTop: 4, fontWeight: 500 }}>Hasta {maxG} hs c/u</div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(200,168,75,0.06)', borderRadius: 8, border: '0.5px solid rgba(200,168,75,0.15)', width: '100%', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Al generar turnos automáticos el sistema respeta estos límites</div>
+                      <div style={{ fontSize: 12, color: '#c8a84b', fontWeight: 500 }}>Tope máx. por efectivo: 180 hs</div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )
