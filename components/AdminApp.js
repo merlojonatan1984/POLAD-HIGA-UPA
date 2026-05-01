@@ -72,10 +72,10 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
           <div style={{ marginBottom: 14 }}>
             <label>Efectivo</label>
             <select value={legajoSel} onChange={e => setLegajoSel(e.target.value)}>
-              <option value="">— Seleccionar —</option>
+              <option value="">— Seleccionar efectivo —</option>
               {efectivos.map(e => {
                 const h = horasAsig[e.legajo] || 0
-                return <option key={e.legajo} value={e.legajo}>{e.nombre} ({h} hs{h >= 180 ? ' ⚠ TOPE' : ''})</option>
+                return <option key={e.legajo} value={e.legajo}>[{e.legajo}] {e.nombre} — {h} hs{h >= 180 ? ' ⚠ TOPE' : ''}</option>
               })}
             </select>
           </div>
