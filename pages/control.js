@@ -18,12 +18,14 @@ export default function Control() {
   const [asistencia, setAsistencia] = useState({})
   const [firmas, setFirmas] = useState({})
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
   const [subiendoFirma, setSubiendoFirma] = useState(null)
   const [msg, setMsg] = useState(null)
   const firmaRef = useRef()
 
   useEffect(() => {
+    setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
@@ -222,7 +224,7 @@ export default function Control() {
     setTimeout(() => win.print(), 500)
   }
 
-  if (loading) return <div className="loading">Cargando...</div>
+  if (!mounted || loading) return <div className="loading">Cargando...</div>
 
   return (
     <div>
