@@ -5,8 +5,8 @@ import { supabase } from '../lib/supabase'
 const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
 const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = new Date(ANIO, MES - 1, 1).toLocaleString('es-AR', { month: 'long', year: 'numeric' })
-const NOMBRE_MES_SOLO = new Date(ANIO, MES - 1, 1).toLocaleString('es-AR', { month: 'long' })
+const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
+const NOMBRE_MES_SOLO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1]
 const LUGARES = ['HIGA', 'UPA', 'MODULAR']
 
 export default function Control() {
