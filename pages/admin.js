@@ -7,7 +7,7 @@ const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves'
 const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
 const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = new Date(ANIO, MES - 1, 1).toLocaleString('es-AR', { month: 'long', year: 'numeric' })
+const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
 const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config']
 const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración' }
 
