@@ -9,8 +9,8 @@ const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
 const DIAS_MES = new Date(ANIO, MES, 0).getDate()
 const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
-const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config']
-const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración' }
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
 
 function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar }) {
   const esNuevo = !turno.id
@@ -107,6 +107,327 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
             </button>
           </div>
         </div>
+
+        {vista === 'planillas' && (() => {
+          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
+          const NOMBRE_MES_SOLO = MESES[MES-1]
+
+          async function guardarHoraManual(legajo, dia, horario, horas, sector) {
+            const key = `${dia}-${horario}`
+            const existe = planillaManual[key]
+            if (horas === '' || horas === 0) {
+              if (existe) {
+                await supabase.from('planilla_manual').delete().eq('id', existe.id)
+                const nuevo = { ...planillaManual }
+                delete nuevo[key]
+                setPlanillaManual(nuevo)
+              }
+              return
+            }
+            if (existe) {
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
+              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+            } else {
+              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+            }
+          }
+
+          async function subirFirmaAdmin(legajo, file) {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+              const base64 = e.target.result
+              const existeFirma = firmas[legajo]
+              if (existeFirma) {
+                await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
+              } else {
+                await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
+              }
+              setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+            }
+            reader.readAsDataURL(file)
+          }
+
+          function buildFilasPlanilla(ef) {
+            const asist = ef.asistencia || []
+            const asistMap = {}
+            asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+            const turnosEf = (turnos[ef.legajo] || []).sort((a,b) => a.dia - b.dia)
+
+            return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+              const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
+              const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
+              const pDia = asistMap[`${dia}-d`]
+              const pNoche = asistMap[`${dia}-n`]
+              const manualDia = planillaManual[`${dia}-08:00 a 20:00`]
+              const manualNoche1 = planillaManual[`${dia}-20:00 a 24:00`]
+              const manualNoche2 = planillaManual[`${dia}-00:00 a 08:00`]
+
+              const entradas = []
+              if (pDia || tDia || manualDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : manualDia ? manualDia.horas : 0, confirmado: !!pDia, manual: !!manualDia })
+              if (pNoche || tNoche) {
+                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche })
+                if (pNoche && dia < DIAS_MES) {
+                  // Will be added to next day
+                }
+              }
+              if (manualNoche1) entradas.push({ horario: '20:00 a 24:00', horas: manualNoche1.horas, confirmado: false, manual: true })
+              if (manualNoche2) entradas.push({ horario: '00:00 a 08:00', horas: manualNoche2.horas, confirmado: false, manual: true })
+
+              return { dia, entradas }
+            })
+          }
+
+          function imprimirPlanillaAdmin(ef) {
+            const firma = firmas[ef.legajo]?.firma_url || ''
+            const filas = buildFilasPlanilla(ef)
+            const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+            const total90 = Math.round(totalHoras * 0.9)
+
+            const flatRows = []
+            filas.forEach(f => {
+              if (f.entradas.length === 0) flatRows.push({ dia: f.dia, horario: '', horas: '', confirmado: false })
+              else f.entradas.forEach(e => flatRows.push({ dia: f.dia, horario: e.horario, horas: e.horas || '', confirmado: e.confirmado }))
+            })
+
+            const win = window.open('', '_blank')
+            const half = Math.ceil(flatRows.length / 2)
+            const col1 = flatRows.slice(0, half)
+            const col2 = flatRows.slice(half)
+
+            win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
+h2{font-size:13px;text-align:center;margin-bottom:3px}h3{font-size:11px;text-align:center;margin-bottom:8px}
+.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}.field label{font-size:8px;color:#555;display:block}.field span{font-size:10px;font-weight:bold}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
+td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}td.dia{font-weight:bold;background:#f5f5f5}td.ok{background:#e8f5e9}
+.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px}.firma-box{text-align:center;display:flex;flex-direction:column;justify-content:flex-end;min-height:80px}
+.firma-img{width:260px;max-height:90px;object-fit:contain;display:block;margin-bottom:4px}
+.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
+@media print{body{padding:8mm}}</style></head><body>
+<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
+<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
+<div class="row2"><div>
+<div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
+<div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
+</div><div>
+<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
+<div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
+</div></div>
+<div class="row4">
+<div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
+<div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
+<div class="field"><label>Jerarquía</label><span>${ef.jerarquia||''}</span></div>
+<div class="field"><label>Categoría</label><span>1°</span></div>
+</div>
+<div class="row4">
+<div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
+<div class="field"><label>N° Documento</label><span>${ef.dni||''}</span></div>
+<div class="field"></div><div class="field"></div>
+</div>
+<table><thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
+<tbody>
+${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
+  const r1 = col1[i] || {}; const r2 = col2[i] || {}
+  return `<tr>
+    <td class="dia">${r1.dia||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horario||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horas||''}</td>
+    <td class="dia">${r2.dia||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horario||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horas||''}</td>
+  </tr>`}).join('')}
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:13px">${totalHoras}</td></tr>
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:13px">${total90}</td></tr>
+</tbody></table>
+<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
+<div class="firmas">
+<div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
+<div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
+<div class="firma-box"><div style="flex:1"></div>
+<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
+</div></body></html>`)
+            win.document.close()
+            setTimeout(() => win.print(), 500)
+          }
+
+          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
+
+          return (
+            <div>
+              {!planillaEf ? (
+                <div>
+                  <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
+                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
+                    {efectivos.map(ef => {
+                      const hs = horasAsig[ef.legajo] || 0
+                      const turnosEf = turnos[ef.legajo] || []
+                      return (
+                        <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
+                          onClick={() => cargarPlanillaEf(ef)}>
+                          <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
+                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias</span>
+                            <span style={{ color: hs >= 150 ? '#EF9F27' : '#1D9E75',fontWeight:500 }}>{hs} hs</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : cargandoPlanilla ? (
+                <div className="loading">Cargando planilla...</div>
+              ) : (() => {
+                const ef = planillaEf
+                const firma = firmas[ef.legajo]?.firma_url || ''
+                const filas = buildFilasPlanilla(ef)
+                const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+                const total90 = Math.round(totalHoras * 0.9)
+
+                return (
+                  <div>
+                    <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14 }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                        <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>← Volver</button>
+                        <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
+                        <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
+                      </div>
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
+                      {/* Tabla editable */}
+                      <div className="panel">
+                        <div className="panel-header">
+                          <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
+                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
+                        </div>
+                        <div style={{ overflowX:'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th style={{ width:50 }}>Día</th>
+                                <th>Horario</th>
+                                <th style={{ width:80 }}>Horas</th>
+                                <th style={{ width:120 }}>Sector</th>
+                                <th style={{ width:80 }}>Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filas.map(f => {
+                                if (f.entradas.length === 0) return (
+                                  <tr key={f.dia} style={{ opacity:0.4 }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
+                                    <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
+                                  </tr>
+                                )
+                                return f.entradas.map((e, i) => (
+                                  <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
+                                    <td>
+                                      <input type="number" min="0" max="12" defaultValue={e.horas||''}
+                                        style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }}
+                                        onBlur={ev => guardarHoraManual(ef.legajo, f.dia, e.horario, ev.target.value, e.sector)}
+                                      />
+                                    </td>
+                                    <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
+                                    <td style={{ textAlign:'center' }}>
+                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                    </td>
+                                  </tr>
+                                ))
+                              })}
+                              {/* Fila para agregar hora manual */}
+                              <tr style={{ background:'rgba(200,168,75,0.04)' }}>
+                                <td colSpan={5} style={{ padding:'8px 12px' }}>
+                                  <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
+                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
+                                    </select>
+                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
+                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
+                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
+                                    </select>
+                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                                      onClick={() => {
+                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
+                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
+                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
+                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      }}>+ Agregar</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Panel derecho: datos + firma */}
+                      <div>
+                        <div className="panel" style={{ marginBottom:12 }}>
+                          <div className="panel-header"><h3>Datos del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {[['Nombre',ef.nombre],['Legajo',ef.legajo],['DNI',ef.dni||'—'],['Jerarquía',ef.jerarquia||'—'],['Tipo',ef.tipo],['Sector',ef.sector||'—']].map(([k,v])=>(
+                              <div key={k} style={{ display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)',fontSize:12 }}>
+                                <span style={{ color:'var(--text-muted)' }}>{k}</span>
+                                <span style={{ fontWeight:500 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="panel">
+                          <div className="panel-header"><h3>Firma del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {firma
+                              ? <div>
+                                  <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    Cambiar firma
+                                  </button>
+                                </div>
+                              : <div>
+                                  <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
+                                    <span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span>
+                                  </div>
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    + Subir firma
+                                  </button>
+                                </div>
+                            }
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
+                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
+                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
+                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
+
       </div>
     </div>
   )
@@ -166,6 +487,327 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
             </button>
           </div>
         </div>
+
+        {vista === 'planillas' && (() => {
+          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
+          const NOMBRE_MES_SOLO = MESES[MES-1]
+
+          async function guardarHoraManual(legajo, dia, horario, horas, sector) {
+            const key = `${dia}-${horario}`
+            const existe = planillaManual[key]
+            if (horas === '' || horas === 0) {
+              if (existe) {
+                await supabase.from('planilla_manual').delete().eq('id', existe.id)
+                const nuevo = { ...planillaManual }
+                delete nuevo[key]
+                setPlanillaManual(nuevo)
+              }
+              return
+            }
+            if (existe) {
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
+              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+            } else {
+              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+            }
+          }
+
+          async function subirFirmaAdmin(legajo, file) {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+              const base64 = e.target.result
+              const existeFirma = firmas[legajo]
+              if (existeFirma) {
+                await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
+              } else {
+                await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
+              }
+              setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+            }
+            reader.readAsDataURL(file)
+          }
+
+          function buildFilasPlanilla(ef) {
+            const asist = ef.asistencia || []
+            const asistMap = {}
+            asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+            const turnosEf = (turnos[ef.legajo] || []).sort((a,b) => a.dia - b.dia)
+
+            return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+              const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
+              const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
+              const pDia = asistMap[`${dia}-d`]
+              const pNoche = asistMap[`${dia}-n`]
+              const manualDia = planillaManual[`${dia}-08:00 a 20:00`]
+              const manualNoche1 = planillaManual[`${dia}-20:00 a 24:00`]
+              const manualNoche2 = planillaManual[`${dia}-00:00 a 08:00`]
+
+              const entradas = []
+              if (pDia || tDia || manualDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : manualDia ? manualDia.horas : 0, confirmado: !!pDia, manual: !!manualDia })
+              if (pNoche || tNoche) {
+                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche })
+                if (pNoche && dia < DIAS_MES) {
+                  // Will be added to next day
+                }
+              }
+              if (manualNoche1) entradas.push({ horario: '20:00 a 24:00', horas: manualNoche1.horas, confirmado: false, manual: true })
+              if (manualNoche2) entradas.push({ horario: '00:00 a 08:00', horas: manualNoche2.horas, confirmado: false, manual: true })
+
+              return { dia, entradas }
+            })
+          }
+
+          function imprimirPlanillaAdmin(ef) {
+            const firma = firmas[ef.legajo]?.firma_url || ''
+            const filas = buildFilasPlanilla(ef)
+            const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+            const total90 = Math.round(totalHoras * 0.9)
+
+            const flatRows = []
+            filas.forEach(f => {
+              if (f.entradas.length === 0) flatRows.push({ dia: f.dia, horario: '', horas: '', confirmado: false })
+              else f.entradas.forEach(e => flatRows.push({ dia: f.dia, horario: e.horario, horas: e.horas || '', confirmado: e.confirmado }))
+            })
+
+            const win = window.open('', '_blank')
+            const half = Math.ceil(flatRows.length / 2)
+            const col1 = flatRows.slice(0, half)
+            const col2 = flatRows.slice(half)
+
+            win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
+h2{font-size:13px;text-align:center;margin-bottom:3px}h3{font-size:11px;text-align:center;margin-bottom:8px}
+.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}.field label{font-size:8px;color:#555;display:block}.field span{font-size:10px;font-weight:bold}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
+td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}td.dia{font-weight:bold;background:#f5f5f5}td.ok{background:#e8f5e9}
+.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px}.firma-box{text-align:center;display:flex;flex-direction:column;justify-content:flex-end;min-height:80px}
+.firma-img{width:260px;max-height:90px;object-fit:contain;display:block;margin-bottom:4px}
+.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
+@media print{body{padding:8mm}}</style></head><body>
+<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
+<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
+<div class="row2"><div>
+<div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
+<div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
+</div><div>
+<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
+<div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
+</div></div>
+<div class="row4">
+<div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
+<div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
+<div class="field"><label>Jerarquía</label><span>${ef.jerarquia||''}</span></div>
+<div class="field"><label>Categoría</label><span>1°</span></div>
+</div>
+<div class="row4">
+<div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
+<div class="field"><label>N° Documento</label><span>${ef.dni||''}</span></div>
+<div class="field"></div><div class="field"></div>
+</div>
+<table><thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
+<tbody>
+${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
+  const r1 = col1[i] || {}; const r2 = col2[i] || {}
+  return `<tr>
+    <td class="dia">${r1.dia||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horario||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horas||''}</td>
+    <td class="dia">${r2.dia||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horario||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horas||''}</td>
+  </tr>`}).join('')}
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:13px">${totalHoras}</td></tr>
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:13px">${total90}</td></tr>
+</tbody></table>
+<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
+<div class="firmas">
+<div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
+<div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
+<div class="firma-box"><div style="flex:1"></div>
+<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
+</div></body></html>`)
+            win.document.close()
+            setTimeout(() => win.print(), 500)
+          }
+
+          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
+
+          return (
+            <div>
+              {!planillaEf ? (
+                <div>
+                  <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
+                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
+                    {efectivos.map(ef => {
+                      const hs = horasAsig[ef.legajo] || 0
+                      const turnosEf = turnos[ef.legajo] || []
+                      return (
+                        <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
+                          onClick={() => cargarPlanillaEf(ef)}>
+                          <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
+                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias</span>
+                            <span style={{ color: hs >= 150 ? '#EF9F27' : '#1D9E75',fontWeight:500 }}>{hs} hs</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : cargandoPlanilla ? (
+                <div className="loading">Cargando planilla...</div>
+              ) : (() => {
+                const ef = planillaEf
+                const firma = firmas[ef.legajo]?.firma_url || ''
+                const filas = buildFilasPlanilla(ef)
+                const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+                const total90 = Math.round(totalHoras * 0.9)
+
+                return (
+                  <div>
+                    <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14 }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                        <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>← Volver</button>
+                        <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
+                        <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
+                      </div>
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
+                      {/* Tabla editable */}
+                      <div className="panel">
+                        <div className="panel-header">
+                          <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
+                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
+                        </div>
+                        <div style={{ overflowX:'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th style={{ width:50 }}>Día</th>
+                                <th>Horario</th>
+                                <th style={{ width:80 }}>Horas</th>
+                                <th style={{ width:120 }}>Sector</th>
+                                <th style={{ width:80 }}>Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filas.map(f => {
+                                if (f.entradas.length === 0) return (
+                                  <tr key={f.dia} style={{ opacity:0.4 }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
+                                    <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
+                                  </tr>
+                                )
+                                return f.entradas.map((e, i) => (
+                                  <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
+                                    <td>
+                                      <input type="number" min="0" max="12" defaultValue={e.horas||''}
+                                        style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }}
+                                        onBlur={ev => guardarHoraManual(ef.legajo, f.dia, e.horario, ev.target.value, e.sector)}
+                                      />
+                                    </td>
+                                    <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
+                                    <td style={{ textAlign:'center' }}>
+                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                    </td>
+                                  </tr>
+                                ))
+                              })}
+                              {/* Fila para agregar hora manual */}
+                              <tr style={{ background:'rgba(200,168,75,0.04)' }}>
+                                <td colSpan={5} style={{ padding:'8px 12px' }}>
+                                  <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
+                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
+                                    </select>
+                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
+                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
+                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
+                                    </select>
+                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                                      onClick={() => {
+                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
+                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
+                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
+                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      }}>+ Agregar</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Panel derecho: datos + firma */}
+                      <div>
+                        <div className="panel" style={{ marginBottom:12 }}>
+                          <div className="panel-header"><h3>Datos del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {[['Nombre',ef.nombre],['Legajo',ef.legajo],['DNI',ef.dni||'—'],['Jerarquía',ef.jerarquia||'—'],['Tipo',ef.tipo],['Sector',ef.sector||'—']].map(([k,v])=>(
+                              <div key={k} style={{ display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)',fontSize:12 }}>
+                                <span style={{ color:'var(--text-muted)' }}>{k}</span>
+                                <span style={{ fontWeight:500 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="panel">
+                          <div className="panel-header"><h3>Firma del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {firma
+                              ? <div>
+                                  <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    Cambiar firma
+                                  </button>
+                                </div>
+                              : <div>
+                                  <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
+                                    <span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span>
+                                  </div>
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    + Subir firma
+                                  </button>
+                                </div>
+                            }
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
+                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
+                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
+                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
+
       </div>
     </div>
   )
@@ -190,6 +832,10 @@ export default function AdminApp() {
   const [filtroDia, setFiltroDia] = useState(1)
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [configGuardada, setConfigGuardada] = useState(false)
+  const [planillaEf, setPlanillaEf] = useState(null)
+  const [planillaManual, setPlanillaManual] = useState({})
+  const [firmas, setFirmas] = useState({})
+  const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
 
   const [mounted, setMounted] = useState(false)
 
@@ -264,6 +910,22 @@ export default function AdminApp() {
     setGuardandoPersonal(false); await cargarTodo()
   }
   async function handleEliminarPersonal(ef) { await supabase.from('efectivos').delete().eq('id', ef.id); setModalPersonal(null); await cargarTodo() }
+
+  async function cargarPlanillaEf(ef) {
+    setCargandoPlanilla(true)
+    const [{ data: manual }, { data: firmasData }, { data: asist }] = await Promise.all([
+      supabase.from('planilla_manual').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO),
+      supabase.from('firmas').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO),
+      supabase.from('asistencia').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO)
+    ])
+    const manualMap = {}
+    ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}`] = m })
+    setPlanillaManual(manualMap)
+    const firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
+    setFirmas(prev => ({ ...prev, [ef.legajo]: firmaObj }))
+    setPlanillaEf({ ...ef, asistencia: asist || [] })
+    setCargandoPlanilla(false)
+  }
 
   if (!mounted || loading) return <div className="loading">Cargando...</div>
 
@@ -670,6 +1332,327 @@ export default function AdminApp() {
             </div>
           )
         })()}
+
+        {vista === 'planillas' && (() => {
+          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
+          const NOMBRE_MES_SOLO = MESES[MES-1]
+
+          async function guardarHoraManual(legajo, dia, horario, horas, sector) {
+            const key = `${dia}-${horario}`
+            const existe = planillaManual[key]
+            if (horas === '' || horas === 0) {
+              if (existe) {
+                await supabase.from('planilla_manual').delete().eq('id', existe.id)
+                const nuevo = { ...planillaManual }
+                delete nuevo[key]
+                setPlanillaManual(nuevo)
+              }
+              return
+            }
+            if (existe) {
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
+              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+            } else {
+              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+            }
+          }
+
+          async function subirFirmaAdmin(legajo, file) {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+              const base64 = e.target.result
+              const existeFirma = firmas[legajo]
+              if (existeFirma) {
+                await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
+              } else {
+                await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
+              }
+              setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+            }
+            reader.readAsDataURL(file)
+          }
+
+          function buildFilasPlanilla(ef) {
+            const asist = ef.asistencia || []
+            const asistMap = {}
+            asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+            const turnosEf = (turnos[ef.legajo] || []).sort((a,b) => a.dia - b.dia)
+
+            return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+              const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
+              const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
+              const pDia = asistMap[`${dia}-d`]
+              const pNoche = asistMap[`${dia}-n`]
+              const manualDia = planillaManual[`${dia}-08:00 a 20:00`]
+              const manualNoche1 = planillaManual[`${dia}-20:00 a 24:00`]
+              const manualNoche2 = planillaManual[`${dia}-00:00 a 08:00`]
+
+              const entradas = []
+              if (pDia || tDia || manualDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : manualDia ? manualDia.horas : 0, confirmado: !!pDia, manual: !!manualDia })
+              if (pNoche || tNoche) {
+                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche })
+                if (pNoche && dia < DIAS_MES) {
+                  // Will be added to next day
+                }
+              }
+              if (manualNoche1) entradas.push({ horario: '20:00 a 24:00', horas: manualNoche1.horas, confirmado: false, manual: true })
+              if (manualNoche2) entradas.push({ horario: '00:00 a 08:00', horas: manualNoche2.horas, confirmado: false, manual: true })
+
+              return { dia, entradas }
+            })
+          }
+
+          function imprimirPlanillaAdmin(ef) {
+            const firma = firmas[ef.legajo]?.firma_url || ''
+            const filas = buildFilasPlanilla(ef)
+            const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+            const total90 = Math.round(totalHoras * 0.9)
+
+            const flatRows = []
+            filas.forEach(f => {
+              if (f.entradas.length === 0) flatRows.push({ dia: f.dia, horario: '', horas: '', confirmado: false })
+              else f.entradas.forEach(e => flatRows.push({ dia: f.dia, horario: e.horario, horas: e.horas || '', confirmado: e.confirmado }))
+            })
+
+            const win = window.open('', '_blank')
+            const half = Math.ceil(flatRows.length / 2)
+            const col1 = flatRows.slice(0, half)
+            const col2 = flatRows.slice(half)
+
+            win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
+h2{font-size:13px;text-align:center;margin-bottom:3px}h3{font-size:11px;text-align:center;margin-bottom:8px}
+.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}.field label{font-size:8px;color:#555;display:block}.field span{font-size:10px;font-weight:bold}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
+td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}td.dia{font-weight:bold;background:#f5f5f5}td.ok{background:#e8f5e9}
+.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px}.firma-box{text-align:center;display:flex;flex-direction:column;justify-content:flex-end;min-height:80px}
+.firma-img{width:260px;max-height:90px;object-fit:contain;display:block;margin-bottom:4px}
+.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
+@media print{body{padding:8mm}}</style></head><body>
+<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
+<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
+<div class="row2"><div>
+<div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
+<div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
+</div><div>
+<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
+<div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
+</div></div>
+<div class="row4">
+<div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
+<div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
+<div class="field"><label>Jerarquía</label><span>${ef.jerarquia||''}</span></div>
+<div class="field"><label>Categoría</label><span>1°</span></div>
+</div>
+<div class="row4">
+<div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
+<div class="field"><label>N° Documento</label><span>${ef.dni||''}</span></div>
+<div class="field"></div><div class="field"></div>
+</div>
+<table><thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
+<tbody>
+${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
+  const r1 = col1[i] || {}; const r2 = col2[i] || {}
+  return `<tr>
+    <td class="dia">${r1.dia||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horario||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horas||''}</td>
+    <td class="dia">${r2.dia||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horario||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horas||''}</td>
+  </tr>`}).join('')}
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:13px">${totalHoras}</td></tr>
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:13px">${total90}</td></tr>
+</tbody></table>
+<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
+<div class="firmas">
+<div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
+<div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
+<div class="firma-box"><div style="flex:1"></div>
+<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
+</div></body></html>`)
+            win.document.close()
+            setTimeout(() => win.print(), 500)
+          }
+
+          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
+
+          return (
+            <div>
+              {!planillaEf ? (
+                <div>
+                  <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
+                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
+                    {efectivos.map(ef => {
+                      const hs = horasAsig[ef.legajo] || 0
+                      const turnosEf = turnos[ef.legajo] || []
+                      return (
+                        <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
+                          onClick={() => cargarPlanillaEf(ef)}>
+                          <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
+                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias</span>
+                            <span style={{ color: hs >= 150 ? '#EF9F27' : '#1D9E75',fontWeight:500 }}>{hs} hs</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : cargandoPlanilla ? (
+                <div className="loading">Cargando planilla...</div>
+              ) : (() => {
+                const ef = planillaEf
+                const firma = firmas[ef.legajo]?.firma_url || ''
+                const filas = buildFilasPlanilla(ef)
+                const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+                const total90 = Math.round(totalHoras * 0.9)
+
+                return (
+                  <div>
+                    <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14 }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                        <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>← Volver</button>
+                        <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
+                        <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
+                      </div>
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
+                      {/* Tabla editable */}
+                      <div className="panel">
+                        <div className="panel-header">
+                          <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
+                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
+                        </div>
+                        <div style={{ overflowX:'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th style={{ width:50 }}>Día</th>
+                                <th>Horario</th>
+                                <th style={{ width:80 }}>Horas</th>
+                                <th style={{ width:120 }}>Sector</th>
+                                <th style={{ width:80 }}>Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filas.map(f => {
+                                if (f.entradas.length === 0) return (
+                                  <tr key={f.dia} style={{ opacity:0.4 }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
+                                    <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
+                                  </tr>
+                                )
+                                return f.entradas.map((e, i) => (
+                                  <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
+                                    <td>
+                                      <input type="number" min="0" max="12" defaultValue={e.horas||''}
+                                        style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }}
+                                        onBlur={ev => guardarHoraManual(ef.legajo, f.dia, e.horario, ev.target.value, e.sector)}
+                                      />
+                                    </td>
+                                    <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
+                                    <td style={{ textAlign:'center' }}>
+                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                    </td>
+                                  </tr>
+                                ))
+                              })}
+                              {/* Fila para agregar hora manual */}
+                              <tr style={{ background:'rgba(200,168,75,0.04)' }}>
+                                <td colSpan={5} style={{ padding:'8px 12px' }}>
+                                  <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
+                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
+                                    </select>
+                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
+                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
+                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
+                                    </select>
+                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                                      onClick={() => {
+                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
+                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
+                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
+                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      }}>+ Agregar</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Panel derecho: datos + firma */}
+                      <div>
+                        <div className="panel" style={{ marginBottom:12 }}>
+                          <div className="panel-header"><h3>Datos del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {[['Nombre',ef.nombre],['Legajo',ef.legajo],['DNI',ef.dni||'—'],['Jerarquía',ef.jerarquia||'—'],['Tipo',ef.tipo],['Sector',ef.sector||'—']].map(([k,v])=>(
+                              <div key={k} style={{ display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)',fontSize:12 }}>
+                                <span style={{ color:'var(--text-muted)' }}>{k}</span>
+                                <span style={{ fontWeight:500 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="panel">
+                          <div className="panel-header"><h3>Firma del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {firma
+                              ? <div>
+                                  <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    Cambiar firma
+                                  </button>
+                                </div>
+                              : <div>
+                                  <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
+                                    <span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span>
+                                  </div>
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    + Subir firma
+                                  </button>
+                                </div>
+                            }
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
+                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
+                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
+                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
+
       </div>
     </div>
   )
