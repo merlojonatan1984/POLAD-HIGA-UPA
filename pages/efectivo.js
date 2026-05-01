@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
+
 const SECTORES_COLORS = {
   'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27',
   'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30'
