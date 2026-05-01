@@ -98,7 +98,7 @@ export default function ControlApp() {
 
     const filas = buildFilas(ef, asistencia)
 
-    const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0), 0)
+    const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0) + (f.extra ? parseInt(f.extra.horas) || 0 : 0), 0)
     const total90 = Math.round(totalHoras * 0.9)
 
     const win = window.open('', '_blank')
@@ -193,19 +193,58 @@ td.ok{background:#e8f5e9}
   function buildFilas(ef, asistMap) {
     const asistRef = asistMap || asistencia
     const turnosEf = turnos.filter(t => t.legajo === ef.legajo).sort((a,b) => a.dia - b.dia)
-    return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+    // Build base rows
+    const rows = {}
+    Array.from({ length: DIAS_MES }, (_, i) => i + 1).forEach(dia => {
+      rows[dia] = { dia, horario: '', horas: '', confirmado: false, extra: null }
+    })
+    
+    Array.from({ length: DIAS_MES }, (_, i) => i + 1).forEach(dia => {
       const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
       const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-      // Check asistencia regardless of whether turno exists
       const pDia = asistRef[`${ef.legajo}-${dia}-d`]
       const pNoche = asistRef[`${ef.legajo}-${dia}-n`]
-      let horario = '', horas = ''
-      if (pDia) { horario = '08:00 a 20:00'; horas = '12' }
-      else if (pNoche) { horario = '20:00 a 08:00'; horas = '12' }
-      else if (tDia) { horario = '08:00 a 20:00'; horas = '' }
-      else if (tNoche) { horario = '20:00 a 08:00'; horas = '' }
-      return { dia, horario, horas, confirmado: !!(pDia || pNoche), tieneTurno: !!(tDia || tNoche) }
+      
+      if (pDia) {
+        // Turno día: 08:00-20:00 = 12 hs todo en el mismo día
+        rows[dia].horario = '08:00 a 20:00'
+        rows[dia].horas = '12'
+        rows[dia].confirmado = true
+      } else if (tDia) {
+        rows[dia].horario = '08:00 a 20:00'
+        rows[dia].horas = ''
+      }
+      
+      if (pNoche) {
+        // Turno noche: 20:00-24:00 = 4 hs en este día, 00:00-08:00 = 8 hs en el siguiente
+        if (rows[dia].horario) {
+          // Ya tiene turno día, agregar noche como extra
+          rows[dia].extra = { horario: '20:00 a 24:00', horas: '4' }
+        } else {
+          rows[dia].horario = '20:00 a 24:00'
+          rows[dia].horas = '4'
+          rows[dia].confirmado = true
+        }
+        // Agregar 8 hs al día siguiente
+        const diaSig = dia + 1
+        if (diaSig <= DIAS_MES) {
+          if (!rows[diaSig].horario) {
+            rows[diaSig].horario = '00:00 a 08:00'
+            rows[diaSig].horas = '8'
+            rows[diaSig].confirmado = true
+          } else {
+            rows[diaSig].extra = { horario: '00:00 a 08:00', horas: '8' }
+          }
+        }
+      } else if (tNoche && !pNoche) {
+        if (!rows[dia].horario) {
+          rows[dia].horario = '20:00 a 24:00'
+          rows[dia].horas = ''
+        }
+      }
     })
+    
+    return Array.from({ length: DIAS_MES }, (_, i) => rows[i + 1])
   }
 
   return (
@@ -214,7 +253,7 @@ td.ok{background:#e8f5e9}
         const ef = preview
         const firma = firmas[ef.legajo]?.firma_url || ''
         const filas = buildFilas(ef)
-        const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0), 0)
+        const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0) + (f.extra ? parseInt(f.extra.horas) || 0 : 0), 0)
         const total90 = Math.round(totalHoras * 0.9)
         return (
           <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:100,overflowY:'auto',padding:'20px' }}>
@@ -288,7 +327,7 @@ td.ok{background:#e8f5e9}
                     {Array.from({length:16},(_,i)=>{
                       const f1=filas[i]||{}; const f2=filas[i+16]||{}
                       return (
-                        <tr key={i}>
+                        <tr key={`${i}-a`}>
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',fontWeight:'bold',background:'#f5f5f5',fontSize:10 }}>{f1.dia||''}</td>
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f1.confirmado?'#e8f5e9':'',fontSize:10 }}>{f1.horario||''}</td>
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f1.confirmado?'#e8f5e9':'',fontSize:10 }}>{f1.horas||''}</td>
@@ -296,6 +335,12 @@ td.ok{background:#e8f5e9}
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f2.confirmado?'#e8f5e9':'',fontSize:10 }}>{f2.horario||''}</td>
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f2.confirmado?'#e8f5e9':'',fontSize:10 }}>{f2.horas||''}</td>
                         </tr>
+                        {f1.extra && <tr key={`${i}-b`}>
+                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',fontWeight:'bold',background:'#f5f5f5',fontSize:10 }}></td>
+                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:'#e8f5e9',fontSize:10 }}>{f1.extra.horario}</td>
+                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:'#e8f5e9',fontSize:10 }}>{f1.extra.horas}</td>
+                          <td colSpan={3} style={{ border:'1px solid #000' }}></td>
+                        </tr>}
                       )
                     })}
                     <tr>
