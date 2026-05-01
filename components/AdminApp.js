@@ -330,7 +330,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 )
                                 return f.entradas.map((e, i) => (
                                   <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop: i===0 ? '2px solid var(--border2)' : '' }}>{i===0?f.dia:''}</td>
                                     <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
                                     <td>
                                       <input type="number" min="0" max="12" defaultValue={e.horas||''}
@@ -340,9 +340,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     </td>
                                     <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
                                     <td style={{ textAlign:'center' }}>
-                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
-                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
-                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                      <div style={{ display:'flex',gap:4,alignItems:'center',justifyContent:'center' }}>
+                                        {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                          : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                          : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                        {e.manual && <button style={{ background:'none',border:'none',cursor:'pointer',color:'#F09595',fontSize:12,padding:'0 2px' }}
+                                          onClick={() => guardarHoraManual(ef.legajo, f.dia, e.horario, '', '')}>✕</button>}
+                                      </div>
                                     </td>
                                   </tr>
                                 ))
@@ -710,7 +714,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 )
                                 return f.entradas.map((e, i) => (
                                   <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop: i===0 ? '2px solid var(--border2)' : '' }}>{i===0?f.dia:''}</td>
                                     <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
                                     <td>
                                       <input type="number" min="0" max="12" defaultValue={e.horas||''}
@@ -720,9 +724,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     </td>
                                     <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
                                     <td style={{ textAlign:'center' }}>
-                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
-                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
-                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                      <div style={{ display:'flex',gap:4,alignItems:'center',justifyContent:'center' }}>
+                                        {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                          : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                          : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                        {e.manual && <button style={{ background:'none',border:'none',cursor:'pointer',color:'#F09595',fontSize:12,padding:'0 2px' }}
+                                          onClick={() => guardarHoraManual(ef.legajo, f.dia, e.horario, '', '')}>✕</button>}
+                                      </div>
                                     </td>
                                   </tr>
                                 ))
@@ -1555,7 +1563,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 )
                                 return f.entradas.map((e, i) => (
                                   <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop: i===0 ? '2px solid var(--border2)' : '' }}>{i===0?f.dia:''}</td>
                                     <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
                                     <td>
                                       <input type="number" min="0" max="12" defaultValue={e.horas||''}
@@ -1565,9 +1573,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     </td>
                                     <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
                                     <td style={{ textAlign:'center' }}>
-                                      {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
-                                        : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
-                                        : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                      <div style={{ display:'flex',gap:4,alignItems:'center',justifyContent:'center' }}>
+                                        {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                          : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                          : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                        {e.manual && <button style={{ background:'none',border:'none',cursor:'pointer',color:'#F09595',fontSize:12,padding:'0 2px' }}
+                                          onClick={() => guardarHoraManual(ef.legajo, f.dia, e.horario, '', '')}>✕</button>}
+                                      </div>
                                     </td>
                                   </tr>
                                 ))
