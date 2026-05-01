@@ -21,8 +21,10 @@ export default function Efectivo() {
   const [guardado, setGuardado] = useState(false)
   const [vistaActual, setVistaActual] = useState('disponibilidad')
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
@@ -79,7 +81,7 @@ export default function Efectivo() {
     return (new Date(ANIO, MES - 1, 1).getDay() + 6) % 7
   }
 
-  if (loading) return <div className="loading">Cargando...</div>
+  if (!mounted || loading) return <div className="loading">Cargando...</div>
   if (!user) return null
 
   const diasDisp = Object.keys(disponibilidad).length
