@@ -190,7 +190,10 @@ export default function Admin() {
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [configGuardada, setConfigGuardada] = useState(false)
 
+  const [mounted, setMounted] = useState(false)
+
   useEffect(() => {
+    setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
@@ -261,7 +264,7 @@ export default function Admin() {
   }
   async function handleEliminarPersonal(ef) { await supabase.from('efectivos').delete().eq('id', ef.id); setModalPersonal(null); await cargarTodo() }
 
-  if (loading) return <div className="loading">Cargando panel...</div>
+  if (!mounted || loading) return <div className="loading">Cargando...</div>
 
   const todosLosTurnos = Object.values(turnos).flat()
   const hayTurnos = todosLosTurnos.length > 0
