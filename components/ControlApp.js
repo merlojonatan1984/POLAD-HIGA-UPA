@@ -168,7 +168,7 @@ td.ok{background:#e8f5e9}
 </table>
 <div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
 <div class="firmas">
-  <div class="firma-box" style="display:flex;flex-direction:column;justify-content:flex-end;min-height:110px">
+  <div class="firma-box" style="display:flex;flex-direction:column;justify-content:flex-end;min-height:80px">
     ${firma?`<img src="${firma}" class="firma-img" />`:'<div style="height:50px"></div>'}
     <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div>
   </div>
@@ -335,12 +335,7 @@ td.ok{background:#e8f5e9}
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f2.confirmado?'#e8f5e9':'',fontSize:10 }}>{f2.horario||''}</td>
                           <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:f2.confirmado?'#e8f5e9':'',fontSize:10 }}>{f2.horas||''}</td>
                         </tr>
-                        {f1.extra && <tr key={`${i}-b`}>
-                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',fontWeight:'bold',background:'#f5f5f5',fontSize:10 }}></td>
-                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:'#e8f5e9',fontSize:10 }}>{f1.extra.horario}</td>
-                          <td style={{ border:'1px solid #000',padding:'3px 5px',textAlign:'center',background:'#e8f5e9',fontSize:10 }}>{f1.extra.horas}</td>
-                          <td colSpan={3} style={{ border:'1px solid #000' }}></td>
-                        </tr>}
+
                       )
                     })}
                     <tr>
@@ -359,7 +354,7 @@ td.ok{background:#e8f5e9}
                 </div>
 
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:30 }}>
-                  <div style={{ textAlign:'center', display:'flex', flexDirection:'column', justifyContent:'flex-end', minHeight:140 }}>
+                  <div style={{ textAlign:'center', display:'flex', flexDirection:'column', justifyContent:'flex-end', minHeight:100 }}>
                     {firma
                       ? <img src={firma} style={{ width:'100%',maxWidth:'100%',maxHeight:130,objectFit:'contain',display:'block',marginBottom:4 }} alt="firma" />
                       : <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:6 }}>
