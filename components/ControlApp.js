@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-export const dynamic = 'force-dynamic'
-
 
 const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
