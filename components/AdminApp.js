@@ -1,8 +1,6 @@
-// v2.0 - rebuild import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
-
-export const dynamic = 'force-dynamic'
 
 
 const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
