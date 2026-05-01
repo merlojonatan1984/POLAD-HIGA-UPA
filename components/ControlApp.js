@@ -95,18 +95,7 @@ export default function ControlApp() {
     const turnosEf = turnos.filter(t => t.legajo === ef.legajo).sort((a,b) => a.dia - b.dia)
     const firma = firmas[ef.legajo]?.firma_url || ''
 
-    const filas = Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
-      const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
-      const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-      const pDia = tDia ? asistencia[`${ef.legajo}-${dia}-d`] : null
-      const pNoche = tNoche ? asistencia[`${ef.legajo}-${dia}-n`] : null
-      let horario = '', horas = ''
-      if (pDia) { horario = '08:00 a 20:00'; horas = '12' }
-      else if (pNoche) { horario = '20:00 a 08:00'; horas = '12' }
-      else if (tDia) { horario = '08:00 a 20:00'; horas = '' }
-      else if (tNoche) { horario = '20:00 a 08:00'; horas = '' }
-      return { dia, horario, horas, confirmado: !!(pDia || pNoche) }
-    })
+    const filas = buildFilas(ef, asistencia)
 
     const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0), 0)
     const total90 = Math.round(totalHoras * 0.9)
@@ -132,7 +121,7 @@ td.ok{background:#e8f5e9}
 .decl{font-size:9px;margin-bottom:14px;line-height:1.5}
 .firmas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8px}
 .firma-box{text-align:center}
-.firma-img{max-width:200px;max-height:80px;margin-bottom:4px}
+.firma-img{max-width:280px;max-height:120px;margin-bottom:4px}
 .firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
 @media print{body{padding:8mm}}
 </style></head><body>
@@ -200,13 +189,14 @@ td.ok{background:#e8f5e9}
   // Turnos del día actual organizados por sector y turno
   const turnosHoy = turnos.filter(t => t.dia === diaActual)
 
-  function buildFilas(ef) {
+  function buildFilas(ef, asistMap) {
+    const asistRef = asistMap || asistencia
     const turnosEf = turnos.filter(t => t.legajo === ef.legajo).sort((a,b) => a.dia - b.dia)
     return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
       const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
       const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-      const pDia = tDia ? asistencia[`${ef.legajo}-${dia}-d`] : null
-      const pNoche = tNoche ? asistencia[`${ef.legajo}-${dia}-n`] : null
+      const pDia = tDia ? asistRef[`${ef.legajo}-${dia}-d`] : null
+      const pNoche = tNoche ? asistRef[`${ef.legajo}-${dia}-n`] : null
       let horario = '', horas = ''
       if (pDia) { horario = '08:00 a 20:00'; horas = '12' }
       else if (pNoche) { horario = '20:00 a 08:00'; horas = '12' }
@@ -324,7 +314,7 @@ td.ok{background:#e8f5e9}
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:30 }}>
                   <div style={{ textAlign:'center' }}>
                     {firma
-                      ? <img src={firma} style={{ maxWidth:200,maxHeight:80,marginBottom:6 }} alt="firma" />
+                      ? <img src={firma} style={{ maxWidth:280,maxHeight:120,marginBottom:6 }} alt="firma" />
                       : <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:6 }}>
                           <button className="btn btn-sm" style={{ fontSize:11,color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                             onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
