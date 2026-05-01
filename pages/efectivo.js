@@ -9,7 +9,7 @@ const SECTORES_COLORS = {
 const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
 const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = new Date(ANIO, MES - 1, 1).toLocaleString('es-AR', { month: 'long' })
+const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1]
 
 export default function Efectivo() {
   const router = useRouter()
