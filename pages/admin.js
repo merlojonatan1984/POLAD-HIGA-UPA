@@ -475,6 +475,7 @@ export default function Admin() {
               {LABELS[v]}
             </button>
           ))}
+          <button className="btn btn-sm" style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }} onClick={() => router.push('/control')}>Control asistencia</button>
           <button className="btn btn-sm" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
       </div>
