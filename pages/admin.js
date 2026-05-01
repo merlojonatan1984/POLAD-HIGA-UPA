@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+// v2.0 - rebuild import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
