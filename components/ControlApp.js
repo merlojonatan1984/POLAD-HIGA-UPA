@@ -2,54 +2,51 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-
 const MES = new Date().getMonth() + 1
 const ANIO = new Date().getFullYear()
 const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
-const NOMBRE_MES_SOLO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1]
-const LUGARES = ['HIGA', 'UPA', 'MODULAR']
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const NOMBRE_MES = MESES[MES-1] + ' ' + ANIO
+const NOMBRE_MES_SOLO = MESES[MES-1]
+const SECTORES = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','UPA']
+const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','UPA':'#D85A30' }
+const LUGARES = ['HIGA','UPA','MODULAR']
 
 export default function ControlApp() {
   const router = useRouter()
-  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [lugar, setLugar] = useState('HIGA')
+  const [diaActual, setDiaActual] = useState(new Date().getDate())
   const [efectivos, setEfectivos] = useState([])
   const [turnos, setTurnos] = useState([])
   const [asistencia, setAsistencia] = useState({})
   const [firmas, setFirmas] = useState({})
-  const [loading, setLoading] = useState(true)
-  const [mounted, setMounted] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
   const [subiendoFirma, setSubiendoFirma] = useState(null)
   const [msg, setMsg] = useState(null)
   const firmaRef = useRef()
+  const [legajoFirma, setLegajoFirma] = useState(null)
 
   useEffect(() => {
-    setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
     if (!parsed.es_admin) { router.push('/efectivo'); return }
-    setUser(parsed)
     cargarDatos('HIGA')
   }, [])
 
   async function cargarDatos(lg) {
     setLoading(true)
     const [{ data: efs }, { data: turns }, { data: asist }, { data: firmasData }] = await Promise.all([
-      supabase.from('efectivos').select('*').eq('es_admin', false).ilike('lugar', `%${lg}%`).order('nombre'),
+      supabase.from('efectivos').select('*').eq('es_admin', false).order('nombre'),
       supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO),
-      supabase.from('asistencia').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', lg),
+      supabase.from('asistencia').select('*').eq('mes', MES).eq('anio', ANIO),
       supabase.from('firmas').select('*').eq('mes', MES).eq('anio', ANIO)
     ])
     setEfectivos(efs || [])
     setTurnos(turns || [])
     const asistMap = {}
-    ;(asist || []).forEach(a => {
-      const key = `${a.legajo}-${a.dia}-${a.turno}`
-      asistMap[key] = a
-    })
+    ;(asist || []).forEach(a => { asistMap[`${a.legajo}-${a.dia}-${a.turno}`] = a })
     setAsistencia(asistMap)
     const firmasMap = {}
     ;(firmasData || []).forEach(f => { firmasMap[f.legajo] = f })
@@ -57,7 +54,7 @@ export default function ControlApp() {
     setLoading(false)
   }
 
-  async function confirmarPresencia(legajo, dia, turno, sector) {
+  async function togglePresente(legajo, dia, turno, sector) {
     const key = `${legajo}-${dia}-${turno}`
     const existe = asistencia[key]
     if (existe) {
@@ -94,283 +91,246 @@ export default function ControlApp() {
   }
 
   function imprimirPlanilla(ef) {
-    const turnosEf = turnos.filter(t => t.legajo === ef.legajo).sort((a, b) => a.dia - b.dia)
+    const turnosEf = turnos.filter(t => t.legajo === ef.legajo).sort((a,b) => a.dia - b.dia)
     const firma = firmas[ef.legajo]?.firma_url || ''
-    const win = window.open('', '_blank')
-    
+
     const filas = Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
       const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
       const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
       const pDia = tDia ? asistencia[`${ef.legajo}-${dia}-d`] : null
       const pNoche = tNoche ? asistencia[`${ef.legajo}-${dia}-n`] : null
-      
-      let horario = ''
-      let horas = ''
-      if (tDia && pDia) { horario = '08:00 a 20:00'; horas = '12' }
-      else if (tNoche && pNoche) { horario = '20:00 a 08:00'; horas = '12' }
-      else if (tDia || tNoche) { horario = tDia ? '08:00 a 20:00' : '20:00 a 08:00'; horas = '' }
-      
+      let horario = '', horas = ''
+      if (pDia) { horario = '08:00 a 20:00'; horas = '12' }
+      else if (pNoche) { horario = '20:00 a 08:00'; horas = '12' }
+      else if (tDia) { horario = '08:00 a 20:00'; horas = '' }
+      else if (tNoche) { horario = '20:00 a 08:00'; horas = '' }
       return { dia, horario, horas, confirmado: !!(pDia || pNoche) }
     })
 
     const totalHoras = filas.reduce((sum, f) => sum + (parseInt(f.horas) || 0), 0)
     const total90 = Math.round(totalHoras * 0.9)
 
+    const win = window.open('', '_blank')
     win.document.write(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Planilla ${ef.nombre}</title>
+<html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 10px; padding: 15mm; color: #000; }
-  h2 { font-size: 13px; text-align: center; margin-bottom: 4px; }
-  h3 { font-size: 11px; text-align: center; margin-bottom: 10px; }
-  .header-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
-  .field { border-bottom: 1px solid #000; padding: 2px 0; margin-bottom: 4px; }
-  .field label { font-size: 8px; color: #555; display: block; }
-  .field span { font-size: 10px; font-weight: bold; }
-  .field-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 6px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  th { background: #333; color: #fff; padding: 4px; font-size: 9px; text-align: center; border: 1px solid #000; }
-  td { border: 1px solid #000; padding: 3px 5px; font-size: 9px; text-align: center; height: 18px; }
-  td.dia { font-weight: bold; background: #f5f5f5; }
-  td.confirmado { background: #e8f5e9; }
-  .totales { text-align: right; margin-bottom: 10px; }
-  .totales span { font-weight: bold; font-size: 11px; }
-  .declaracion { font-size: 9px; margin-bottom: 16px; line-height: 1.5; }
-  .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; }
-  .firma-box { text-align: center; }
-  .firma-img { max-width: 120px; max-height: 50px; margin-bottom: 4px; }
-  .firma-line { border-top: 1px solid #000; padding-top: 3px; font-size: 9px; }
-  @media print { body { padding: 10mm; } }
-</style>
-</head>
-<body>
-  <h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
-  <h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
-  
-  <div class="header-grid">
-    <div>
-      <div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
-      <div class="field"><label>Destino / Domicilio del servicio</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
-    </div>
-    <div>
-      <div class="field"><label>Sucursal</label><span>${lugar}</span></div>
-      <div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
-    </div>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
+h2{font-size:13px;text-align:center;margin-bottom:3px}
+h3{font-size:11px;text-align:center;margin-bottom:8px}
+.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}
+.field label{font-size:8px;color:#555;display:block}
+.field span{font-size:10px;font-weight:bold}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:8px}
+th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
+td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}
+td.dia{font-weight:bold;background:#f5f5f5}
+td.ok{background:#e8f5e9}
+.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8px}
+.firma-box{text-align:center}
+.firma-img{max-width:120px;max-height:50px;margin-bottom:4px}
+.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
+@media print{body{padding:8mm}}
+</style></head><body>
+<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
+<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
+<div class="row2">
+  <div>
+    <div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
+    <div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
   </div>
-
-  <div class="field-row">
-    <div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
-    <div class="field"><label>Categoría</label><span>1°</span></div>
-    <div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
-    <div class="field"><label>Jerarquía</label><span>${ef.jerarquia || ''}</span></div>
+  <div>
+    <div class="field"><label>Sucursal</label><span>${lugar}</span></div>
+    <div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
   </div>
-  <div class="field-row">
-    <div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
-    <div class="field"><label>N° Documento</label><span>${ef.dni || ''}</span></div>
-    <div class="field"></div>
-    <div class="field"></div>
+</div>
+<div class="row4">
+  <div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
+  <div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
+  <div class="field"><label>Jerarquía</label><span>${ef.jerarquia || ''}</span></div>
+  <div class="field"><label>Categoría</label><span>1°</span></div>
+</div>
+<div class="row4">
+  <div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
+  <div class="field"><label>N° Documento</label><span>${ef.dni || ''}</span></div>
+  <div class="field"></div><div class="field"></div>
+</div>
+<table>
+  <thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
+  <tbody>
+    ${Array.from({length:16},(_,i)=>{
+      const f1=filas[i]||{}; const f2=filas[i+16]||{}
+      return `<tr>
+        <td class="dia">${f1.dia||''}</td>
+        <td class="${f1.confirmado?'ok':''}">${f1.horario||''}</td>
+        <td class="${f1.confirmado?'ok':''}">${f1.horas||''}</td>
+        <td class="dia">${f2.dia||''}</td>
+        <td class="${f2.confirmado?'ok':''}">${f2.horario||''}</td>
+        <td class="${f2.confirmado?'ok':''}">${f2.horas||''}</td>
+      </tr>`}).join('')}
+    <tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:12px">${totalHoras}</td></tr>
+    <tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:12px">${total90}</td></tr>
+  </tbody>
+</table>
+<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
+<div class="firmas">
+  <div class="firma-box">
+    ${firma?`<img src="${firma}" class="firma-img" />`:'<div style="height:50px"></div>'}
+    <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div>
   </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>DÍA</th><th>HORARIO</th><th>HORAS</th>
-        <th>DÍA</th><th>HORARIO</th><th>HORAS</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${Array.from({ length: 16 }, (_, i) => {
-        const f1 = filas[i] || {}
-        const f2 = filas[i + 16] || {}
-        return `<tr>
-          <td class="dia">${f1.dia || ''}</td>
-          <td class="${f1.confirmado ? 'confirmado' : ''}">${f1.horario || ''}</td>
-          <td class="${f1.confirmado ? 'confirmado' : ''}">${f1.horas || ''}</td>
-          <td class="dia">${f2.dia || ''}</td>
-          <td class="${f2.confirmado ? 'confirmado' : ''}">${f2.horario || ''}</td>
-          <td class="${f2.confirmado ? 'confirmado' : ''}">${f2.horas || ''}</td>
-        </tr>`
-      }).join('')}
-      <tr>
-        <td colspan="3" style="text-align:right;font-weight:bold;font-size:9px;">TOTAL DE HORAS CUMPLIDAS EN EL MES</td>
-        <td colspan="3" style="font-weight:bold;font-size:11px;">${totalHoras}</td>
-      </tr>
-      <tr>
-        <td colspan="3" style="text-align:right;font-weight:bold;font-size:9px;">TOTAL 90%</td>
-        <td colspan="3" style="font-weight:bold;font-size:11px;">${total90}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="declaracion">
-    Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.
+  <div class="firma-box">
+    <div style="height:50px"></div>
+    <div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div>
   </div>
-
-  <div class="firmas">
-    <div class="firma-box">
-      ${firma ? `<img src="${firma}" class="firma-img" />` : '<div style="height:50px"></div>'}
-      <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div>
-    </div>
-    <div class="firma-box">
-      <div style="height:50px"></div>
-      <div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div>
-    </div>
-  </div>
-</body>
-</html>`)
+</div>
+</body></html>`)
     win.document.close()
     setTimeout(() => win.print(), 500)
   }
 
-  if (!mounted || loading) return <div className="loading">Cargando...</div>
+  if (loading) return <div className="loading">Cargando...</div>
+
+  const nombreEf = leg => { const e = efectivos.find(x => x.legajo === leg); return e ? e.nombre : leg }
+  const datosEf = leg => efectivos.find(x => x.legajo === leg)
+
+  // Turnos del día actual organizados por sector y turno
+  const turnosHoy = turnos.filter(t => t.dia === diaActual)
 
   return (
     <div>
       <div className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 15, fontWeight: 500 }}>Control de Asistencia</span>
-          <span style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>{NOMBRE_MES}</span>
+        <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+          <span style={{ fontSize:15,fontWeight:500 }}>Control de Asistencia</span>
+          <span style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',fontSize:11,padding:'2px 8px',borderRadius:3,fontWeight:500 }}>{NOMBRE_MES}</span>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display:'flex',gap:6,alignItems:'center' }}>
           {LUGARES.map(lg => (
             <button key={lg} className="btn btn-sm"
-              style={{ fontWeight: lugar === lg ? 600 : 400, background: lugar === lg ? 'rgba(200,168,75,0.15)' : 'transparent', color: lugar === lg ? '#c8a84b' : '#8b90a0', border: lugar === lg ? '0.5px solid rgba(200,168,75,0.6)' : '0.5px solid rgba(255,255,255,0.1)' }}
+              style={{ fontWeight:lugar===lg?600:400,background:lugar===lg?'rgba(200,168,75,0.15)':'transparent',color:lugar===lg?'#c8a84b':'#8b90a0',border:lugar===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
               onClick={() => { setLugar(lg); cargarDatos(lg) }}>{lg}</button>
           ))}
-          <button className="btn btn-sm" onClick={() => router.push('/admin')} style={{ color: '#8b90a0' }}>← Admin</button>
+          <button className="btn btn-sm" onClick={() => router.push('/admin')} style={{ color:'#8b90a0' }}>← Admin</button>
         </div>
       </div>
 
-      <div style={{ padding: 18 }}>
-        {msg && <div className="alert alert-ok" style={{ marginBottom: 12 }}>{msg}</div>}
+      <div style={{ padding:16 }}>
+        {msg && <div className="alert alert-ok" style={{ marginBottom:12 }}>{msg}</div>}
 
-        {planillaEf && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 50, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 20, overflowY: 'auto' }}>
-            <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(200,168,75,0.2)', width: '100%', maxWidth: 700, overflow: 'hidden' }}>
-              <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(200,168,75,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(200,168,75,0.06)' }}>
-                <h3 style={{ fontSize: 14, fontWeight: 500, color: '#c8a84b' }}>Planilla — {planillaEf.nombre}</h3>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-sm" style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }} onClick={() => imprimirPlanilla(planillaEf)}>🖨 Imprimir</button>
-                  <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>Cerrar</button>
-                </div>
-              </div>
-              <div style={{ padding: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 14, fontSize: 12 }}>
-                  {[['Legajo', planillaEf.legajo], ['DNI', planillaEf.dni], ['Jerarquía', planillaEf.jerarquia], ['Lugar', lugar]].map(([k, v]) => (
-                    <div key={k} style={{ background: 'var(--surface2)', borderRadius: 6, padding: '8px 10px' }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>{k}</div>
-                      <div style={{ fontWeight: 500, color: 'var(--text)' }}>{v || '—'}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>Firma del efectivo</div>
-                  {firmas[planillaEf.legajo]?.firma_url
-                    ? <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <img src={firmas[planillaEf.legajo].firma_url} style={{ maxHeight: 60, maxWidth: 180, background: '#fff', borderRadius: 6, padding: 4 }} alt="firma" />
-                        <button className="btn btn-sm" onClick={() => firmaRef.current.click()} style={{ fontSize: 11 }}>Cambiar firma</button>
-                      </div>
-                    : <button className="btn btn-sm" style={{ background: 'rgba(200,168,75,0.1)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.3)' }} onClick={() => firmaRef.current.click()}>
-                        📎 Subir firma escaneada
-                      </button>
-                  }
-                  <input ref={firmaRef} type="file" accept="image/*" style={{ display: 'none' }}
-                    onChange={e => { if (e.target.files[0]) subirFirma(planillaEf.legajo, e.target.files[0]) }} />
-                  {subiendoFirma === planillaEf.legajo && <span style={{ fontSize: 11, color: '#c8a84b', marginLeft: 8 }}>Subiendo...</span>}
-                </div>
-
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ padding: '6px 8px', background: 'var(--surface2)', borderBottom: '0.5px solid var(--border)', textAlign: 'center', width: 40 }}>Día</th>
-                      <th style={{ padding: '6px 8px', background: 'var(--surface2)', borderBottom: '0.5px solid var(--border)' }}>Horario</th>
-                      <th style={{ padding: '6px 8px', background: 'var(--surface2)', borderBottom: '0.5px solid var(--border)', textAlign: 'center' }}>Horas</th>
-                      <th style={{ padding: '6px 8px', background: 'var(--surface2)', borderBottom: '0.5px solid var(--border)', textAlign: 'center' }}>Presente</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
-                      const turnosEfDia = turnos.filter(t => t.legajo === planillaEf.legajo && t.dia === dia)
-                      if (!turnosEfDia.length) return (
-                        <tr key={dia} style={{ borderBottom: '0.5px solid var(--border)' }}>
-                          <td style={{ textAlign: 'center', padding: '5px', fontWeight: 500, color: 'var(--text-muted)' }}>{dia}</td>
-                          <td colSpan={3} style={{ padding: '5px 8px', color: 'var(--text-hint)', fontSize: 10 }}>Sin guardia</td>
-                        </tr>
-                      )
-                      return turnosEfDia.map(t => {
-                        const key = `${planillaEf.legajo}-${dia}-${t.turno}`
-                        const presente = !!asistencia[key]
-                        return (
-                          <tr key={`${dia}-${t.turno}`} style={{ borderBottom: '0.5px solid var(--border)', background: presente ? 'rgba(29,158,117,0.08)' : '' }}>
-                            <td style={{ textAlign: 'center', padding: '5px', fontWeight: 500 }}>{dia}</td>
-                            <td style={{ padding: '5px 8px', color: t.turno === 'd' ? '#EF9F27' : '#85B7EB' }}>
-                              {t.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'} — {t.sector}
-                            </td>
-                            <td style={{ textAlign: 'center', padding: '5px', fontWeight: 500, color: presente ? '#1D9E75' : 'var(--text-hint)' }}>
-                              {presente ? '12' : '—'}
-                            </td>
-                            <td style={{ textAlign: 'center', padding: '5px' }}>
-                              <button onClick={() => confirmarPresencia(planillaEf.legajo, dia, t.turno, t.sector)}
-                                style={{ padding: '3px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 500, background: presente ? '#1D9E75' : 'rgba(255,255,255,0.08)', color: presente ? '#fff' : '#8b90a0' }}>
-                                {presente ? '✓ Presente' : 'Confirmar'}
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })
-                    })}
-                  </tbody>
-                </table>
-
-                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', padding: '10px 8px', background: 'var(--surface2)', borderRadius: 8 }}>
-                  {(() => {
-                    const total = Object.keys(asistencia).filter(k => k.startsWith(planillaEf.legajo + '-')).length * 12
-                    return <>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Total horas confirmadas:</span>
-                      <span style={{ fontSize: 14, fontWeight: 500, color: '#1D9E75' }}>{total} hs — 90%: {Math.round(total * 0.9)} hs</span>
-                    </>
-                  })()}
-                </div>
-              </div>
-            </div>
+        {/* Selector de día */}
+        <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap' }}>
+          <span style={{ fontSize:12,color:'var(--text-muted)' }}>Día:</span>
+          <div style={{ display:'flex',gap:3,flexWrap:'wrap' }}>
+            {Array.from({ length: DIAS_MES }, (_, i) => i+1).map(d => (
+              <button key={d} className="btn btn-sm"
+                style={{ minWidth:30,padding:'4px 6px',fontSize:11,
+                  background:d===diaActual?'rgba(200,168,75,0.15)':'transparent',
+                  color:d===diaActual?'#c8a84b':'var(--text-muted)',
+                  border:d===diaActual?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
+                onClick={() => setDiaActual(d)}>{d}</button>
+            ))}
           </div>
-        )}
+        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-          {efectivos.map(ef => {
-            const turnosEf = turnos.filter(t => t.legajo === ef.legajo)
-            const confirmados = turnosEf.filter(t => asistencia[`${ef.legajo}-${t.dia}-${t.turno}`]).length
-            const total = turnosEf.length
-            const pct = total ? Math.round(confirmados / total * 100) : 0
-            const tieneFirma = !!firmas[ef.legajo]?.firma_url
-            const color = pct >= 100 ? '#1D9E75' : pct >= 50 ? '#EF9F27' : '#8b90a0'
+        <h3 style={{ fontSize:14,fontWeight:500,marginBottom:14,color:'var(--text)' }}>
+          Día {diaActual} — {NOMBRE_MES} — Puestos a cubrir
+        </h3>
+
+        {/* Vista por sector/puesto */}
+        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20 }}>
+          {SECTORES.map(sector => {
+            const tDia = turnosHoy.filter(t => t.turno==='d' && t.sector===sector)
+            const tNoche = turnosHoy.filter(t => t.turno==='n' && t.sector===sector)
+            if (!tDia.length && !tNoche.length) return null
 
             return (
-              <div key={ef.legajo} style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer' }}
-                onClick={() => setPlanillaEf(ef)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>{ef.nombre}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Leg. {ef.legajo} · {ef.jerarquia}</div>
-                  </div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color }}>{confirmados}/{total}</span>
+              <div key={sector} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,overflow:'hidden' }}>
+                <div style={{ padding:'8px 12px',background:'var(--surface2)',borderBottom:'0.5px solid var(--border)',display:'flex',alignItems:'center',gap:6 }}>
+                  <span className="dot" style={{ background:SEC_COLORS[sector] }}></span>
+                  <span style={{ fontSize:12,fontWeight:500 }}>{sector}</span>
                 </div>
-                <div className="hbar" style={{ width: '100%', marginBottom: 8 }}>
-                  <div className="hfill" style={{ width: `${pct}%`, background: color }}></div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, color: tieneFirma ? '#1D9E75' : '#555b6e' }}>
-                    {tieneFirma ? '✓ Firma cargada' : 'Sin firma'}
-                  </span>
-                  <span style={{ fontSize: 10, color: 'var(--text-hint)' }}>{confirmados * 12} hs confirmadas</span>
+                <div style={{ padding:10 }}>
+                  {[['d','TURNO DÍA 08-20','#EF9F27',tDia],['n','TURNO NOCHE 20-08','#85B7EB',tNoche]].map(([turno,label,color,lista]) => (
+                    lista.length > 0 && (
+                      <div key={turno} style={{ marginBottom:turno==='d'&&tNoche.length>0?10:0,paddingBottom:turno==='d'&&tNoche.length>0?10:0,borderBottom:turno==='d'&&tNoche.length>0?'0.5px solid var(--border)':'' }}>
+                        <div style={{ fontSize:10,color,fontWeight:500,marginBottom:6 }}>{label}</div>
+                        {lista.map(t => {
+                          const key = `${t.legajo}-${diaActual}-${turno}`
+                          const presente = !!asistencia[key]
+                          const ef = datosEf(t.legajo)
+                          return (
+                            <div key={t.legajo} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 8px',background:presente?'rgba(29,158,117,0.1)':'var(--surface2)',borderRadius:7,marginBottom:4,border:`0.5px solid ${presente?'rgba(29,158,117,0.4)':'var(--border)'}` }}>
+                              <div>
+                                <div style={{ fontSize:12,fontWeight:500,color:'var(--text)' }}>{nombreEf(t.legajo)}</div>
+                                <div style={{ fontSize:10,color:'var(--text-muted)' }}>Leg. {t.legajo} {ef?.jerarquia ? '· '+ef.jerarquia : ''}</div>
+                              </div>
+                              <div style={{ display:'flex',gap:6,alignItems:'center' }}>
+                                {presente && (
+                                  <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                                    onClick={() => { setLegajoFirma(t.legajo); firmaRef.current.click() }}>
+                                    {firmas[t.legajo] ? '✓ Firma' : '+ Firma'}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => togglePresente(t.legajo, diaActual, turno, sector)}
+                                  style={{ padding:'5px 12px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:500,background:presente?'#1D9E75':'rgba(255,255,255,0.08)',color:presente?'#fff':'#8b90a0',minWidth:90 }}>
+                                  {presente ? '✓ Presente' : 'Marcar presente'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  ))}
                 </div>
               </div>
             )
           })}
+        </div>
+
+        {turnosHoy.length === 0 && (
+          <div className="alert alert-warn">No hay guardias asignadas para el día {diaActual}. Generá el cronograma desde el panel admin.</div>
+        )}
+
+        {/* Input de firma oculto */}
+        <input ref={firmaRef} type="file" accept="image/*" style={{ display:'none' }}
+          onChange={e => { if (e.target.files[0] && legajoFirma) subirFirma(legajoFirma, e.target.files[0]) }} />
+
+        {/* Planillas individuales */}
+        <div style={{ borderTop:'0.5px solid var(--border)',paddingTop:16,marginTop:4 }}>
+          <h3 style={{ fontSize:13,fontWeight:500,marginBottom:12,color:'var(--text)' }}>Planillas individuales — imprimir</h3>
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:8 }}>
+            {efectivos.map(ef => {
+              const turnosEf = turnos.filter(t => t.legajo === ef.legajo)
+              if (!turnosEf.length) return null
+              const confirmados = turnosEf.filter(t => asistencia[`${ef.legajo}-${t.dia}-${t.turno}`]).length
+              const tieneFirma = !!firmas[ef.legajo]?.firma_url
+              const pct = turnosEf.length ? Math.round(confirmados/turnosEf.length*100) : 0
+              const color = pct>=100?'#1D9E75':pct>=50?'#EF9F27':'#8b90a0'
+              return (
+                <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:8,padding:'10px 12px' }}>
+                  <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
+                  <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {confirmados*12} hs confirmadas</div>
+                  <div className="hbar" style={{ width:'100%',marginBottom:8 }}>
+                    <div className="hfill" style={{ width:`${pct}%`,background:color }}></div>
+                  </div>
+                  <div style={{ display:'flex',gap:6 }}>
+                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:10,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                      onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
+                      {tieneFirma ? '✓ Firma' : '+ Firma'}
+                    </button>
+                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:10 }}
+                      onClick={() => imprimirPlanilla(ef)}>
+                      🖨 Imprimir
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
