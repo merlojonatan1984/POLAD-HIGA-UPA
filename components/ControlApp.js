@@ -27,6 +27,7 @@ export default function ControlApp() {
   const firmaRef = useRef()
   const [legajoFirma, setLegajoFirma] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [previewKey, setPreviewKey] = useState(0)
 
   useEffect(() => {
     const u = localStorage.getItem('polad_user')
@@ -121,7 +122,7 @@ td.ok{background:#e8f5e9}
 .decl{font-size:9px;margin-bottom:14px;line-height:1.5}
 .firmas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8px}
 .firma-box{text-align:center}
-.firma-img{max-width:280px;max-height:120px;margin-bottom:4px}
+.firma-img{width:100%;max-width:400px;max-height:180px;margin-bottom:4px;object-fit:contain}
 .firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
 @media print{body{padding:8mm}}
 </style></head><body>
@@ -195,20 +196,21 @@ td.ok{background:#e8f5e9}
     return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
       const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
       const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-      const pDia = tDia ? asistRef[`${ef.legajo}-${dia}-d`] : null
-      const pNoche = tNoche ? asistRef[`${ef.legajo}-${dia}-n`] : null
+      // Check asistencia regardless of whether turno exists
+      const pDia = asistRef[`${ef.legajo}-${dia}-d`]
+      const pNoche = asistRef[`${ef.legajo}-${dia}-n`]
       let horario = '', horas = ''
       if (pDia) { horario = '08:00 a 20:00'; horas = '12' }
       else if (pNoche) { horario = '20:00 a 08:00'; horas = '12' }
       else if (tDia) { horario = '08:00 a 20:00'; horas = '' }
       else if (tNoche) { horario = '20:00 a 08:00'; horas = '' }
-      return { dia, horario, horas, confirmado: !!(pDia || pNoche) }
+      return { dia, horario, horas, confirmado: !!(pDia || pNoche), tieneTurno: !!(tDia || tNoche) }
     })
   }
 
   return (
     <div>
-      {preview && (() => {
+      {preview && (() => { const _k = previewKey;
         const ef = preview
         const firma = firmas[ef.legajo]?.firma_url || ''
         const filas = buildFilas(ef)
@@ -314,7 +316,7 @@ td.ok{background:#e8f5e9}
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:30 }}>
                   <div style={{ textAlign:'center' }}>
                     {firma
-                      ? <img src={firma} style={{ maxWidth:280,maxHeight:120,marginBottom:6 }} alt="firma" />
+                      ? <img src={firma} style={{ width:'100%',maxWidth:400,maxHeight:180,marginBottom:6,objectFit:'contain' }} alt="firma" />
                       : <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:6 }}>
                           <button className="btn btn-sm" style={{ fontSize:11,color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                             onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
@@ -463,7 +465,7 @@ td.ok{background:#e8f5e9}
                       {tieneFirma ? '✓ Firma' : '+ Firma'}
                     </button>
                     <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:10,background:'rgba(55,138,221,0.15)',color:'#378ADD',border:'0.5px solid rgba(55,138,221,0.4)' }}
-                      onClick={() => setPreview(ef)}>
+                      onClick={() => { setPreview(ef); setPreviewKey(k => k+1) }}>
                       👁 Previsualizar
                     </button>
                   </div>
