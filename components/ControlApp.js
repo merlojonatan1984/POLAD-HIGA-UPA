@@ -122,7 +122,7 @@ td.ok{background:#e8f5e9}
 .decl{font-size:9px;margin-bottom:14px;line-height:1.5}
 .firmas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8px}
 .firma-box{text-align:center}
-.firma-img{width:100%;max-width:400px;max-height:180px;margin-bottom:4px;object-fit:contain}
+.firma-img{width:260px;max-height:100px;margin-bottom:4px;object-fit:contain;display:block;margin:0 auto 4px}
 .firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
 @media print{body{padding:8mm}}
 </style></head><body>
@@ -158,7 +158,7 @@ td.ok{background:#e8f5e9}
         <td class="dia">${f1.dia||''}</td>
         <td class="${f1.confirmado?'ok':''}">${f1.horario||''}</td>
         <td class="${f1.confirmado?'ok':''}">${f1.horas||''}</td>
-        <td class="dia">${f2.dia||''}</td>
+        <td class="dia" style="opacity:1;color:#000">${f2.dia||''}</td>
         <td class="${f2.confirmado?'ok':''}">${f2.horario||''}</td>
         <td class="${f2.confirmado?'ok':''}">${f2.horas||''}</td>
       </tr>`}).join('')}
@@ -361,7 +361,7 @@ td.ok{background:#e8f5e9}
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:30 }}>
                   <div style={{ textAlign:'center' }}>
                     {firma
-                      ? <img src={firma} style={{ width:'100%',maxWidth:400,maxHeight:180,marginBottom:6,objectFit:'contain' }} alt="firma" />
+                      ? <img src={firma} style={{ width:'100%',maxWidth:'100%',maxHeight:150,marginBottom:8,objectFit:'contain',display:'block',margin:'0 auto 8px' }} alt="firma" />
                       : <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:6 }}>
                           <button className="btn btn-sm" style={{ fontSize:11,color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                             onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
@@ -439,12 +439,12 @@ td.ok{background:#e8f5e9}
                   <span style={{ fontSize:12,fontWeight:500 }}>{sector}</span>
                 </div>
                 <div style={{ padding:10 }}>
-                  {[['d','TURNO DÍA 08-20','#EF9F27',tDia],['n','TURNO NOCHE 20-08','#85B7EB',tNoche]].map(([turno,label,color,lista]) => (
+                  {[['d','TURNO DÍA 08-20','#EF9F27',tDia],['n','TURNO NOCHE 20-08','#85B7EB',tNoche]].map(([tKey,label,color,lista]) => (
                     lista.length > 0 && (
-                      <div key={turno} style={{ marginBottom:turno==='d'&&tNoche.length>0?10:0,paddingBottom:turno==='d'&&tNoche.length>0?10:0,borderBottom:turno==='d'&&tNoche.length>0?'0.5px solid var(--border)':'' }}>
+                      <div key={tKey} style={{ marginBottom:tKey==='d'&&tNoche.length>0?10:0,paddingBottom:tKey==='d'&&tNoche.length>0?10:0,borderBottom:tKey==='d'&&tNoche.length>0?'0.5px solid var(--border)':{} }}>
                         <div style={{ fontSize:10,color,fontWeight:500,marginBottom:6 }}>{label}</div>
                         {lista.map(t => {
-                          const key = `${t.legajo}-${diaActual}-${turno}`
+                          const key = `${t.legajo}-${diaActual}-${tKey}`
                           const presente = !!asistencia[key]
                           const ef = datosEf(t.legajo)
                           return (
@@ -456,12 +456,12 @@ td.ok{background:#e8f5e9}
                               <div style={{ display:'flex',gap:6,alignItems:'center' }}>
                                 {presente && (
                                   <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
-                                    onClick={() => { setLegajoFirma(t.legajo); firmaRef.current.click() }}>
+                                    onClick={ev => { ev.stopPropagation(); setLegajoFirma(t.legajo); firmaRef.current.click() }}>
                                     {firmas[t.legajo] ? '✓ Firma' : '+ Firma'}
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => togglePresente(t.legajo, diaActual, turno, sector)}
+                                  onClick={() => togglePresente(t.legajo, diaActual, tKey, sector)}
                                   style={{ padding:'5px 12px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:500,background:presente?'#1D9E75':'rgba(255,255,255,0.08)',color:presente?'#fff':'#8b90a0',minWidth:90 }}>
                                   {presente ? '✓ Presente' : 'Marcar presente'}
                                 </button>
