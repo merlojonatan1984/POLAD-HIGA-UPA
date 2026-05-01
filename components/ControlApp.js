@@ -122,7 +122,7 @@ td.ok{background:#e8f5e9}
 .decl{font-size:9px;margin-bottom:14px;line-height:1.5}
 .firmas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:8px}
 .firma-box{text-align:center}
-.firma-img{width:260px;max-height:100px;margin-bottom:4px;object-fit:contain;display:block;margin:0 auto 4px}
+.firma-img{width:260px;max-height:100px;object-fit:contain;display:block;margin-bottom:4px}
 .firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
 @media print{body{padding:8mm}}
 </style></head><body>
@@ -168,7 +168,7 @@ td.ok{background:#e8f5e9}
 </table>
 <div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
 <div class="firmas">
-  <div class="firma-box">
+  <div class="firma-box" style="display:flex;flex-direction:column;justify-content:flex-end;min-height:110px">
     ${firma?`<img src="${firma}" class="firma-img" />`:'<div style="height:50px"></div>'}
     <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div>
   </div>
@@ -359,9 +359,9 @@ td.ok{background:#e8f5e9}
                 </div>
 
                 <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:30 }}>
-                  <div style={{ textAlign:'center' }}>
+                  <div style={{ textAlign:'center', display:'flex', flexDirection:'column', justifyContent:'flex-end', minHeight:140 }}>
                     {firma
-                      ? <img src={firma} style={{ width:'100%',maxWidth:'100%',maxHeight:150,marginBottom:8,objectFit:'contain',display:'block',margin:'0 auto 8px' }} alt="firma" />
+                      ? <img src={firma} style={{ width:'100%',maxWidth:'100%',maxHeight:130,objectFit:'contain',display:'block',marginBottom:4 }} alt="firma" />
                       : <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:6 }}>
                           <button className="btn btn-sm" style={{ fontSize:11,color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                             onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
