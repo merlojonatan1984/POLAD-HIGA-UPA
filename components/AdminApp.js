@@ -359,11 +359,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
-                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
-                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
-                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
-                                    </select>
+                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={() => {
@@ -743,11 +740,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
-                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
-                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
-                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
-                                    </select>
+                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={() => {
@@ -1592,11 +1586,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <select id={`sel-hor-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
-                                      <option value="08:00 a 20:00">08:00 a 20:00 (12 hs)</option>
-                                      <option value="20:00 a 24:00">20:00 a 24:00 (4 hs)</option>
-                                      <option value="00:00 a 08:00">00:00 a 08:00 (8 hs)</option>
-                                    </select>
+                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={() => {
