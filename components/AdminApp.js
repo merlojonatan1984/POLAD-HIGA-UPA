@@ -360,16 +360,26 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                       style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
-                                      placeholder="Ej: 08:00 a 20:00"
-                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
-                                      min="1" max="24" placeholder="Hs"
-                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+                                      <input type="time" value={manualHorario} onChange={e => {
+                                        setManualHorario(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                      <span style={{ fontSize:11,color:'var(--text-muted)' }}>a</span>
+                                      <input type="time" value={manualHoras} onChange={e => {
+                                        setManualHoras(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    </div>
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={async () => {
                                         if (!manualHorario || !manualHoras) return
-                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        // Calculate hours difference
+                                        const [h1,m1] = manualHorario.split(':').map(Number)
+                                        const [h2,m2] = manualHoras.split(':').map(Number)
+                                        let diff = (h2*60+m2) - (h1*60+m1)
+                                        if (diff <= 0) diff += 24*60  // overnight
+                                        const hsCalc = Math.round(diff/60)
+                                        const horarioStr = `${manualHorario} a ${manualHoras}`
+                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
                                         await cargarPlanillaEf(ef)
@@ -746,16 +756,26 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                       style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
-                                      placeholder="Ej: 08:00 a 20:00"
-                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
-                                      min="1" max="24" placeholder="Hs"
-                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+                                      <input type="time" value={manualHorario} onChange={e => {
+                                        setManualHorario(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                      <span style={{ fontSize:11,color:'var(--text-muted)' }}>a</span>
+                                      <input type="time" value={manualHoras} onChange={e => {
+                                        setManualHoras(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    </div>
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={async () => {
                                         if (!manualHorario || !manualHoras) return
-                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        // Calculate hours difference
+                                        const [h1,m1] = manualHorario.split(':').map(Number)
+                                        const [h2,m2] = manualHoras.split(':').map(Number)
+                                        let diff = (h2*60+m2) - (h1*60+m1)
+                                        if (diff <= 0) diff += 24*60  // overnight
+                                        const hsCalc = Math.round(diff/60)
+                                        const horarioStr = `${manualHorario} a ${manualHoras}`
+                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
                                         await cargarPlanillaEf(ef)
@@ -1600,16 +1620,26 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                       style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
-                                      placeholder="Ej: 08:00 a 20:00"
-                                      style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
-                                      min="1" max="24" placeholder="Hs"
-                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+                                      <input type="time" value={manualHorario} onChange={e => {
+                                        setManualHorario(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                      <span style={{ fontSize:11,color:'var(--text-muted)' }}>a</span>
+                                      <input type="time" value={manualHoras} onChange={e => {
+                                        setManualHoras(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    </div>
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={async () => {
                                         if (!manualHorario || !manualHoras) return
-                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        // Calculate hours difference
+                                        const [h1,m1] = manualHorario.split(':').map(Number)
+                                        const [h2,m2] = manualHoras.split(':').map(Number)
+                                        let diff = (h2*60+m2) - (h1*60+m1)
+                                        if (diff <= 0) diff += 24*60  // overnight
+                                        const hsCalc = Math.round(diff/60)
+                                        const horarioStr = `${manualHorario} a ${manualHoras}`
+                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
                                         await cargarPlanillaEf(ef)
