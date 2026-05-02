@@ -10,6 +10,7 @@ const DIAS_MES = new Date(ANIO, MES, 0).getDate()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
 const NOMBRE_MES_SOLO = MESES_NOMBRES[MES-1]
+const NOMBRE_MES_P = NOMBRE_MES
 const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
 const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
 
