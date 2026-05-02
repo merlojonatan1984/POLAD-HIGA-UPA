@@ -15,6 +15,164 @@ const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disp
 
 
 
+function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar }) {
+  const esNuevo = !turno.id
+  const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
+  const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
+  const [sectorSel, setSectorSel] = useState(turno.sector || SECTORES[0])
+  const [diaSel, setDiaSel] = useState(turno.dia || 1)
+  const [guardando, setGuardando] = useState(false)
+  const [confirmElim, setConfirmElim] = useState(false)
+
+  const efSel = efectivos.find(e => e.legajo === legajoSel)
+  const hs = horasAsig[legajoSel] || 0
+  const colorHs = hs >= 180 ? '#E24B4A' : hs >= 150 ? '#EF9F27' : '#1D9E75'
+
+  async function handleGuardar() {
+    if (!legajoSel) return
+    setGuardando(true)
+    if (esNuevo) await onAgregar({ legajo: legajoSel, mes: MES, anio: ANIO, dia: diaSel, turno: turnoSel, sector: sectorSel })
+    else await onGuardar({ ...turno, legajo: legajoSel, turno: turnoSel, sector: sectorSel })
+    setGuardando(false)
+  }
+
+  return (
+    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+      <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(255,255,255,0.1)',width:'100%',maxWidth:440,overflow:'hidden' }}>
+        <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(255,255,255,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#1a1d27' }}>
+          <h3 style={{ fontSize:14,fontWeight:500,color:'#e8eaf0' }}>{esNuevo ? 'Agregar turno manual' : 'Editar turno'}</h3>
+          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
+        </div>
+        <div style={{ padding:16 }}>
+          {esNuevo && (
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14 }}>
+              <div>
+                <label>Día del mes</label>
+                <select value={diaSel} onChange={e => setDiaSel(parseInt(e.target.value))}>
+                  {Array.from({length:DIAS_MES},(_,i) => <option key={i+1} value={i+1}>Día {i+1}</option>)}
+                </select>
+              </div>
+              <div>
+                <label>Sector</label>
+                <select value={sectorSel} onChange={e => setSectorSel(e.target.value)}>
+                  {SECTORES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {!esNuevo && (
+            <div style={{ background:'#1a1d27',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:12,color:'#8b90a0' }}>
+              Día {turno.dia} · {turno.sector}
+            </div>
+          )}
+          <div style={{ marginBottom:14 }}>
+            <label>Turno</label>
+            <div style={{ display:'flex',gap:8 }}>
+              <button className="btn" style={{ flex:1,justifyContent:'center',background:turnoSel==='d'?'#3a2a0a':'transparent',color:turnoSel==='d'?'#EF9F27':'#8b90a0',borderColor:turnoSel==='d'?'#BA7517':'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('d')}>Día 08-20</button>
+              <button className="btn" style={{ flex:1,justifyContent:'center',background:turnoSel==='n'?'#0d2040':'transparent',color:turnoSel==='n'?'#85B7EB':'#8b90a0',borderColor:turnoSel==='n'?'#378ADD':'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('n')}>Noche 20-08</button>
+            </div>
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <label>Efectivo</label>
+            <select value={legajoSel} onChange={e => setLegajoSel(e.target.value)}>
+              <option value="">— Seleccionar efectivo —</option>
+              {efectivos.map(e => {
+                const h = horasAsig[e.legajo] || 0
+                return <option key={e.legajo} value={e.legajo}>[{e.legajo}] {e.nombre} — {h} hs{h >= 180 ? ' ⚠ TOPE' : ''}</option>
+              })}
+            </select>
+          </div>
+          {efSel && (
+            <div style={{ background:'#1a1d27',borderRadius:8,padding:'10px 12px',fontSize:12 }}>
+              <div style={{ display:'flex',justifyContent:'space-between' }}>
+                <span style={{ color:'#e8eaf0',fontWeight:500 }}>{efSel.nombre}</span>
+                <span style={{ color:colorHs,fontWeight:500 }}>{hs} hs / 180</span>
+              </div>
+              {hs >= 180 && <div style={{ color:'#F09595',fontSize:11,marginTop:4 }}>Este efectivo alcanzó el tope de horas.</div>}
+            </div>
+          )}
+        </div>
+        <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-between' }}>
+          <div>
+            {!esNuevo && !confirmElim && <button className="btn btn-sm" style={{ color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => setConfirmElim(true)}>Eliminar</button>}
+            {!esNuevo && confirmElim && (
+              <div style={{ display:'flex',gap:6,alignItems:'center' }}>
+                <span style={{ fontSize:12,color:'#F09595' }}>¿Confirmar?</span>
+                <button className="btn btn-sm" style={{ background:'#E24B4A',color:'#fff',border:'none' }} onClick={() => onEliminar(turno)}>Sí</button>
+                <button className="btn btn-sm" onClick={() => setConfirmElim(false)}>No</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display:'flex',gap:8 }}>
+            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-sm" disabled={!legajoSel||guardando} style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={handleGuardar}>
+              {guardando ? 'Guardando...' : esNuevo ? 'Agregar' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }) {
+  const [form, setForm] = useState(datos)
+  const esNuevo = !datos.id
+  return (
+    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+      <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.2)',width:'100%',maxWidth:420,overflow:'hidden' }}>
+        <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.15)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)' }}>
+          <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>{esNuevo ? 'Dar de alta efectivo' : 'Editar efectivo'}</h3>
+          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
+        </div>
+        <div style={{ padding:16 }}>
+          {msg && <div className={`alert ${msg.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom:12 }}>{msg}</div>}
+          <div style={{ marginBottom:12 }}>
+            <label>Legajo</label>
+            <input type="text" placeholder="Ej: 71234" value={form.legajo||''} disabled={!esNuevo}
+              onChange={e => setForm({...form,legajo:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:esNuevo?'#1e2130':'#111',color:'#e8eaf0',outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Apellido y nombre</label>
+            <input type="text" placeholder="Ej: GARCÍA, MARCOS" value={form.nombre||''}
+              onChange={e => setForm({...form,nombre:e.target.value.toUpperCase()})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Email</label>
+            <input type="email" placeholder="ejemplo@gmail.com" value={form.email||''}
+              onChange={e => setForm({...form,email:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Escalafón</label>
+            <select value={form.tipo||'Uniformado'} onChange={e => setForm({...form,tipo:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+              <option>Uniformado</option>
+              <option>Serv. General</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-between' }}>
+          <div>
+            {!esNuevo && <button className="btn btn-sm" style={{ color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar este efectivo?')) onEliminar(form) }}>Eliminar</button>}
+          </div>
+          <div style={{ display:'flex',gap:8 }}>
+            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-sm" disabled={guardando||!form.legajo||!form.nombre}
+              style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+              onClick={() => onGuardar(form)}>
+              {guardando ? 'Guardando...' : esNuevo ? 'Dar de alta' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function AdminApp() {
   const router = useRouter()
   const [vista, setVista] = useState('resumen')
