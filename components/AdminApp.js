@@ -318,7 +318,7 @@ export default function AdminApp() {
         const pNoche = asistMap[`${dia}-n`]
         const entradas = []
         if (pDia || tDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
-        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche, manual: false })
+        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 08:00', horas: pNoche ? 12 : 0, confirmado: !!pNoche, manual: false })
         Object.values(planillaManual).forEach(m => {
           if (parseInt(m.dia) === dia) {
             const yaExiste = entradas.find(e => e.horario === m.horario)
