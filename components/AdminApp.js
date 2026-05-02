@@ -356,18 +356,23 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 <td colSpan={5} style={{ padding:'8px 12px' }}>
                                   <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
                                     <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
-                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                    <select value={manualDia} onChange={e => setManualDia(parseInt(e.target.value))}
+                                      style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
+                                      placeholder="Ej: 08:00 a 20:00"
                                       style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
+                                      min="1" max="24" placeholder="Hs"
+                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                                      onClick={() => {
-                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
-                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
-                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
-                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      onClick={async () => {
+                                        if (!manualHorario || !manualHoras) return
+                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        setManualHorario('')
+                                        setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -737,18 +742,23 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 <td colSpan={5} style={{ padding:'8px 12px' }}>
                                   <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
                                     <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
-                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                    <select value={manualDia} onChange={e => setManualDia(parseInt(e.target.value))}
+                                      style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
+                                      placeholder="Ej: 08:00 a 20:00"
                                       style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
+                                      min="1" max="24" placeholder="Hs"
+                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                                      onClick={() => {
-                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
-                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
-                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
-                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      onClick={async () => {
+                                        if (!manualHorario || !manualHoras) return
+                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        setManualHorario('')
+                                        setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -838,6 +848,9 @@ export default function AdminApp() {
   const [planillaManual, setPlanillaManual] = useState({})
   const [firmas, setFirmas] = useState({})
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
+  const [manualDia, setManualDia] = useState(1)
+  const [manualHorario, setManualHorario] = useState('')
+  const [manualHoras, setManualHoras] = useState('')
 
   const [mounted, setMounted] = useState(false)
 
@@ -1583,18 +1596,23 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                 <td colSpan={5} style={{ padding:'8px 12px' }}>
                                   <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
                                     <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
-                                    <select id={`sel-dia-${ef.legajo}`} style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                    <select value={manualDia} onChange={e => setManualDia(parseInt(e.target.value))}
+                                      style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
                                       {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
                                     </select>
-                                    <input type="text" id={`sel-hor-${ef.legajo}`} placeholder="Ej: 22:00 a 06:00"
+                                    <input type="text" value={manualHorario} onChange={e => setManualHorario(e.target.value)}
+                                      placeholder="Ej: 08:00 a 20:00"
                                       style={{ width:160,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    <input type="number" id={`inp-hs-${ef.legajo}`} min="1" max="12" placeholder="Hs" style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    <input type="number" value={manualHoras} onChange={e => setManualHoras(e.target.value)}
+                                      min="1" max="24" placeholder="Hs"
+                                      style={{ width:60,padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                                      onClick={() => {
-                                        const dia = parseInt(document.getElementById(`sel-dia-${ef.legajo}`).value)
-                                        const hor = document.getElementById(`sel-hor-${ef.legajo}`).value
-                                        const hs = document.getElementById(`inp-hs-${ef.legajo}`).value
-                                        if (hs) guardarHoraManual(ef.legajo, dia, hor, hs, '')
+                                      onClick={async () => {
+                                        if (!manualHorario || !manualHoras) return
+                                        await guardarHoraManual(ef.legajo, manualDia, manualHorario, manualHoras, '')
+                                        setManualHorario('')
+                                        setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
