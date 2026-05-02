@@ -195,7 +195,7 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
 
           function imprimirPlanillaAdmin(ef) {
             const firma = firmas[ef.legajo]?.firma_url || ''
-            const filas = buildFilasPlanilla(ef)
+            const filas = filasCache
             const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
             const total90 = Math.round(totalHoras * 0.9)
 
@@ -298,7 +298,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               ) : (() => {
                 const ef = planillaEf
                 const firma = firmas[ef.legajo]?.firma_url || ''
-                const filas = buildFilasPlanilla(ef)
+                const filas = filasCache
                 const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
                 const total90 = Math.round(totalHoras * 0.9)
 
@@ -594,7 +594,7 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
 
           function imprimirPlanillaAdmin(ef) {
             const firma = firmas[ef.legajo]?.firma_url || ''
-            const filas = buildFilasPlanilla(ef)
+            const filas = filasCache
             const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
             const total90 = Math.round(totalHoras * 0.9)
 
@@ -697,7 +697,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               ) : (() => {
                 const ef = planillaEf
                 const firma = firmas[ef.legajo]?.firma_url || ''
-                const filas = buildFilasPlanilla(ef)
+                const filas = filasCache
                 const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
                 const total90 = Math.round(totalHoras * 0.9)
 
@@ -885,6 +885,7 @@ export default function AdminApp() {
   const [planillaManual, setPlanillaManual] = useState({})
   const [firmas, setFirmas] = useState({})
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
+  const [filasCache, setFilasCache] = useState([])
   const [manualDia, setManualDia] = useState(1)
   const [manualHorario, setManualHorario] = useState('')
   const [manualHoras, setManualHoras] = useState('')
@@ -978,6 +979,34 @@ export default function AdminApp() {
     setPlanillaEf(prev => ({ ...(prev || ef), ...ef, asistencia: asist || [] }))
     setCargandoPlanilla(false)
   }
+
+  useEffect(() => {
+    if (planillaEf) {
+      const turnosEf = (turnos[planillaEf.legajo] || []).sort((a,b) => a.dia - b.dia)
+      const asist = planillaEf.asistencia || []
+      const asistMap = {}
+      asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+      
+      const filas = Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+        const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
+        const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
+        const pDia = asistMap[`${dia}-d`]
+        const pNoche = asistMap[`${dia}-n`]
+        const entradas = []
+        if (pDia || tDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
+        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche, manual: false })
+        Object.values(planillaManual).forEach(m => {
+          if (parseInt(m.dia) === dia) {
+            const yaExiste = entradas.find(e => e.horario === m.horario)
+            if (!yaExiste) entradas.push({ horario: m.horario, horas: m.horas, confirmado: false, manual: true, id: m.id })
+          }
+        })
+        entradas.sort((a,b) => a.horario.localeCompare(b.horario))
+        return { dia, entradas }
+      })
+      setFilasCache(filas)
+    }
+  }, [planillaEf, planillaManual, turnos])
 
   if (!mounted || loading) return <div className="loading">Cargando...</div>
 
@@ -1461,7 +1490,7 @@ export default function AdminApp() {
 
           function imprimirPlanillaAdmin(ef) {
             const firma = firmas[ef.legajo]?.firma_url || ''
-            const filas = buildFilasPlanilla(ef)
+            const filas = filasCache
             const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
             const total90 = Math.round(totalHoras * 0.9)
 
@@ -1564,7 +1593,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               ) : (() => {
                 const ef = planillaEf
                 const firma = firmas[ef.legajo]?.firma_url || ''
-                const filas = buildFilasPlanilla(ef)
+                const filas = filasCache
                 const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
                 const total90 = Math.round(totalHoras * 0.9)
 
