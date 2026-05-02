@@ -126,13 +126,15 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               return
             }
             if (existe) {
-              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
-              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
             } else {
-              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
-              console.log('Insert result:', data, error)
-              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+              await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
             }
+            // Reload from DB
+            const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+            const newMap = {}
+            ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
+            setPlanillaManual(newMap)
           }
 
           async function subirFirmaAdmin(legajo, file) {
@@ -534,13 +536,15 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               return
             }
             if (existe) {
-              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
-              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
             } else {
-              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
-              console.log('Insert result:', data, error)
-              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+              await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
             }
+            // Reload from DB
+            const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+            const newMap = {}
+            ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
+            setPlanillaManual(newMap)
           }
 
           async function subirFirmaAdmin(legajo, file) {
@@ -1399,13 +1403,15 @@ export default function AdminApp() {
               return
             }
             if (existe) {
-              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
-              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
             } else {
-              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
-              console.log('Insert result:', data, error)
-              if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
+              await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
             }
+            // Reload from DB
+            const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+            const newMap = {}
+            ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
+            setPlanillaManual(newMap)
           }
 
           async function subirFirmaAdmin(legajo, file) {
