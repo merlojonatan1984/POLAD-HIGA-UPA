@@ -1,522 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/router'
-import { supabase } from '../lib/supabase'
-
-
-const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
-const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30' }
-const MES = new Date().getMonth() + 1
-const ANIO = new Date().getFullYear()
-const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
-const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
-const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
-
-function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar }) {
-  const esNuevo = !turno.id
-  const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
-  const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
-  const [sectorSel, setSectorSel] = useState(turno.sector || SECTORES[0])
-  const [diaSel, setDiaSel] = useState(turno.dia || 1)
-  const [guardando, setGuardando] = useState(false)
-  const [confirmElim, setConfirmElim] = useState(false)
-
-  const efSel = efectivos.find(e => e.legajo === legajoSel)
-  const hs = horasAsig[legajoSel] || 0
-  const colorHs = hs >= 180 ? '#E24B4A' : hs >= 150 ? '#EF9F27' : '#1D9E75'
-
-  async function handleGuardar() {
-    if (!legajoSel) return
-    setGuardando(true)
-    if (esNuevo) await onAgregar({ legajo: legajoSel, mes: MES, anio: ANIO, dia: diaSel, turno: turnoSel, sector: sectorSel })
-    else await onGuardar({ ...turno, legajo: legajoSel, turno: turnoSel, sector: sectorSel })
-    setGuardando(false)
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.1)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1d27' }}>
-          <h3 style={{ fontSize: 14, fontWeight: 500, color: '#e8eaf0' }}>{esNuevo ? 'Agregar turno manual' : 'Editar turno'}</h3>
-          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
-        </div>
-        <div style={{ padding: 16 }}>
-          {esNuevo && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <label>Día del mes</label>
-                <select value={diaSel} onChange={e => setDiaSel(parseInt(e.target.value))}>
-                  {Array.from({ length: DIAS_MES }, (_, i) => <option key={i+1} value={i+1}>Día {i+1}</option>)}
-                </select>
-              </div>
-              <div>
-                <label>Sector</label>
-                <select value={sectorSel} onChange={e => setSectorSel(e.target.value)}>
-                  {SECTORES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-          {!esNuevo && (
-            <div style={{ background: '#1a1d27', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#8b90a0' }}>
-              Día {turno.dia} · {turno.sector}
-            </div>
-          )}
-          <div style={{ marginBottom: 14 }}>
-            <label>Turno</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" style={{ flex: 1, justifyContent: 'center', background: turnoSel === 'd' ? '#3a2a0a' : 'transparent', color: turnoSel === 'd' ? '#EF9F27' : '#8b90a0', borderColor: turnoSel === 'd' ? '#BA7517' : 'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('d')}>Día 08-20</button>
-              <button className="btn" style={{ flex: 1, justifyContent: 'center', background: turnoSel === 'n' ? '#0d2040' : 'transparent', color: turnoSel === 'n' ? '#85B7EB' : '#8b90a0', borderColor: turnoSel === 'n' ? '#378ADD' : 'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('n')}>Noche 20-08</button>
-            </div>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label>Efectivo</label>
-            <select value={legajoSel} onChange={e => setLegajoSel(e.target.value)}>
-              <option value="">— Seleccionar efectivo —</option>
-              {efectivos.map(e => {
-                const h = horasAsig[e.legajo] || 0
-                return <option key={e.legajo} value={e.legajo}>[{e.legajo}] {e.nombre} — {h} hs{h >= 180 ? ' ⚠ TOPE' : ''}</option>
-              })}
-            </select>
-          </div>
-          {efSel && (
-            <div style={{ background: '#1a1d27', borderRadius: 8, padding: '10px 12px', fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#e8eaf0', fontWeight: 500 }}>{efSel.nombre}</span>
-                <span style={{ color: colorHs, fontWeight: 500 }}>{hs} hs / 180</span>
-              </div>
-              {hs >= 180 && <div style={{ color: '#F09595', fontSize: 11, marginTop: 4 }}>Este efectivo alcanzó el tope de horas.</div>}
-            </div>
-          )}
-        </div>
-        <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
-          <div>
-            {!esNuevo && !confirmElim && <button className="btn btn-sm" style={{ color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => setConfirmElim(true)}>Eliminar</button>}
-            {!esNuevo && confirmElim && (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: '#F09595' }}>¿Confirmar?</span>
-                <button className="btn btn-sm" style={{ background: '#E24B4A', color: '#fff', border: 'none' }} onClick={() => onEliminar(turno)}>Sí</button>
-                <button className="btn btn-sm" onClick={() => setConfirmElim(false)}>No</button>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-sm" disabled={!legajoSel || guardando} style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }} onClick={handleGuardar}>
-              {guardando ? 'Guardando...' : esNuevo ? 'Agregar' : 'Guardar'}
-            </button>
-          </div>
-        </div>
-
-        {vista === 'planillas' && (() => {
-          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
-          const NOMBRE_MES_SOLO = MESES[MES-1]
-
-          async function guardarHoraManual(legajo, dia, horario, horas, sector) {
-            const key = `${dia}-${horario}`
-            const existe = planillaManual[key]
-            if (horas === '' || horas === 0) {
-              if (existe) {
-                await supabase.from('planilla_manual').delete().eq('id', existe.id)
-                const nuevo = { ...planillaManual }
-                delete nuevo[key]
-                setPlanillaManual(nuevo)
-              }
-              return
-            }
-            if (existe) {
-              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
-            } else {
-              await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
-            }
-            // Reload from DB
-            const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
-            const newMap = {}
-            ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
-            setPlanillaManual(newMap)
-          }
-
-          async function subirFirmaAdmin(legajo, file) {
-            const reader = new FileReader()
-            reader.onload = async (e) => {
-              const base64 = e.target.result
-              const existeFirma = firmas[legajo]
-              if (existeFirma) {
-                await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
-              } else {
-                await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
-              }
-              setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
-            }
-            reader.readAsDataURL(file)
-          }
-
-          function buildFilasPlanilla(ef) {
-            const asist = ef.asistencia || []
-            const asistMap = {}
-            asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
-            const turnosEf = (turnos[ef.legajo] || []).sort((a,b) => a.dia - b.dia)
-
-            return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
-              const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
-              const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-              const pDia = asistMap[`${dia}-d`]
-              const pNoche = asistMap[`${dia}-n`]
-
-              const entradas = []
-
-              // Turnos del cronograma con asistencia
-              if (pDia || tDia) {
-                entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
-              }
-              if (pNoche || tNoche) {
-                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche, manual: false })
-              }
-
-              // Todos los registros manuales de este día
-              Object.values(planillaManual).forEach(m => {
-                if (m.dia === dia) {
-                  const key = `${dia}-${m.horario}`
-                  // Avoid duplicating if already added from cronograma
-                  const yaExiste = entradas.find(e => e.horario === m.horario)
-                  if (!yaExiste) {
-                    entradas.push({ horario: m.horario, horas: m.horas, confirmado: false, manual: true, id: m.id })
-                  }
-                }
-              })
-
-              // Sort by horario
-              entradas.sort((a,b) => a.horario.localeCompare(b.horario))
-
-              return { dia, entradas }
-            })
-          }
-
-          function imprimirPlanillaAdmin(ef) {
-            const firma = firmas[ef.legajo]?.firma_url || ''
-            const filas = filasCache
-            const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
-            const total90 = Math.round(totalHoras * 0.9)
-
-            const flatRows = []
-            filas.forEach(f => {
-              if (f.entradas.length === 0) flatRows.push({ dia: f.dia, horario: '', horas: '', confirmado: false })
-              else f.entradas.forEach(e => flatRows.push({ dia: f.dia, horario: e.horario, horas: e.horas || '', confirmado: e.confirmado }))
-            })
-
-            const win = window.open('', '_blank')
-            const half = Math.ceil(flatRows.length / 2)
-            const col1 = flatRows.slice(0, half)
-            const col2 = flatRows.slice(half)
-
-            win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
-h2{font-size:13px;text-align:center;margin-bottom:3px}h3{font-size:11px;text-align:center;margin-bottom:8px}
-.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}.field label{font-size:8px;color:#555;display:block}.field span{font-size:10px;font-weight:bold}
-.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
-table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
-td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}td.dia{font-weight:bold;background:#f5f5f5}td.ok{background:#e8f5e9}
-.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
-.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px}.firma-box{text-align:center;display:flex;flex-direction:column;justify-content:flex-end;min-height:80px}
-.firma-img{width:260px;max-height:90px;object-fit:contain;display:block;margin-bottom:4px}
-.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
-@media print{body{padding:8mm}}</style></head><body>
-<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
-<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
-<div class="row2"><div>
-<div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
-<div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
-</div><div>
-<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
-<div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
-</div></div>
-<div class="row4">
-<div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
-<div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
-<div class="field"><label>Jerarquía</label><span>${ef.jerarquia||''}</span></div>
-<div class="field"><label>Categoría</label><span>1°</span></div>
-</div>
-<div class="row4">
-<div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
-<div class="field"><label>N° Documento</label><span>${ef.dni||''}</span></div>
-<div class="field"></div><div class="field"></div>
-</div>
-<table><thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
-<tbody>
-${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
-  const r1 = col1[i] || {}; const r2 = col2[i] || {}
-  return `<tr>
-    <td class="dia">${r1.dia||''}</td>
-    <td class="${r1.confirmado?'ok':''}">${r1.horario||''}</td>
-    <td class="${r1.confirmado?'ok':''}">${r1.horas||''}</td>
-    <td class="dia">${r2.dia||''}</td>
-    <td class="${r2.confirmado?'ok':''}">${r2.horario||''}</td>
-    <td class="${r2.confirmado?'ok':''}">${r2.horas||''}</td>
-  </tr>`}).join('')}
-<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:13px">${totalHoras}</td></tr>
-<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:13px">${total90}</td></tr>
-</tbody></table>
-<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
-<div class="firmas">
-<div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
-<div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
-<div class="firma-box"><div style="flex:1"></div>
-<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
-</div></body></html>`)
-            win.document.close()
-            setTimeout(() => win.print(), 500)
-          }
-
-          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
-
-          return (
-            <div>
-              {!planillaEf ? (
-                <div>
-                  <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
-                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
-                    {efectivos.map(ef => {
-                      const hs = horasAsig[ef.legajo] || 0
-                      const turnosEf = turnos[ef.legajo] || []
-                      return (
-                        <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
-                          onClick={() => cargarPlanillaEf(ef)}>
-                          <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
-                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
-                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
-                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias</span>
-                            <span style={{ color: hs >= 150 ? '#EF9F27' : '#1D9E75',fontWeight:500 }}>{hs} hs</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : cargandoPlanilla ? (
-                <div className="loading">Cargando planilla...</div>
-              ) : (() => {
-                const ef = planillaEf
-                const firma = firmas[ef.legajo]?.firma_url || ''
-                const filas = filasCache
-                const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
-                const total90 = Math.round(totalHoras * 0.9)
-
-                return (
-                  <div>
-                    <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14 }}>
-                      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-                        <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>← Volver</button>
-                        <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
-                        <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
-                      </div>
-                      <div style={{ display:'flex',gap:8 }}>
-                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
-                      </div>
-                    </div>
-
-                    <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
-                      {/* Tabla editable */}
-                      <div className="panel">
-                        <div className="panel-header">
-                          <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
-                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
-                        </div>
-                        <div style={{ overflowX:'auto' }}>
-                          <table>
-                            <thead>
-                              <tr>
-                                <th style={{ width:50 }}>Día</th>
-                                <th>Horario</th>
-                                <th style={{ width:80 }}>Horas</th>
-                                <th style={{ width:120 }}>Sector</th>
-                                <th style={{ width:80 }}>Estado</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {filas.map(f => {
-                                if (f.entradas.length === 0) return (
-                                  <tr key={f.dia} style={{ opacity:0.4 }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
-                                    <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
-                                  </tr>
-                                )
-                                return f.entradas.map((e, i) => (
-                                  <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop: i===0 ? '2px solid var(--border2)' : '' }}>{i===0?f.dia:''}</td>
-                                    <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
-                                    <td>
-                                      <input type="number" min="0" max="12" defaultValue={e.horas||''}
-                                        style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }}
-                                        onBlur={ev => guardarHoraManual(ef.legajo, f.dia, e.horario, ev.target.value, e.sector)}
-                                      />
-                                    </td>
-                                    <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
-                                    <td style={{ textAlign:'center' }}>
-                                      <div style={{ display:'flex',gap:4,alignItems:'center',justifyContent:'center' }}>
-                                        {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
-                                          : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
-                                          : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
-                                        {e.manual && <button style={{ background:'none',border:'none',cursor:'pointer',color:'#F09595',fontSize:12,padding:'0 2px' }}
-                                          onClick={() => guardarHoraManual(ef.legajo, f.dia, e.horario, '', '')}>✕</button>}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ))
-                              })}
-                              {/* Fila para agregar hora manual */}
-                              <tr style={{ background:'rgba(200,168,75,0.04)' }}>
-                                <td colSpan={5} style={{ padding:'8px 12px' }}>
-                                  <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
-                                    <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
-                                    <select value={manualDia} onChange={e => setManualDia(parseInt(e.target.value))}
-                                      style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
-                                      {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
-                                    </select>
-                                    <div style={{ display:'flex',alignItems:'center',gap:4 }}>
-                                      <input type="time" value={manualHorario} onChange={e => {
-                                        setManualHorario(e.target.value)
-                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                      <span style={{ fontSize:11,color:'var(--text-muted)' }}>a</span>
-                                      <input type="time" value={manualHoras} onChange={e => {
-                                        setManualHoras(e.target.value)
-                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
-                                    </div>
-                                    <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                                      onClick={async () => {
-                                        if (!manualHorario || !manualHoras) return
-                                        // Calculate hours difference
-                                        const [h1,m1] = manualHorario.split(':').map(Number)
-                                        const [h2,m2] = manualHoras.split(':').map(Number)
-                                        let diff = (h2*60+m2) - (h1*60+m1)
-                                        if (diff <= 0) diff += 24*60  // overnight
-                                        const hsCalc = Math.round(diff/60)
-                                        const horarioStr = `${manualHorario} a ${manualHoras}`
-                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
-                                        setManualHorario('')
-                                        setManualHoras('')
-                                        await cargarPlanillaEf(ef)
-                                      }}>+ Agregar</button>
-                                  </div>
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Panel derecho: datos + firma */}
-                      <div>
-                        <div className="panel" style={{ marginBottom:12 }}>
-                          <div className="panel-header"><h3>Datos del efectivo</h3></div>
-                          <div style={{ padding:12 }}>
-                            {[['Nombre',ef.nombre],['Legajo',ef.legajo],['DNI',ef.dni||'—'],['Jerarquía',ef.jerarquia||'—'],['Tipo',ef.tipo],['Sector',ef.sector||'—']].map(([k,v])=>(
-                              <div key={k} style={{ display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)',fontSize:12 }}>
-                                <span style={{ color:'var(--text-muted)' }}>{k}</span>
-                                <span style={{ fontWeight:500 }}>{v}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="panel">
-                          <div className="panel-header"><h3>Firma del efectivo</h3></div>
-                          <div style={{ padding:12 }}>
-                            {firma
-                              ? <div>
-                                  <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
-                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
-                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
-                                    Cambiar firma
-                                  </button>
-                                </div>
-                              : <div>
-                                  <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
-                                    <span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span>
-                                  </div>
-                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
-                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
-                                    + Subir firma
-                                  </button>
-                                </div>
-                            }
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
-                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
-                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
-                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
-            </div>
-          )
-        })()}
-
-      </div>
-    </div>
-  )
-}
-
-function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }) {
-  const [form, setForm] = useState(datos)
-  const esNuevo = !datos.id
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(200,168,75,0.2)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(200,168,75,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(200,168,75,0.06)' }}>
-          <h3 style={{ fontSize: 14, fontWeight: 500, color: '#c8a84b' }}>{esNuevo ? 'Dar de alta efectivo' : 'Editar efectivo'}</h3>
-          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
-        </div>
-        <div style={{ padding: 16 }}>
-          {msg && <div className={`alert ${msg.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom: 12 }}>{msg}</div>}
-          <div style={{ marginBottom: 12 }}>
-            <label>Legajo</label>
-            <input type="text" placeholder="Ej: 71234" value={form.legajo || ''} disabled={!esNuevo}
-              onChange={e => setForm({ ...form, legajo: e.target.value })}
-              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: esNuevo ? '#1e2130' : '#111', color: '#e8eaf0', outline: 'none' }} />
-            {esNuevo && <p style={{ fontSize: 11, color: '#555b6e', marginTop: 4 }}>La contraseña inicial será el mismo número de legajo</p>}
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label>Apellido y nombre</label>
-            <input type="text" placeholder="Ej: GARCÍA, MARCOS" value={form.nombre || ''}
-              onChange={e => setForm({ ...form, nombre: e.target.value.toUpperCase() })}
-              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label>Email</label>
-            <input type="email" placeholder="ejemplo@gmail.com" value={form.email || ''}
-              onChange={e => setForm({ ...form, email: e.target.value })}
-              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label>Escalafón</label>
-            <select value={form.tipo || 'Uniformado'} onChange={e => setForm({ ...form, tipo: e.target.value })}
-              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
-              <option>Uniformado</option>
-              <option>Serv. General</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
-          <div>
-            {!esNuevo && <button className="btn btn-sm" style={{ color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => { if (confirm('¿Eliminar este efectivo?')) onEliminar(form) }}>Eliminar</button>}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-sm" disabled={guardando || !form.legajo || !form.nombre}
-              style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
-              onClick={() => onGuardar(form)}>
-              {guardando ? 'Guardando...' : esNuevo ? 'Dar de alta' : 'Guardar'}
-            </button>
-          </div>
-        </div>
+import { use
 
         {vista === 'planillas' && (() => {
           const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -856,6 +338,176 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             </div>
           )
         })()}
+
+State, useEffect, useRef } from 'react'
+import { useRouter } from 'next/router'
+import { supabase } from '../lib/supabase'
+
+
+const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
+const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30' }
+const MES = new Date().getMonth() + 1
+const ANIO = new Date().getFullYear()
+const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
+
+function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar }) {
+  const esNuevo = !turno.id
+  const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
+  const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
+  const [sectorSel, setSectorSel] = useState(turno.sector || SECTORES[0])
+  const [diaSel, setDiaSel] = useState(turno.dia || 1)
+  const [guardando, setGuardando] = useState(false)
+  const [confirmElim, setConfirmElim] = useState(false)
+
+  const efSel = efectivos.find(e => e.legajo === legajoSel)
+  const hs = horasAsig[legajoSel] || 0
+  const colorHs = hs >= 180 ? '#E24B4A' : hs >= 150 ? '#EF9F27' : '#1D9E75'
+
+  async function handleGuardar() {
+    if (!legajoSel) return
+    setGuardando(true)
+    if (esNuevo) await onAgregar({ legajo: legajoSel, mes: MES, anio: ANIO, dia: diaSel, turno: turnoSel, sector: sectorSel })
+    else await onGuardar({ ...turno, legajo: legajoSel, turno: turnoSel, sector: sectorSel })
+    setGuardando(false)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.1)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1d27' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 500, color: '#e8eaf0' }}>{esNuevo ? 'Agregar turno manual' : 'Editar turno'}</h3>
+          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          {esNuevo && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div>
+                <label>Día del mes</label>
+                <select value={diaSel} onChange={e => setDiaSel(parseInt(e.target.value))}>
+                  {Array.from({ length: DIAS_MES }, (_, i) => <option key={i+1} value={i+1}>Día {i+1}</option>)}
+                </select>
+              </div>
+              <div>
+                <label>Sector</label>
+                <select value={sectorSel} onChange={e => setSectorSel(e.target.value)}>
+                  {SECTORES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {!esNuevo && (
+            <div style={{ background: '#1a1d27', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#8b90a0' }}>
+              Día {turno.dia} · {turno.sector}
+            </div>
+          )}
+          <div style={{ marginBottom: 14 }}>
+            <label>Turno</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" style={{ flex: 1, justifyContent: 'center', background: turnoSel === 'd' ? '#3a2a0a' : 'transparent', color: turnoSel === 'd' ? '#EF9F27' : '#8b90a0', borderColor: turnoSel === 'd' ? '#BA7517' : 'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('d')}>Día 08-20</button>
+              <button className="btn" style={{ flex: 1, justifyContent: 'center', background: turnoSel === 'n' ? '#0d2040' : 'transparent', color: turnoSel === 'n' ? '#85B7EB' : '#8b90a0', borderColor: turnoSel === 'n' ? '#378ADD' : 'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('n')}>Noche 20-08</button>
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label>Efectivo</label>
+            <select value={legajoSel} onChange={e => setLegajoSel(e.target.value)}>
+              <option value="">— Seleccionar efectivo —</option>
+              {efectivos.map(e => {
+                const h = horasAsig[e.legajo] || 0
+                return <option key={e.legajo} value={e.legajo}>[{e.legajo}] {e.nombre} — {h} hs{h >= 180 ? ' ⚠ TOPE' : ''}</option>
+              })}
+            </select>
+          </div>
+          {efSel && (
+            <div style={{ background: '#1a1d27', borderRadius: 8, padding: '10px 12px', fontSize: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#e8eaf0', fontWeight: 500 }}>{efSel.nombre}</span>
+                <span style={{ color: colorHs, fontWeight: 500 }}>{hs} hs / 180</span>
+              </div>
+              {hs >= 180 && <div style={{ color: '#F09595', fontSize: 11, marginTop: 4 }}>Este efectivo alcanzó el tope de horas.</div>}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            {!esNuevo && !confirmElim && <button className="btn btn-sm" style={{ color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => setConfirmElim(true)}>Eliminar</button>}
+            {!esNuevo && confirmElim && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: '#F09595' }}>¿Confirmar?</span>
+                <button className="btn btn-sm" style={{ background: '#E24B4A', color: '#fff', border: 'none' }} onClick={() => onEliminar(turno)}>Sí</button>
+                <button className="btn btn-sm" onClick={() => setConfirmElim(false)}>No</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-sm" disabled={!legajoSel || guardando} style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }} onClick={handleGuardar}>
+              {guardando ? 'Guardando...' : esNuevo ? 'Agregar' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }) {
+  const [form, setForm] = useState(datos)
+  const esNuevo = !datos.id
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#13151f', borderRadius: 12, border: '0.5px solid rgba(200,168,75,0.2)', width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '0.5px solid rgba(200,168,75,0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(200,168,75,0.06)' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 500, color: '#c8a84b' }}>{esNuevo ? 'Dar de alta efectivo' : 'Editar efectivo'}</h3>
+          <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          {msg && <div className={`alert ${msg.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom: 12 }}>{msg}</div>}
+          <div style={{ marginBottom: 12 }}>
+            <label>Legajo</label>
+            <input type="text" placeholder="Ej: 71234" value={form.legajo || ''} disabled={!esNuevo}
+              onChange={e => setForm({ ...form, legajo: e.target.value })}
+              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: esNuevo ? '#1e2130' : '#111', color: '#e8eaf0', outline: 'none' }} />
+            {esNuevo && <p style={{ fontSize: 11, color: '#555b6e', marginTop: 4 }}>La contraseña inicial será el mismo número de legajo</p>}
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label>Apellido y nombre</label>
+            <input type="text" placeholder="Ej: GARCÍA, MARCOS" value={form.nombre || ''}
+              onChange={e => setForm({ ...form, nombre: e.target.value.toUpperCase() })}
+              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label>Email</label>
+            <input type="email" placeholder="ejemplo@gmail.com" value={form.email || ''}
+              onChange={e => setForm({ ...form, email: e.target.value })}
+              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label>Escalafón</label>
+            <select value={form.tipo || 'Uniformado'} onChange={e => setForm({ ...form, tipo: e.target.value })}
+              style={{ width: '100%', padding: '9px 11px', border: '0.5px solid rgba(255,255,255,0.12)', borderRadius: 8, fontSize: 14, background: '#1e2130', color: '#e8eaf0', outline: 'none' }}>
+              <option>Uniformado</option>
+              <option>Serv. General</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            {!esNuevo && <button className="btn btn-sm" style={{ color: '#F09595', borderColor: 'rgba(240,149,149,0.3)' }} onClick={() => { if (confirm('¿Eliminar este efectivo?')) onEliminar(form) }}>Eliminar</button>}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-sm" disabled={guardando || !form.legajo || !form.nombre}
+              style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }}
+              onClick={() => onGuardar(form)}>
+              {guardando ? 'Guardando...' : esNuevo ? 'Dar de alta' : 'Guardar'}
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>
@@ -1752,6 +1404,357 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             </div>
           )
         })()}
+
+        {vista === 'planillas' && (() => {
+          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
+          const NOMBRE_MES_SOLO = MESES[MES-1]
+
+          async function guardarHoraManual(legajo, dia, horario, horas, sector) {
+            const key = `${dia}-${horario}`
+            const existe = planillaManual[key]
+            if (horas === '' || horas === 0) {
+              if (existe) {
+                await supabase.from('planilla_manual').delete().eq('id', existe.id)
+                const nuevo = { ...planillaManual }
+                delete nuevo[key]
+                setPlanillaManual(nuevo)
+              }
+              return
+            }
+            if (existe) {
+              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
+            } else {
+              await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
+            }
+            // Reload from DB
+            const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+            const newMap = {}
+            ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
+            setPlanillaManual(newMap)
+          }
+
+          async function subirFirmaAdmin(legajo, file) {
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+              const base64 = e.target.result
+              const existeFirma = firmas[legajo]
+              if (existeFirma) {
+                await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
+              } else {
+                await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
+              }
+              setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+            }
+            reader.readAsDataURL(file)
+          }
+
+          function buildFilasPlanilla(ef) {
+            const asist = ef.asistencia || []
+            const asistMap = {}
+            asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+            const turnosEf = (turnos[ef.legajo] || []).sort((a,b) => a.dia - b.dia)
+
+            return Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+              const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
+              const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
+              const pDia = asistMap[`${dia}-d`]
+              const pNoche = asistMap[`${dia}-n`]
+
+              const entradas = []
+
+              // Turnos del cronograma con asistencia
+              if (pDia || tDia) {
+                entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
+              }
+              if (pNoche || tNoche) {
+                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche, manual: false })
+              }
+
+              // Todos los registros manuales de este día
+              Object.values(planillaManual).forEach(m => {
+                if (m.dia === dia) {
+                  const key = `${dia}-${m.horario}`
+                  // Avoid duplicating if already added from cronograma
+                  const yaExiste = entradas.find(e => e.horario === m.horario)
+                  if (!yaExiste) {
+                    entradas.push({ horario: m.horario, horas: m.horas, confirmado: false, manual: true, id: m.id })
+                  }
+                }
+              })
+
+              // Sort by horario
+              entradas.sort((a,b) => a.horario.localeCompare(b.horario))
+
+              return { dia, entradas }
+            })
+          }
+
+          function imprimirPlanillaAdmin(ef) {
+            const firma = firmas[ef.legajo]?.firma_url || ''
+            const filas = filasCache
+            const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+            const total90 = Math.round(totalHoras * 0.9)
+
+            const flatRows = []
+            filas.forEach(f => {
+              if (f.entradas.length === 0) flatRows.push({ dia: f.dia, horario: '', horas: '', confirmado: false })
+              else f.entradas.forEach(e => flatRows.push({ dia: f.dia, horario: e.horario, horas: e.horas || '', confirmado: e.confirmado }))
+            })
+
+            const win = window.open('', '_blank')
+            const half = Math.ceil(flatRows.length / 2)
+            const col1 = flatRows.slice(0, half)
+            const col2 = flatRows.slice(half)
+
+            win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla ${ef.nombre}</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;padding:12mm;color:#000}
+h2{font-size:13px;text-align:center;margin-bottom:3px}h3{font-size:11px;text-align:center;margin-bottom:8px}
+.field{border-bottom:1px solid #000;padding:2px 0;margin-bottom:4px}.field label{font-size:8px;color:#555;display:block}.field span{font-size:10px;font-weight:bold}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#333;color:#fff;padding:4px;font-size:9px;text-align:center;border:1px solid #000}
+td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:18px}td.dia{font-weight:bold;background:#f5f5f5}td.ok{background:#e8f5e9}
+.decl{font-size:9px;margin-bottom:14px;line-height:1.5}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px}.firma-box{text-align:center;display:flex;flex-direction:column;justify-content:flex-end;min-height:80px}
+.firma-img{width:260px;max-height:90px;object-fit:contain;display:block;margin-bottom:4px}
+.firma-line{border-top:1px solid #000;padding-top:3px;font-size:9px}
+@media print{body{padding:8mm}}</style></head><body>
+<h2>POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD</h2>
+<h3>PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICÍA ADICIONAL</h3>
+<div class="row2"><div>
+<div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
+<div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
+</div><div>
+<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
+<div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
+</div></div>
+<div class="row4">
+<div class="field"><label>Apellido y Nombre</label><span>${ef.nombre}</span></div>
+<div class="field"><label>Mes / Año</label><span>${NOMBRE_MES_SOLO.toUpperCase()} ${ANIO}</span></div>
+<div class="field"><label>Jerarquía</label><span>${ef.jerarquia||''}</span></div>
+<div class="field"><label>Categoría</label><span>1°</span></div>
+</div>
+<div class="row4">
+<div class="field"><label>Legajo</label><span>${ef.legajo}</span></div>
+<div class="field"><label>N° Documento</label><span>${ef.dni||''}</span></div>
+<div class="field"></div><div class="field"></div>
+</div>
+<table><thead><tr><th>DÍA</th><th>HORARIO</th><th>HORAS</th><th>DÍA</th><th>HORARIO</th><th>HORAS</th></tr></thead>
+<tbody>
+${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
+  const r1 = col1[i] || {}; const r2 = col2[i] || {}
+  return `<tr>
+    <td class="dia">${r1.dia||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horario||''}</td>
+    <td class="${r1.confirmado?'ok':''}">${r1.horas||''}</td>
+    <td class="dia">${r2.dia||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horario||''}</td>
+    <td class="${r2.confirmado?'ok':''}">${r2.horas||''}</td>
+  </tr>`}).join('')}
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL HORAS CUMPLIDAS</td><td colspan="3" style="font-weight:bold;font-size:13px">${totalHoras}</td></tr>
+<tr><td colspan="3" style="text-align:right;font-weight:bold">TOTAL 90%</td><td colspan="3" style="font-weight:bold;font-size:13px">${total90}</td></tr>
+</tbody></table>
+<div class="decl">Declaro de conformidad, haber prestado <strong>${totalHoras}</strong> horas de servicio de Policía Adicional, en el destino que figura en la presente planilla.</div>
+<div class="firmas">
+<div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
+<div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
+<div class="firma-box"><div style="flex:1"></div>
+<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
+</div></body></html>`)
+            win.document.close()
+            setTimeout(() => win.print(), 500)
+          }
+
+          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
+
+          return (
+            <div>
+              {!planillaEf ? (
+                <div>
+                  <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
+                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
+                    {efectivos.map(ef => {
+                      const hs = horasAsig[ef.legajo] || 0
+                      const turnosEf = turnos[ef.legajo] || []
+                      return (
+                        <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
+                          onClick={() => cargarPlanillaEf(ef)}>
+                          <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
+                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias</span>
+                            <span style={{ color: hs >= 150 ? '#EF9F27' : '#1D9E75',fontWeight:500 }}>{hs} hs</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : cargandoPlanilla ? (
+                <div className="loading">Cargando planilla...</div>
+              ) : (() => {
+                const ef = planillaEf
+                const firma = firmas[ef.legajo]?.firma_url || ''
+                const filas = filasCache
+                const totalHoras = filas.reduce((sum, f) => sum + f.entradas.reduce((s, e) => s + (e.horas || 0), 0), 0)
+                const total90 = Math.round(totalHoras * 0.9)
+
+                return (
+                  <div>
+                    <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14 }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                        <button className="btn btn-sm" onClick={() => setPlanillaEf(null)}>← Volver</button>
+                        <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
+                        <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
+                      </div>
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
+                      </div>
+                    </div>
+
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
+                      {/* Tabla editable */}
+                      <div className="panel">
+                        <div className="panel-header">
+                          <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
+                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
+                        </div>
+                        <div style={{ overflowX:'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th style={{ width:50 }}>Día</th>
+                                <th>Horario</th>
+                                <th style={{ width:80 }}>Horas</th>
+                                <th style={{ width:120 }}>Sector</th>
+                                <th style={{ width:80 }}>Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filas.map(f => {
+                                if (f.entradas.length === 0) return (
+                                  <tr key={f.dia} style={{ opacity:0.4 }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
+                                    <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
+                                  </tr>
+                                )
+                                return f.entradas.map((e, i) => (
+                                  <tr key={`${f.dia}-${i}`} style={{ background: e.confirmado ? 'rgba(29,158,117,0.08)' : e.manual ? 'rgba(200,168,75,0.06)' : '' }}>
+                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop: i===0 ? '2px solid var(--border2)' : '' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ color: e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
+                                    <td>
+                                      <input type="number" min="0" max="12" defaultValue={e.horas||''}
+                                        style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }}
+                                        onBlur={ev => guardarHoraManual(ef.legajo, f.dia, e.horario, ev.target.value, e.sector)}
+                                      />
+                                    </td>
+                                    <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
+                                    <td style={{ textAlign:'center' }}>
+                                      <div style={{ display:'flex',gap:4,alignItems:'center',justifyContent:'center' }}>
+                                        {e.confirmado ? <span style={{ fontSize:10,color:'#1D9E75',fontWeight:500 }}>✓ Presente</span>
+                                          : e.manual ? <span style={{ fontSize:10,color:'#c8a84b' }}>Manual</span>
+                                          : <span style={{ fontSize:10,color:'var(--text-hint)' }}>Asignado</span>}
+                                        {e.manual && <button style={{ background:'none',border:'none',cursor:'pointer',color:'#F09595',fontSize:12,padding:'0 2px' }}
+                                          onClick={() => guardarHoraManual(ef.legajo, f.dia, e.horario, '', '')}>✕</button>}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))
+                              })}
+                              {/* Fila para agregar hora manual */}
+                              <tr style={{ background:'rgba(200,168,75,0.04)' }}>
+                                <td colSpan={5} style={{ padding:'8px 12px' }}>
+                                  <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
+                                    <span style={{ fontSize:11,color:'var(--text-muted)' }}>Agregar horas manual:</span>
+                                    <select value={manualDia} onChange={e => setManualDia(parseInt(e.target.value))}
+                                      style={{ padding:'4px 8px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }}>
+                                      {Array.from({length:DIAS_MES},(_,i)=><option key={i+1} value={i+1}>Día {i+1}</option>)}
+                                    </select>
+                                    <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+                                      <input type="time" value={manualHorario} onChange={e => {
+                                        setManualHorario(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                      <span style={{ fontSize:11,color:'var(--text-muted)' }}>a</span>
+                                      <input type="time" value={manualHoras} onChange={e => {
+                                        setManualHoras(e.target.value)
+                                      }} style={{ padding:'4px 6px',fontSize:11,background:'var(--surface2)',color:'var(--text)',border:'0.5px solid var(--border)',borderRadius:4 }} />
+                                    </div>
+                                    <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                                      onClick={async () => {
+                                        if (!manualHorario || !manualHoras) return
+                                        // Calculate hours difference
+                                        const [h1,m1] = manualHorario.split(':').map(Number)
+                                        const [h2,m2] = manualHoras.split(':').map(Number)
+                                        let diff = (h2*60+m2) - (h1*60+m1)
+                                        if (diff <= 0) diff += 24*60  // overnight
+                                        const hsCalc = Math.round(diff/60)
+                                        const horarioStr = `${manualHorario} a ${manualHoras}`
+                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
+                                        setManualHorario('')
+                                        setManualHoras('')
+                                        await cargarPlanillaEf(ef)
+                                      }}>+ Agregar</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Panel derecho: datos + firma */}
+                      <div>
+                        <div className="panel" style={{ marginBottom:12 }}>
+                          <div className="panel-header"><h3>Datos del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {[['Nombre',ef.nombre],['Legajo',ef.legajo],['DNI',ef.dni||'—'],['Jerarquía',ef.jerarquia||'—'],['Tipo',ef.tipo],['Sector',ef.sector||'—']].map(([k,v])=>(
+                              <div key={k} style={{ display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'0.5px solid var(--border)',fontSize:12 }}>
+                                <span style={{ color:'var(--text-muted)' }}>{k}</span>
+                                <span style={{ fontWeight:500 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="panel">
+                          <div className="panel-header"><h3>Firma del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {firma
+                              ? <div>
+                                  <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    Cambiar firma
+                                  </button>
+                                </div>
+                              : <div>
+                                  <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
+                                    <span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span>
+                                  </div>
+                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                    + Subir firma
+                                  </button>
+                                </div>
+                            }
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
+                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
+                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
+                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )
+        })()}
+
 
       </div>
     </div>
