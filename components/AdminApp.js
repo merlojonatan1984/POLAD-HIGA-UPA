@@ -317,12 +317,22 @@ export default function AdminApp() {
         const pDia = asistMap[`${dia}-d`]
         const pNoche = asistMap[`${dia}-n`]
         const entradas = []
-        if (pDia || tDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
-        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 08:00', horas: pNoche ? 12 : 0, confirmado: !!pNoche, manual: false })
+        const manualDiaEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '08:00 a 20:00')
+        const manualNocheEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '20:00 a 08:00')
+        if (pDia || tDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? (manualDiaEntry ? parseInt(manualDiaEntry.horas) : 12) : 0, confirmado: !!pDia, manual: false })
+        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 08:00', horas: pNoche ? (manualNocheEntry ? parseInt(manualNocheEntry.horas) : 12) : 0, confirmado: !!pNoche, manual: false })
         Object.values(planillaManual).forEach(m => {
           if (parseInt(m.dia) === dia) {
             const yaExiste = entradas.find(e => e.horario === m.horario)
-            if (!yaExiste) entradas.push({ horario: m.horario, horas: m.horas, confirmado: false, manual: true, id: m.id })
+            if (!yaExiste) entradas.push({ horario: m.horario, horas: parseInt(m.horas) || 0, confirmado: false, manual: true, id: m.id })
+            else {
+              // Update horas if manual has value and entry has 0
+              const entry = entradas.find(e => e.horario === m.horario)
+              if (entry && !entry.confirmado && parseInt(m.horas) > 0) {
+                entry.horas = parseInt(m.horas)
+                entry.manual = true
+              }
+            }
           }
         })
         entradas.sort((a,b) => a.horario.localeCompare(b.horario))
