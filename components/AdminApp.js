@@ -126,10 +126,11 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               return
             }
             if (existe) {
-              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
-              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
+              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
             } else {
-              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              console.log('Insert result:', data, error)
               if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
             }
           }
@@ -382,7 +383,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
-                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -522,10 +522,11 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               return
             }
             if (existe) {
-              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
-              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
+              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
             } else {
-              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              console.log('Insert result:', data, error)
               if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
             }
           }
@@ -778,7 +779,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
-                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -1386,10 +1386,11 @@ export default function AdminApp() {
               return
             }
             if (existe) {
-              await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
-              setPlanillaManual(prev => ({ ...prev, [key]: { ...existe, horas: parseInt(horas), sector } }))
+              const { data: upd } = await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id).select().single()
+              setPlanillaManual(prev => ({ ...prev, [key]: upd || { ...existe, horas: parseInt(horas), sector } }))
             } else {
-              const { data } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia, horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              const { data, error } = await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }]).select().single()
+              console.log('Insert result:', data, error)
               if (data) setPlanillaManual(prev => ({ ...prev, [key]: data }))
             }
           }
@@ -1642,7 +1643,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
-                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
