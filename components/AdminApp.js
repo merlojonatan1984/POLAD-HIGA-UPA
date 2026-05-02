@@ -920,23 +920,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
                   <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
                     {efectivos.map(ef => {
-                      const hsAsig = horasAsig[ef.legajo] || 0
                       const turnosEf = turnos[ef.legajo] || []
-                      // Count manual hours from planillaManual
-                      const hsManual = Object.values(planillaManualGlobal)
-                        .filter(m => String(m.legajo) === String(ef.legajo))
-                        .reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
-                      const totalHs = hsAsig + hsManual
-                      const color = totalHs >= 150 ? '#EF9F27' : totalHs > 0 ? '#1D9E75' : '#8b90a0'
                       return (
                         <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
                           onClick={() => cargarPlanillaEf(ef)}>
                           <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
-                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
-                          <div style={{ display:'flex',justifyContent:'space-between',fontSize:11 }}>
-                            <span style={{ color:'var(--text-muted)' }}>{turnosEf.length} guardias asig.</span>
-                            <span style={{ color,fontWeight:500 }}>{totalHs} hs</span>
-                          </div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)' }}>{turnosEf.length} guardias asignadas</div>
                         </div>
                       )
                     })}
