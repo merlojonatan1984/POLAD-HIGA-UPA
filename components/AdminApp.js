@@ -383,6 +383,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -779,6 +780,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
@@ -958,7 +960,7 @@ export default function AdminApp() {
     setPlanillaManual(manualMap)
     const firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
     setFirmas(prev => ({ ...prev, [ef.legajo]: firmaObj }))
-    setPlanillaEf({ ...ef, asistencia: asist || [] })
+    setPlanillaEf(prev => ({ ...(prev || ef), ...ef, asistencia: asist || [] }))
     setCargandoPlanilla(false)
   }
 
@@ -1643,6 +1645,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
                                         setManualHorario('')
                                         setManualHoras('')
+                                        await cargarPlanillaEf(ef)
                                       }}>+ Agregar</button>
                                   </div>
                                 </td>
