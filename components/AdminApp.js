@@ -161,20 +161,31 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
               const pDia = asistMap[`${dia}-d`]
               const pNoche = asistMap[`${dia}-n`]
-              const manualDia = planillaManual[`${dia}-08:00 a 20:00`]
-              const manualNoche1 = planillaManual[`${dia}-20:00 a 24:00`]
-              const manualNoche2 = planillaManual[`${dia}-00:00 a 08:00`]
 
               const entradas = []
-              if (pDia || tDia || manualDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : manualDia ? manualDia.horas : 0, confirmado: !!pDia, manual: !!manualDia })
-              if (pNoche || tNoche) {
-                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche })
-                if (pNoche && dia < DIAS_MES) {
-                  // Will be added to next day
-                }
+
+              // Turnos del cronograma con asistencia
+              if (pDia || tDia) {
+                entradas.push({ horario: '08:00 a 20:00', horas: pDia ? 12 : 0, confirmado: !!pDia, manual: false })
               }
-              if (manualNoche1) entradas.push({ horario: '20:00 a 24:00', horas: manualNoche1.horas, confirmado: false, manual: true })
-              if (manualNoche2) entradas.push({ horario: '00:00 a 08:00', horas: manualNoche2.horas, confirmado: false, manual: true })
+              if (pNoche || tNoche) {
+                entradas.push({ horario: '20:00 a 24:00', horas: pNoche ? 4 : 0, confirmado: !!pNoche, manual: false })
+              }
+
+              // Todos los registros manuales de este día
+              Object.values(planillaManual).forEach(m => {
+                if (m.dia === dia) {
+                  const key = `${dia}-${m.horario}`
+                  // Avoid duplicating if already added from cronograma
+                  const yaExiste = entradas.find(e => e.horario === m.horario)
+                  if (!yaExiste) {
+                    entradas.push({ horario: m.horario, horas: m.horas, confirmado: false, manual: true, id: m.id })
+                  }
+                }
+              })
+
+              // Sort by horario
+              entradas.sort((a,b) => a.horario.localeCompare(b.horario))
 
               return { dia, entradas }
             })
