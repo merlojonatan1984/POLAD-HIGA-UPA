@@ -87,25 +87,26 @@ export default function ControlApp() {
       }]).select().single()
       if (data) {
         setAsistencia(prev => ({ ...prev, [key]: data }))
-        // If noche turno, auto-add planilla_manual entries
+        // Auto-add planilla_manual entries based on turno
+        async function insertarSiNoExiste(legajo, dia, horario, horas, sector) {
+          const { data: existe } = await supabase.from('planilla_manual')
+            .select('id').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+            .eq('dia', dia).eq('horario', horario).single()
+          if (!existe) {
+            await supabase.from('planilla_manual').insert([{
+              legajo, mes: MES, anio: ANIO, dia, horario, horas, sector: sector || ''
+            }])
+          }
+        }
         if (turno === 'n') {
-          // 4hs this day: 20:00-24:00
-          await supabase.from('planilla_manual').upsert([{
-            legajo, mes: MES, anio: ANIO, dia, horario: '20:00 a 24:00', horas: 4, sector: sector || ''
-          }], { onConflict: 'legajo,mes,anio,dia,horario' })
-          // 8hs next day: 00:00-08:00
+          await insertarSiNoExiste(legajo, dia, '20:00 a 24:00', 4, sector)
           if (dia < DIAS_MES) {
-            await supabase.from('planilla_manual').upsert([{
-              legajo, mes: MES, anio: ANIO, dia: dia + 1, horario: '00:00 a 08:00', horas: 8, sector: sector || ''
-            }], { onConflict: 'legajo,mes,anio,dia,horario' })
+            await insertarSiNoExiste(legajo, dia + 1, '00:00 a 08:00', 8, sector)
           }
           await cargarDatos(lugar)
         }
-        // If dia turno, auto-add planilla_manual entry
         if (turno === 'd') {
-          await supabase.from('planilla_manual').upsert([{
-            legajo, mes: MES, anio: ANIO, dia, horario: '08:00 a 20:00', horas: 12, sector: sector || ''
-          }], { onConflict: 'legajo,mes,anio,dia,horario' })
+          await insertarSiNoExiste(legajo, dia, '08:00 a 20:00', 12, sector)
           await cargarDatos(lugar)
         }
       }
