@@ -923,7 +923,12 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       const hsAsig = horasAsig[ef.legajo] || 0
                       const turnosEf = turnos[ef.legajo] || []
                       // Count manual hours from planillaManual
-                      const hsManual = Object.values(planillaManualGlobal).filter(m => String(m.legajo) === String(ef.legajo)).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
+                      const entradasUnicas = {}
+                      Object.values(planillaManualGlobal).filter(m => String(m.legajo) === String(ef.legajo)).forEach(m => {
+                        const k = `${m.dia}-${m.horario}`
+                        if (!entradasUnicas[k] || m.id > entradasUnicas[k].id) entradasUnicas[k] = m
+                      })
+                      const hsManual = Object.values(entradasUnicas).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
                       const totalHs = hsAsig + hsManual
                       const color = totalHs >= 150 ? '#EF9F27' : totalHs > 0 ? '#1D9E75' : '#8b90a0'
                       return (
@@ -1092,9 +1097,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         </div>
 
                         <div style={{ marginTop:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8 }}>
-                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Resumen del mes</div>
-                          <div style={{ fontSize:20,fontWeight:500,color:'#1D9E75' }}>{totalHoras} hs</div>
-                          <div style={{ fontSize:12,color:'var(--text-muted)' }}>90%: {total90} hs</div>
+                          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:4 }}>Total horas del mes</div>
+                          <div style={{ fontSize:28,fontWeight:600,color:'#1D9E75' }}>{totalHoras} hs</div>
                         </div>
                       </div>
                     </div>
