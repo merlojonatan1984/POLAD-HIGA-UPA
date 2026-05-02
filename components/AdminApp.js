@@ -1346,5 +1346,4 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
       </div>
     </div>
   )
-}const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-const NOMBRE_MES_P = MESES_NOMBRES[MES-1] + ' ' + ANIO
+}
