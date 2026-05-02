@@ -923,12 +923,9 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       const hsAsig = horasAsig[ef.legajo] || 0
                       const turnosEf = turnos[ef.legajo] || []
                       // Count manual hours from planillaManual
-                      const entradasUnicas = {}
-                      Object.values(planillaManualGlobal).filter(m => String(m.legajo) === String(ef.legajo)).forEach(m => {
-                        const k = `${m.dia}-${m.horario}`
-                        if (!entradasUnicas[k] || m.id > entradasUnicas[k].id) entradasUnicas[k] = m
-                      })
-                      const hsManual = Object.values(entradasUnicas).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
+                      const hsManual = Object.values(planillaManualGlobal)
+                        .filter(m => String(m.legajo) === String(ef.legajo))
+                        .reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
                       const totalHs = hsAsig + hsManual
                       const color = totalHs >= 150 ? '#EF9F27' : totalHs > 0 ? '#1D9E75' : '#8b90a0'
                       return (
@@ -973,7 +970,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       <div className="panel">
                         <div className="panel-header">
                           <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
-                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs · 90%: {total90} hs</span>
+                          <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs</span>
                         </div>
                         <div style={{ overflowX:'auto' }}>
                           <table>
