@@ -59,56 +59,36 @@ export default function ControlApp() {
   async function togglePresente(legajo, dia, turno, sector) {
     const key = `${legajo}-${dia}-${turno}`
     const existe = asistencia[key]
+    const horario = turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+    const horas = 12
+
     if (existe) {
-      // Remove presence
       await supabase.from('asistencia').delete().eq('id', existe.id)
+      await supabase.from('planilla_manual')
+        .delete()
+        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+        .eq('dia', dia).eq('horario', horario)
       const nuevo = { ...asistencia }
       delete nuevo[key]
-      // If noche, also remove the next day's 00-08 planilla_manual entry
-      if (turno === 'n') {
-        const diaSig = dia + 1
-        await supabase.from('planilla_manual')
-          .delete()
-          .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
-          .eq('dia', diaSig).eq('horario', '00:00 a 08:00')
-        // Also remove the 20-24 entry for this day
-        await supabase.from('planilla_manual')
-          .delete()
-          .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
-          .eq('dia', dia).eq('horario', '20:00 a 24:00')
-      }
       setAsistencia(nuevo)
       await cargarDatos(lugar)
     } else {
-      // Add presence
       const { data } = await supabase.from('asistencia').insert([{
         legajo, mes: MES, anio: ANIO, dia, turno, sector, lugar,
         presente: true, confirmado_at: new Date().toISOString()
       }]).select().single()
       if (data) {
         setAsistencia(prev => ({ ...prev, [key]: data }))
-        // Auto-add planilla_manual entries based on turno
-        async function insertarSiNoExiste(legajo, dia, horario, horas, sector) {
-          const { data: existe } = await supabase.from('planilla_manual')
-            .select('id').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
-            .eq('dia', dia).eq('horario', horario).single()
-          if (!existe) {
-            await supabase.from('planilla_manual').insert([{
-              legajo, mes: MES, anio: ANIO, dia, horario, horas, sector: sector || ''
-            }])
-          }
+        // Check if entry already exists
+        const { data: existeManual } = await supabase.from('planilla_manual')
+          .select('id').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+          .eq('dia', dia).eq('horario', horario).maybeSingle()
+        if (!existeManual) {
+          await supabase.from('planilla_manual').insert([{
+            legajo, mes: MES, anio: ANIO, dia, horario, horas, sector: sector || ''
+          }])
         }
-        if (turno === 'n') {
-          await insertarSiNoExiste(legajo, dia, '20:00 a 24:00', 4, sector)
-          if (dia < DIAS_MES) {
-            await insertarSiNoExiste(legajo, dia + 1, '00:00 a 08:00', 8, sector)
-          }
-          await cargarDatos(lugar)
-        }
-        if (turno === 'd') {
-          await insertarSiNoExiste(legajo, dia, '08:00 a 20:00', 12, sector)
-          await cargarDatos(lugar)
-        }
+        await cargarDatos(lugar)
       }
     }
   }
