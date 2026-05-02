@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
+const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
+const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30' }
+const MES = new Date().getMonth() + 1
+const ANIO = new Date().getFullYear()
+const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
+const NOMBRE_MES_SOLO = MESES_NOMBRES[MES-1]
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
+
 
 
 export default function AdminApp() {
@@ -899,10 +910,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
         })()}
 
         {vista === 'planillas' && (() => {
-          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-          const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
-          const NOMBRE_MES_SOLO = MESES[MES-1]
-
           function buildFilasPlanilla(ef) {
             const asist = ef.asistencia || []
             const asistMap = {}
@@ -1339,4 +1346,5 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
       </div>
     </div>
   )
-}
+}const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const NOMBRE_MES_P = MESES_NOMBRES[MES-1] + ' ' + ANIO
