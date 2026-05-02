@@ -194,7 +194,8 @@ export default function AdminApp() {
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
-  const [planillaManual, setPlanillaManual] = useState({})
+  const [planillaManual, setPlanillaManual] = useState({})  // individual: dia-horario
+  const [planillaManualGlobal, setPlanillaManualGlobal] = useState({})  // global: legajo-dia-horario
   const [firmas, setFirmas] = useState({})
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
   const [filasCache, setFilasCache] = useState([])
@@ -229,10 +230,10 @@ export default function AdminApp() {
     ;(turns || []).forEach(t => { if (!turnosMap[t.legajo]) turnosMap[t.legajo] = []; turnosMap[t.legajo].push(t); hsMap[t.legajo] = (hsMap[t.legajo] || 0) + 12 })
     setTurnos(turnosMap)
     setHorasAsig(hsMap)
-    // Load all manual hours for the month
-    const manualMap = {}
-    ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}-${m.legajo}`] = m })
-    setPlanillaManual(manualMap)
+    // Load all manual hours for the month into global map
+    const manualGlobalMap = {}
+    ;(manual || []).forEach(m => { manualGlobalMap[`${m.legajo}-${m.dia}-${m.horario}`] = m })
+    setPlanillaManualGlobal(manualGlobalMap)
     setLoading(false)
   }
 
@@ -291,6 +292,12 @@ export default function AdminApp() {
     const manualMap = {}
     ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}`] = m })
     setPlanillaManual(manualMap)
+    // Also update global map
+    setPlanillaManualGlobal(prev => {
+      const next = { ...prev }
+      ;(manual || []).forEach(m => { next[`${m.legajo}-${m.dia}-${m.horario}`] = m })
+      return next
+    })
     const firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
     setFirmas(prev => ({ ...prev, [ef.legajo]: firmaObj }))
     setPlanillaEf(prev => ({ ...(prev || ef), ...ef, asistencia: asist || [] }))
@@ -348,6 +355,17 @@ export default function AdminApp() {
     const newMap = {}
     ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
     setPlanillaManual(newMap)
+    // Update global map too
+    if (planillaEf) {
+      setPlanillaManualGlobal(prev => {
+        const next = { ...prev }
+        // Remove old entries for this efectivo
+        Object.keys(next).forEach(k => { if (k.startsWith(`${legajo}-`)) delete next[k] })
+        // Add new entries
+        ;(fresh || []).forEach(m => { next[`${m.legajo}-${m.dia}-${m.horario}`] = m })
+        return next
+      })
+    }
   }
 
   async function subirFirmaAdmin(legajo, file) {
@@ -895,7 +913,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       const hsAsig = horasAsig[ef.legajo] || 0
                       const turnosEf = turnos[ef.legajo] || []
                       // Count manual hours from planillaManual
-                      const hsManual = Object.values(planillaManual).filter(m => m.legajo === ef.legajo).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
+                      const hsManual = Object.values(planillaManualGlobal).filter(m => String(m.legajo) === String(ef.legajo)).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
                       const totalHs = hsAsig + hsManual
                       const color = totalHs >= 150 ? '#EF9F27' : totalHs > 0 ? '#1D9E75' : '#8b90a0'
                       return (
