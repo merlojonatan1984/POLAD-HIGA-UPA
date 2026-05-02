@@ -174,6 +174,15 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
 }
 
 
+function detectarGenero(nombre) {
+  if (!nombre) return ''
+  // Get first name (after comma usually: APELLIDO, NOMBRE)
+  const partes = nombre.split(',')
+  const primerNombre = (partes[1] || partes[0]).trim().split(' ')[0].toLowerCase()
+  const femeninos = ['maria','ana','cristina','laura','patricia','sandra','claudia','andrea','carolina','alejandra','veronica','marcela','gabriela','natalia','silvana','paola','valeria','daniela','leticia','liliana','graciela','roxana','vanesa','vanessa','noelia','solana','evelyn','daiana','anahi','oriana','pamela','nahir','micaela','judit','mabel','belen','julieta','narela','viviana','elizabeth','argentina','ailen','soledad','susana','monica','rosa','luz','julia','victoria','lucia','agustina','florencia','marina','melisa','romina','sabrina','silvina','cecilia','mariana','lorena','carina','miriam','nora','beatriz','alicia','isabel','raquel','teresa','elsa','marta','norma','delia','irma','estela','hilda','lidia','gladys','edith','olga','elena','ines','alba','emma','lilia','alba','nadia','brenda','camila','magali','milagros','antonella','gisela','karina','ivana','natalia']
+  return femeninos.includes(primerNombre) ? 'Femenino' : 'Masculino'
+}
+
 export default function AdminApp() {
   const router = useRouter()
   const [vista, setVista] = useState('resumen')
@@ -925,7 +934,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
                           onClick={() => cargarPlanillaEf(ef)}>
                           <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
-                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo} · {detectarGenero(ef.nombre)}</div>
                           <div style={{ fontSize:10,color:'var(--text-muted)' }}>{turnosEf.length} guardias asignadas</div>
                         </div>
                       )
