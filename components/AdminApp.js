@@ -215,10 +215,11 @@ export default function AdminApp() {
 
   async function cargarTodo() {
     setLoading(true)
-    const [{ data: efs }, { data: disp }, { data: turns }] = await Promise.all([
+    const [{ data: efs }, { data: disp }, { data: turns }, { data: manual }] = await Promise.all([
       supabase.from('efectivos').select('*').eq('es_admin', false).order('nombre'),
       supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO),
-      supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO)
+      supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO),
+      supabase.from('planilla_manual').select('*').eq('mes', MES).eq('anio', ANIO)
     ])
     setEfectivos(efs || [])
     const dispMap = {}
@@ -228,6 +229,10 @@ export default function AdminApp() {
     ;(turns || []).forEach(t => { if (!turnosMap[t.legajo]) turnosMap[t.legajo] = []; turnosMap[t.legajo].push(t); hsMap[t.legajo] = (hsMap[t.legajo] || 0) + 12 })
     setTurnos(turnosMap)
     setHorasAsig(hsMap)
+    // Load all manual hours for the month
+    const manualMap = {}
+    ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}-${m.legajo}`] = m })
+    setPlanillaManual(manualMap)
     setLoading(false)
   }
 
@@ -890,7 +895,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       const hsAsig = horasAsig[ef.legajo] || 0
                       const turnosEf = turnos[ef.legajo] || []
                       // Count manual hours from planillaManual
-                      const hsManual = Object.values(planillaManual).filter(m => m.legajo === ef.legajo).reduce((s, m) => s + (m.horas || 0), 0)
+                      const hsManual = Object.values(planillaManual).filter(m => m.legajo === ef.legajo).reduce((s, m) => s + (parseInt(m.horas) || 0), 0)
                       const totalHs = hsAsig + hsManual
                       const color = totalHs >= 150 ? '#EF9F27' : totalHs > 0 ? '#1D9E75' : '#8b90a0'
                       return (
