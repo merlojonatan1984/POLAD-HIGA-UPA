@@ -60,16 +60,55 @@ export default function ControlApp() {
     const key = `${legajo}-${dia}-${turno}`
     const existe = asistencia[key]
     if (existe) {
+      // Remove presence
       await supabase.from('asistencia').delete().eq('id', existe.id)
       const nuevo = { ...asistencia }
       delete nuevo[key]
+      // If noche, also remove the next day's 00-08 planilla_manual entry
+      if (turno === 'n') {
+        const diaSig = dia + 1
+        await supabase.from('planilla_manual')
+          .delete()
+          .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+          .eq('dia', diaSig).eq('horario', '00:00 a 08:00')
+        // Also remove the 20-24 entry for this day
+        await supabase.from('planilla_manual')
+          .delete()
+          .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+          .eq('dia', dia).eq('horario', '20:00 a 24:00')
+      }
       setAsistencia(nuevo)
+      await cargarDatos(lugar)
     } else {
+      // Add presence
       const { data } = await supabase.from('asistencia').insert([{
         legajo, mes: MES, anio: ANIO, dia, turno, sector, lugar,
         presente: true, confirmado_at: new Date().toISOString()
       }]).select().single()
-      if (data) setAsistencia(prev => ({ ...prev, [key]: data }))
+      if (data) {
+        setAsistencia(prev => ({ ...prev, [key]: data }))
+        // If noche turno, auto-add planilla_manual entries
+        if (turno === 'n') {
+          // 4hs this day: 20:00-24:00
+          await supabase.from('planilla_manual').upsert([{
+            legajo, mes: MES, anio: ANIO, dia, horario: '20:00 a 24:00', horas: 4, sector: sector || ''
+          }], { onConflict: 'legajo,mes,anio,dia,horario' })
+          // 8hs next day: 00:00-08:00
+          if (dia < DIAS_MES) {
+            await supabase.from('planilla_manual').upsert([{
+              legajo, mes: MES, anio: ANIO, dia: dia + 1, horario: '00:00 a 08:00', horas: 8, sector: sector || ''
+            }], { onConflict: 'legajo,mes,anio,dia,horario' })
+          }
+          await cargarDatos(lugar)
+        }
+        // If dia turno, auto-add planilla_manual entry
+        if (turno === 'd') {
+          await supabase.from('planilla_manual').upsert([{
+            legajo, mes: MES, anio: ANIO, dia, horario: '08:00 a 20:00', horas: 12, sector: sector || ''
+          }], { onConflict: 'legajo,mes,anio,dia,horario' })
+          await cargarDatos(lugar)
+        }
+      }
     }
   }
 
