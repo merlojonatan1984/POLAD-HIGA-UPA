@@ -4,13 +4,10 @@ import { supabase } from '../lib/supabase'
 
 const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
 const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30' }
-const MES = new Date().getMonth() + 1
-const ANIO = new Date().getFullYear()
-const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+const MES_ACTUAL = new Date().getMonth() + 1
+const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
-const NOMBRE_MES_SOLO = MESES_NOMBRES[MES-1]
-const NOMBRE_MES_P = NOMBRE_MES
+// NOMBRE_MES is now computed dynamically from mesSeleccionado state
 const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
 const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
 
@@ -183,6 +180,14 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
 
 export default function AdminApp() {
   const router = useRouter()
+  const [mesSeleccionado, setMesSeleccionado] = useState(MES_ACTUAL)
+  const [anioSeleccionado, setAnioSeleccionado] = useState(ANIO_ACTUAL)
+  const MES = mesSeleccionado
+  const ANIO = anioSeleccionado
+  const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+  const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
+  const NOMBRE_MES_SOLO = MESES_NOMBRES[MES-1]
+  const NOMBRE_MES_P = NOMBRE_MES
   const [vista, setVista] = useState('resumen')
   const [efectivos, setEfectivos] = useState([])
   const [disponibilidad, setDisponibilidad] = useState({})
@@ -201,6 +206,7 @@ export default function AdminApp() {
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
+  const [lugarPlanilla, setLugarPlanilla] = useState('HIGA')
   const [planillaManual, setPlanillaManual] = useState({})  // individual: dia-horario
   const [planillaManualGlobal, setPlanillaManualGlobal] = useState({})  // global: legajo-dia-horario
   const [firmas, setFirmas] = useState({})
@@ -220,6 +226,10 @@ export default function AdminApp() {
     if (!parsed.es_admin) { router.push('/efectivo'); return }
     cargarTodo()
   }, [])
+
+  useEffect(() => {
+    if (mounted) cargarTodo()
+  }, [mesSeleccionado, anioSeleccionado])
 
   async function cargarTodo() {
     setLoading(true)
@@ -289,12 +299,13 @@ export default function AdminApp() {
   }
   async function handleEliminarPersonal(ef) { await supabase.from('efectivos').delete().eq('id', ef.id); setModalPersonal(null); await cargarTodo() }
 
-  async function cargarPlanillaEf(ef) {
+  async function cargarPlanillaEf(ef, lugar) {
     setCargandoPlanilla(true)
+    const lg = lugar || lugarPlanilla
     const [{ data: manual }, { data: firmasData }, { data: asist }] = await Promise.all([
-      supabase.from('planilla_manual').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO),
+      supabase.from('planilla_manual').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lg),
       supabase.from('firmas').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO),
-      supabase.from('asistencia').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO)
+      supabase.from('asistencia').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lg)
     ])
     const manualMap = {}
     ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}`] = m })
@@ -373,7 +384,7 @@ export default function AdminApp() {
     if (existe) {
       await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
     } else {
-      await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '' }])
+      await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: lugarPlanilla }])
     }
     // Reload from DB
     const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
@@ -488,7 +499,7 @@ td{border:1px solid #000;padding:3px 5px;font-size:9px;text-align:center;height:
 <div class="field"><label>Servicio POLAD</label><span>POLAD</span></div>
 <div class="field"><label>Destino</label><span>Ministerio de Salud - Pcia de Bs As</span></div>
 </div><div>
-<div class="field"><label>Sucursal</label><span>HIGA-UPA</span></div>
+<div class="field"><label>Sucursal</label><span>${lugarPlanilla}</span></div>
 <div class="field"><label>Localidad</label><span>Mar del Plata</span></div>
 </div></div>
 <div class="row4">
@@ -552,6 +563,16 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               style={{ fontWeight: vista === v ? 600 : 400, background: vista === v ? 'rgba(200,168,75,0.15)' : 'transparent', color: vista === v ? '#c8a84b' : '#8b90a0', border: vista === v ? '0.5px solid rgba(200,168,75,0.6)' : '0.5px solid rgba(255,255,255,0.1)' }}
               onClick={() => setVista(v)}>{LABELS[v]}</button>
           ))}
+          <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
+            <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }}
+              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
+            </select>
+            <select value={anioSeleccionado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }}
+              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+              {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
+            </select>
+          </div>
           <button className="btn btn-sm" style={{ background: 'rgba(200,168,75,0.15)', color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.4)' }} onClick={() => router.push('/control')}>Control asistencia</button>
           <button className="btn btn-sm" style={{ color: '#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
@@ -950,13 +971,22 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             <div>
               {!planillaEf ? (
                 <div>
+                  <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:14 }}>
+                    <span style={{ fontSize:12,color:'var(--text-muted)' }}>Lugar:</span>
+                    {['HIGA','UPA','MODULAR'].map(lg => (
+                      <button key={lg} className="btn btn-sm"
+                        style={{ fontWeight:lugarPlanilla===lg?600:400,background:lugarPlanilla===lg?'rgba(200,168,75,0.15)':'transparent',color:lugarPlanilla===lg?'#c8a84b':'#8b90a0',border:lugarPlanilla===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
+                        onClick={() => setLugarPlanilla(lg)}>{lg}</button>
+                    ))}
+                    <span style={{ fontSize:11,color:'var(--text-hint)',marginLeft:8 }}>Solo se muestran efectivos con horas en este lugar</span>
+                  </div>
                   <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
                   <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
                     {efectivos.map(ef => {
                       const turnosEf = turnos[ef.legajo] || []
                       return (
                         <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
-                          onClick={() => cargarPlanillaEf(ef)}>
+                          onClick={() => { cargarPlanillaEf(ef, lugarPlanilla) }}>
                           <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
                           <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
                           <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
