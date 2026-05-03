@@ -174,15 +174,6 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
 }
 
 
-function detectarGenero(nombre) {
-  if (!nombre) return ''
-  // Get first name (after comma usually: APELLIDO, NOMBRE)
-  const partes = nombre.split(',')
-  const primerNombre = (partes[1] || partes[0]).trim().split(' ')[0].toLowerCase()
-  const femeninos = ['maria','ana','cristina','laura','patricia','sandra','claudia','andrea','carolina','alejandra','veronica','marcela','gabriela','natalia','silvana','paola','valeria','daniela','leticia','liliana','graciela','roxana','vanesa','vanessa','noelia','solana','evelyn','daiana','anahi','oriana','pamela','nahir','micaela','judit','mabel','belen','julieta','narela','viviana','elizabeth','argentina','ailen','soledad','susana','monica','rosa','luz','julia','victoria','lucia','agustina','florencia','marina','melisa','romina','sabrina','silvina','cecilia','mariana','lorena','carina','miriam','nora','beatriz','alicia','isabel','raquel','teresa','elsa','marta','norma','delia','irma','estela','hilda','lidia','gladys','edith','olga','elena','ines','alba','emma','lilia','alba','nadia','brenda','camila','magali','milagros','antonella','gisela','karina','ivana','natalia']
-  return femeninos.includes(primerNombre) ? 'Femenino' : 'Masculino'
-}
-
 export default function AdminApp() {
   const router = useRouter()
   const [vista, setVista] = useState('resumen')
@@ -307,7 +298,15 @@ export default function AdminApp() {
       ;(manual || []).forEach(m => { next[`${m.legajo}-${m.dia}-${m.horario}`] = m })
       return next
     })
-    const firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
+    // Use monthly firma or fall back to permanent firma from efectivos
+    let firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
+    if (!firmaObj?.firma_url && ef.firma_url) {
+      // Auto-create monthly firma from permanent one
+      const { data: newFirma } = await supabase.from('firmas').insert([{
+        legajo: ef.legajo, mes: MES, anio: ANIO, firma_url: ef.firma_url
+      }]).select().single()
+      firmaObj = newFirma || { firma_url: ef.firma_url }
+    }
     setFirmas(prev => ({ ...prev, [ef.legajo]: firmaObj }))
     setPlanillaEf(prev => ({ ...(prev || ef), ...ef, asistencia: asist || [] }))
     setCargandoPlanilla(false)
@@ -391,6 +390,9 @@ export default function AdminApp() {
     const reader = new FileReader()
     reader.onload = async (e) => {
       const base64 = e.target.result
+      // Save permanently to efectivos table
+      await supabase.from('efectivos').update({ firma_url: base64 }).eq('legajo', legajo)
+      // Save to monthly firmas table
       const existeFirma = firmas[legajo]
       if (existeFirma) {
         await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
@@ -398,8 +400,20 @@ export default function AdminApp() {
         await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
       }
       setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+      // Update efectivos state
+      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: base64 } : e))
     }
     reader.readAsDataURL(file)
+  }
+
+  async function eliminarFirmaAdmin(legajo) {
+    await supabase.from('efectivos').update({ firma_url: null }).eq('legajo', legajo)
+    const existeFirma = firmas[legajo]
+    if (existeFirma) {
+      await supabase.from('firmas').update({ firma_url: null }).eq('id', existeFirma.id)
+    }
+    setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: null } }))
+    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: null } : e))
   }
 
   function buildFilasPlanilla(ef) {
@@ -934,8 +948,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,padding:'12px 14px',cursor:'pointer' }}
                           onClick={() => cargarPlanillaEf(ef)}>
                           <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
-                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo} · {detectarGenero(ef.nombre)}</div>
-                          <div style={{ fontSize:10,color:'var(--text-muted)' }}>{turnosEf.length} guardias asignadas</div>
+                          <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:4 }}>Leg. {ef.legajo} · {ef.jerarquia||ef.tipo}</div>
+                          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+                            <span style={{ fontSize:10,color:'var(--text-muted)' }}>{turnosEf.length} guardias asignadas</span>
+                            <span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:10 }}>
+                              <span style={{ width:8,height:8,borderRadius:'50%',background:ef.firma_url?'#1D9E75':'#E24B4A',display:'inline-block' }}></span>
+                              <span style={{ color:ef.firma_url?'#1D9E75':'#E24B4A' }}>{ef.firma_url?'Firma ✓':'Sin firma'}</span>
+                            </span>
+                          </div>
                         </div>
                       )
                     })}
@@ -1074,10 +1094,17 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                             {firma
                               ? <div>
                                   <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
-                                  <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11 }}
-                                    onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
-                                    Cambiar firma
-                                  </button>
+                                  <div style={{ display:'flex',gap:6,marginTop:4 }}>
+                                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }}
+                                      onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>
+                                      Cambiar
+                                    </button>
+                                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }}
+                                      onClick={() => { if(confirm('¿Eliminar la firma de este efectivo?')) eliminarFirmaAdmin(ef.legajo) }}>
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                  <p style={{ fontSize:10,color:'var(--text-hint)',marginTop:6,textAlign:'center' }}>La firma queda guardada para todos los meses</p>
                                 </div>
                               : <div>
                                   <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}>
