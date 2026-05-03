@@ -369,7 +369,7 @@ export default function AdminApp() {
   }, [planillaEf, planillaManual, turnos])
 
 
-  async function guardarHoraManual(legajo, dia, horario, horas, sector) {
+  async function guardarHoraManual(legajo, dia, horario, horas, sector, lugar) {
     const key = `${dia}-${horario}`
     const existe = planillaManual[key]
     if (horas === '' || horas === 0) {
@@ -384,7 +384,7 @@ export default function AdminApp() {
     if (existe) {
       await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
     } else {
-      await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: lugarPlanilla }])
+      await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: lugar || 'HIGA' }])
     }
     // Reload from DB
     const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
@@ -1101,7 +1101,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                         if (diff <= 0) diff += 24*60  // overnight
                                         const hsCalc = Math.round(diff/60)
                                         const horarioStr = `${manualHorario} a ${manualHoras}`
-                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '')
+                                        await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '', lugarPlanilla)
                                         setManualHorario('')
                                         setManualHoras('')
                                         await cargarPlanillaEf(ef)
