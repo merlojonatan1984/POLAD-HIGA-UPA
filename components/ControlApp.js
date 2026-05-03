@@ -10,7 +10,7 @@ const NOMBRE_MES = MESES[MES-1] + ' ' + ANIO
 const NOMBRE_MES_SOLO = MESES[MES-1]
 const SECTORES = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','UPA']
 const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','UPA':'#D85A30' }
-const LUGARES = ['HIGA','UPA','MODULAR']
+const LUGARES = ['HIGA', 'UPA', 'MODULAR']
 
 export default function ControlApp() {
   const router = useRouter()
@@ -67,7 +67,7 @@ export default function ControlApp() {
       await supabase.from('planilla_manual')
         .delete()
         .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
-        .eq('dia', dia).eq('horario', horario)
+        .eq('dia', dia).eq('horario', horario).eq('lugar', lugar)
       const nuevo = { ...asistencia }
       delete nuevo[key]
       setAsistencia(nuevo)
@@ -409,11 +409,17 @@ td.ok{background:#e8f5e9}
           <span style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',fontSize:11,padding:'2px 8px',borderRadius:3,fontWeight:500 }}>{NOMBRE_MES}</span>
         </div>
         <div style={{ display:'flex',gap:6,alignItems:'center' }}>
-          {LUGARES.map(lg => (
-            <button key={lg} className="btn btn-sm"
-              style={{ fontWeight:lugar===lg?600:400,background:lugar===lg?'rgba(200,168,75,0.15)':'transparent',color:lugar===lg?'#c8a84b':'#8b90a0',border:lugar===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
-              onClick={() => { setLugar(lg); cargarDatos(lg) }}>{lg}</button>
-          ))}
+          <div style={{ display:'flex',gap:3,background:'rgba(255,255,255,0.04)',borderRadius:6,padding:3,border:'0.5px solid rgba(255,255,255,0.08)' }}>
+            {['HIGA','UPA'].map(lg => (
+              <button key={lg} className="btn btn-sm"
+                style={{ fontWeight:lugar===lg?600:400,background:lugar===lg?'rgba(200,168,75,0.15)':'transparent',color:lugar===lg?'#c8a84b':'#8b90a0',border:lugar===lg?'0.5px solid rgba(200,168,75,0.6)':'none' }}
+                onClick={() => { setLugar(lg); cargarDatos(lg) }}>{lg}</button>
+            ))}
+          </div>
+          <div style={{ width:1,height:20,background:'rgba(255,255,255,0.1)' }}></div>
+          <button className="btn btn-sm"
+            style={{ fontWeight:lugar==='MODULAR'?600:400,background:lugar==='MODULAR'?'rgba(200,168,75,0.15)':'transparent',color:lugar==='MODULAR'?'#c8a84b':'#8b90a0',border:lugar==='MODULAR'?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
+            onClick={() => { setLugar('MODULAR'); cargarDatos('MODULAR') }}>MODULAR</button>
           <button className="btn btn-sm" onClick={() => router.push('/admin')} style={{ color:'#8b90a0' }}>← Admin</button>
         </div>
       </div>
