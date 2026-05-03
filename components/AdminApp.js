@@ -2,8 +2,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA']
-const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30' }
+const SECTORES_POR_LUGAR = {
+  'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento'],
+  'UPA': ['UPA'],
+  'MODULAR': ['Modular']
+}
+const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA', 'Modular']
+const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30', 'Modular': '#20A0B0' }
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -13,7 +18,7 @@ const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disp
 
 
 
-function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar }) {
+function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, sectores }) {
   const esNuevo = !turno.id
   const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
   const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
@@ -53,7 +58,7 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               <div>
                 <label>Sector</label>
                 <select value={sectorSel} onChange={e => setSectorSel(e.target.value)}>
-                  {SECTORES.map(s => <option key={s}>{s}</option>)}
+                  {(sectores || SECTORES).map(s => <option key={s}>{s}</option>)}
                 </select>
               </div>
             </div>
@@ -203,6 +208,7 @@ export default function AdminApp() {
   const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroSector, setFiltroSector] = useState('Todos')
   const [filtroDia, setFiltroDia] = useState(1)
+  const [lugarEdicion, setLugarEdicion] = useState('HIGA')
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
@@ -549,7 +555,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 
   return (
     <div>
-      {modalTurno && <ModalTurno turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig} onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion} onEliminar={handleEliminarTurno} onAgregar={handleAgregarTurno} />}
+      {modalTurno && <ModalTurno turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig} onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion} onEliminar={handleEliminarTurno} onAgregar={handleAgregarTurno} sectores={SECTORES_POR_LUGAR[lugarEdicion] || SECTORES} />}
       {modalPersonal && <ModalPersonal datos={modalPersonal} onClose={() => { setModalPersonal(null); setMsgPersonal(null) }} onGuardar={handleGuardarPersonal} onEliminar={handleEliminarPersonal} guardando={guardandoPersonal} msg={msgPersonal} />}
 
       <div className="topbar">
@@ -839,10 +845,19 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             </div>
             <div style={{ marginBottom:12,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
               <h3 style={{ fontSize:14,fontWeight:500 }}>Día {filtroDia} — {NOMBRE_MES}</h3>
-              <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES[0],turno:'d',legajo:'' })}>+ Agregar turno</button>
+              <div style={{ display:'flex',gap:8,alignItems:'center' }}>
+                <div style={{ display:'flex',gap:3 }}>
+                  {['HIGA','UPA','MODULAR'].map(lg => (
+                    <button key={lg} className="btn btn-sm"
+                      style={{ fontWeight:lugarEdicion===lg?600:400,background:lugarEdicion===lg?'rgba(200,168,75,0.15)':'transparent',color:lugarEdicion===lg?'#c8a84b':'#8b90a0',border:lugarEdicion===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
+                      onClick={() => setLugarEdicion(lg)}>{lg}</button>
+                  ))}
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:(SECTORES_POR_LUGAR[lugarEdicion]||SECTORES)[0],turno:'d',legajo:'' })}>+ Agregar turno</button>
+              </div>
             </div>
             <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12 }}>
-              {SECTORES.map(sector => {
+              {(SECTORES_POR_LUGAR[lugarEdicion] || SECTORES).map(sector => {
                 const tDia = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='d'&&t.sector===sector)
                 const tNoche = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='n'&&t.sector===sector)
                 return (
