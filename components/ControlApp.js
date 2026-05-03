@@ -8,8 +8,13 @@ const DIAS_MES = new Date(ANIO, MES, 0).getDate()
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const NOMBRE_MES = MESES[MES-1] + ' ' + ANIO
 const NOMBRE_MES_SOLO = MESES[MES-1]
-const SECTORES = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','UPA']
-const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','UPA':'#D85A30' }
+const SECTORES_POR_LUGAR = {
+  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
+  'UPA': ['UPA'],
+  'MODULAR': ['Modular']
+}
+const SECTORES = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','UPA','Modular']
+const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','UPA':'#D85A30','Modular':'#20A0B0' }
 const LUGARES = ['HIGA', 'UPA', 'MODULAR']
 
 export default function ControlApp() {
@@ -448,7 +453,7 @@ td.ok{background:#e8f5e9}
 
         {/* Vista por sector/puesto */}
         <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20 }}>
-          {SECTORES.map(sector => {
+          {(SECTORES_POR_LUGAR[lugar] || SECTORES).map(sector => {
             const tDia = turnosHoy.filter(t => t.turno==='d' && t.sector===sector)
             const tNoche = turnosHoy.filter(t => t.turno==='n' && t.sector===sector)
             if (!tDia.length && !tNoche.length) return null
