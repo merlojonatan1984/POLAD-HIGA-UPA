@@ -147,6 +147,13 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
           </div>
           <div style={{ marginBottom:12 }}>
+            <label>Teléfono (WhatsApp)</label>
+            <input type="tel" placeholder="Ej: 2235123456" value={form.telefono||''}
+              onChange={e => setForm({...form,telefono:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+            <p style={{ fontSize:11,color:'#555b6e',marginTop:4 }}>Sin 0 ni 15, solo números. Ej: 2235123456</p>
+          </div>
+          <div style={{ marginBottom:12 }}>
             <label>Escalafón</label>
             <select value={form.tipo||'Uniformado'} onChange={e => setForm({...form,tipo:e.target.value})}
               style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
@@ -271,10 +278,10 @@ export default function AdminApp() {
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
-      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar' }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '' }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false }])
+      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '' }])
       if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
       setMsgPersonal('Efectivo dado de alta. Clave inicial: ' + datos.legajo)
     }
@@ -644,12 +651,15 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       <div style={{ fontSize: 9, color: '#185FA5' }}>{turnosNoche * 12} hs</div>
                     </div>
                   </div>
-                  {e.email && turnosEf.length > 0 && (
+                  {e.telefono && turnosEf.length > 0 && (
                     <a href={(() => {
-                      const lineas = turnosEf.sort((a,b)=>a.dia-b.dia).map(t=>`📅 Día ${t.dia} · ${t.turno==='d'?'Turno DÍA 08:00-20:00':'Turno NOCHE 20:00-08:00'} · ${t.sector}`).join('%0A')
-                      return `mailto:${e.email}?subject=Guardias POLAD - ${NOMBRE_MES}&body=*POLAD · HIGA-UPA*%0A%0AEstimado/a ${e.nombre}%0ALegajo: ${e.legajo}%0A%0ATus guardias confirmadas para ${NOMBRE_MES}:%0A%0A${lineas}%0A%0A✅ Total: ${turnosEf.length*12} hs%0A%0APOLAD · HIGA-UPA`
-                    })()} onClick={ev=>ev.stopPropagation()} style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px 10px',borderRadius:6,border:'0.5px solid rgba(200,168,75,0.4)',background:'rgba(200,168,75,0.08)',color:'#c8a84b',fontSize:11,fontWeight:500,textDecoration:'none' }}>
-                      ✉ Notificar por email
+                      const tel = '549' + e.telefono.replace(/\D/g,'')
+                      const lineas = turnosEf.sort((a,b)=>a.dia-b.dia).map(t=>`📅 Día ${t.dia} - ${t.turno==='d'?'Turno DÍA 08:00 a 20:00':'Turno NOCHE 20:00 a 08:00'} - ${t.sector}`).join('%0A')
+                      const msg = `Hola ${e.nombre.split(',')[1]?.trim() || e.nombre.split(' ')[0]}! 👋%0A%0AEste es tu resumen de guardias POLAD para *${NOMBRE_MES}*:%0A%0A${lineas}%0A%0A✅ Total estimado: ${turnosEf.length * 12} hs%0A%0ACualquier consulta comunicarse con el encargado.%0A%0A_POLAD - HIGA UPA - Mar del Plata_`
+                      return `https://wa.me/${tel}?text=${msg}`
+                    })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()} 
+                    style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px 10px',borderRadius:6,border:'0.5px solid rgba(37,211,102,0.4)',background:'rgba(37,211,102,0.08)',color:'#25D366',fontSize:11,fontWeight:500,textDecoration:'none' }}>
+                      <span>📱</span> Enviar guardias por WhatsApp
                     </a>
                   )}
                 </div>
