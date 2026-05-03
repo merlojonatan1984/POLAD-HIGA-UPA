@@ -501,39 +501,7 @@ td.ok{background:#e8f5e9}
         <input ref={firmaRef} type="file" accept="image/*" style={{ display:'none' }}
           onChange={e => { if (e.target.files[0] && legajoFirma) subirFirma(legajoFirma, e.target.files[0]) }} />
 
-        {/* Planillas individuales */}
-        <div style={{ borderTop:'0.5px solid var(--border)',paddingTop:16,marginTop:4 }}>
-          <h3 style={{ fontSize:13,fontWeight:500,marginBottom:12,color:'var(--text)' }}>Planillas individuales — imprimir</h3>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:8 }}>
-            {efectivos.map(ef => {
-              const turnosEf = turnos.filter(t => t.legajo === ef.legajo)
-              if (!turnosEf.length) return null
-              const confirmados = turnosEf.filter(t => asistencia[`${ef.legajo}-${t.dia}-${t.turno}`]).length
-              const tieneFirma = !!firmas[ef.legajo]?.firma_url
-              const pct = turnosEf.length ? Math.round(confirmados/turnosEf.length*100) : 0
-              const color = pct>=100?'#1D9E75':pct>=50?'#EF9F27':'#8b90a0'
-              return (
-                <div key={ef.legajo} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:8,padding:'10px 12px' }}>
-                  <div style={{ fontSize:12,fontWeight:500,marginBottom:2 }}>{ef.nombre}</div>
-                  <div style={{ fontSize:10,color:'var(--text-muted)',marginBottom:6 }}>Leg. {ef.legajo} · {confirmados*12} hs confirmadas</div>
-                  <div className="hbar" style={{ width:'100%',marginBottom:8 }}>
-                    <div className="hfill" style={{ width:`${pct}%`,background:color }}></div>
-                  </div>
-                  <div style={{ display:'flex',gap:6 }}>
-                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:10,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
-                      onClick={() => { setLegajoFirma(ef.legajo); firmaRef.current.click() }}>
-                      {tieneFirma ? '✓ Firma' : '+ Firma'}
-                    </button>
-                    <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:10,background:'rgba(55,138,221,0.15)',color:'#378ADD',border:'0.5px solid rgba(55,138,221,0.4)' }}
-                      onClick={() => { setPreview(ef); setPreviewKey(k => k+1) }}>
-                      👁 Previsualizar
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+
       </div>
     </div>
   )
