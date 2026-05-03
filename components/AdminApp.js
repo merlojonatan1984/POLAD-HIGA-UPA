@@ -12,13 +12,13 @@ const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves'
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-// NOMBRE_MES is now computed dynamically from mesSeleccionado state
 const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
 const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
 
 
 
-function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, sectores }) {
+// ← FIX: diasMes, mes y anio ahora vienen como props
+function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, sectores, diasMes, mes, anio }) {
   const esNuevo = !turno.id
   const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
   const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
@@ -34,7 +34,8 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
   async function handleGuardar() {
     if (!legajoSel) return
     setGuardando(true)
-    if (esNuevo) await onAgregar({ legajo: legajoSel, mes: MES, anio: ANIO, dia: diaSel, turno: turnoSel, sector: sectorSel })
+    // ← FIX: usa mes y anio de props en vez de variables globales inexistentes
+    if (esNuevo) await onAgregar({ legajo: legajoSel, mes: mes, anio: anio, dia: diaSel, turno: turnoSel, sector: sectorSel })
     else await onGuardar({ ...turno, legajo: legajoSel, turno: turnoSel, sector: sectorSel })
     setGuardando(false)
   }
@@ -52,7 +53,8 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               <div>
                 <label>Día del mes</label>
                 <select value={diaSel} onChange={e => setDiaSel(parseInt(e.target.value))}>
-                  {Array.from({length:DIAS_MES},(_,i) => <option key={i+1} value={i+1}>Día {i+1}</option>)}
+                  {/* ← FIX: usa diasMes de props */}
+                  {Array.from({length:diasMes},(_,i) => <option key={i+1} value={i+1}>Día {i+1}</option>)}
                 </select>
               </div>
               <div>
@@ -213,8 +215,8 @@ export default function AdminApp() {
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
   const [lugarPlanilla, setLugarPlanilla] = useState('HIGA')
-  const [planillaManual, setPlanillaManual] = useState({})  // individual: dia-horario
-  const [planillaManualGlobal, setPlanillaManualGlobal] = useState({})  // global: legajo-dia-horario
+  const [planillaManual, setPlanillaManual] = useState({})
+  const [planillaManualGlobal, setPlanillaManualGlobal] = useState({})
   const [firmas, setFirmas] = useState({})
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
   const [filasCache, setFilasCache] = useState([])
@@ -253,7 +255,6 @@ export default function AdminApp() {
     ;(turns || []).forEach(t => { if (!turnosMap[t.legajo]) turnosMap[t.legajo] = []; turnosMap[t.legajo].push(t); hsMap[t.legajo] = (hsMap[t.legajo] || 0) + 12 })
     setTurnos(turnosMap)
     setHorasAsig(hsMap)
-    // Load all manual hours for the month into global map
     const manualGlobalMap = {}
     ;(manual || []).forEach(m => { manualGlobalMap[`${m.legajo}-${m.dia}-${m.horario}`] = m })
     setPlanillaManualGlobal(manualGlobalMap)
@@ -316,16 +317,13 @@ export default function AdminApp() {
     const manualMap = {}
     ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}`] = m })
     setPlanillaManual(manualMap)
-    // Also update global map
     setPlanillaManualGlobal(prev => {
       const next = { ...prev }
       ;(manual || []).forEach(m => { next[`${m.legajo}-${m.dia}-${m.horario}`] = m })
       return next
     })
-    // Use monthly firma or fall back to permanent firma from efectivos
     let firmaObj = firmasData && firmasData[0] ? firmasData[0] : null
     if (!firmaObj?.firma_url && ef.firma_url) {
-      // Auto-create monthly firma from permanent one
       const { data: newFirma } = await supabase.from('firmas').insert([{
         legajo: ef.legajo, mes: MES, anio: ANIO, firma_url: ef.firma_url
       }]).select().single()
@@ -358,7 +356,6 @@ export default function AdminApp() {
             const yaExiste = entradas.find(e => e.horario === m.horario)
             if (!yaExiste) entradas.push({ horario: m.horario, horas: parseInt(m.horas) || 0, confirmado: false, manual: true, id: m.id })
             else {
-              // Update horas if manual has value and entry has 0
               const entry = entradas.find(e => e.horario === m.horario)
               if (entry && !entry.confirmado && parseInt(m.horas) > 0) {
                 entry.horas = parseInt(m.horas)
@@ -392,18 +389,14 @@ export default function AdminApp() {
     } else {
       await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: lugar || 'HIGA' }])
     }
-    // Reload from DB
     const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
     const newMap = {}
     ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m })
     setPlanillaManual(newMap)
-    // Update global map too
     if (planillaEf) {
       setPlanillaManualGlobal(prev => {
         const next = { ...prev }
-        // Remove old entries for this efectivo
         Object.keys(next).forEach(k => { if (k.startsWith(`${legajo}-`)) delete next[k] })
-        // Add new entries
         ;(fresh || []).forEach(m => { next[`${m.legajo}-${m.dia}-${m.horario}`] = m })
         return next
       })
@@ -414,9 +407,7 @@ export default function AdminApp() {
     const reader = new FileReader()
     reader.onload = async (e) => {
       const base64 = e.target.result
-      // Save permanently to efectivos table
       await supabase.from('efectivos').update({ firma_url: base64 }).eq('legajo', legajo)
-      // Save to monthly firmas table
       const existeFirma = firmas[legajo]
       if (existeFirma) {
         await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
@@ -424,7 +415,6 @@ export default function AdminApp() {
         await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
       }
       setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
-      // Update efectivos state
       setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: base64 } : e))
     }
     reader.readAsDataURL(file)
@@ -545,7 +535,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
     setTimeout(() => win.print(), 500)
   }
 
-    if (!mounted || loading) return <div className="loading">Cargando...</div>
+  if (!mounted || loading) return <div className="loading">Cargando...</div>
 
   const todosLosTurnos = Object.values(turnos).flat()
   const hayTurnos = todosLosTurnos.length > 0
@@ -555,7 +545,20 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 
   return (
     <div>
-      {modalTurno && <ModalTurno turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig} onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion} onEliminar={handleEliminarTurno} onAgregar={handleAgregarTurno} sectores={SECTORES_POR_LUGAR[lugarEdicion] || SECTORES} />}
+      {/* ← FIX: se pasan diasMes, mes y anio como props */}
+      {modalTurno && <ModalTurno
+        turno={modalTurno}
+        efectivos={efectivos}
+        horasAsig={horasAsig}
+        onClose={() => setModalTurno(null)}
+        onGuardar={handleGuardarEdicion}
+        onEliminar={handleEliminarTurno}
+        onAgregar={handleAgregarTurno}
+        sectores={SECTORES_POR_LUGAR[lugarEdicion] || SECTORES}
+        diasMes={DIAS_MES}
+        mes={MES}
+        anio={ANIO}
+      />}
       {modalPersonal && <ModalPersonal datos={modalPersonal} onClose={() => { setModalPersonal(null); setMsgPersonal(null) }} onGuardar={handleGuardarPersonal} onEliminar={handleEliminarPersonal} guardando={guardandoPersonal} msg={msgPersonal} />}
 
       <div className="topbar">
@@ -978,10 +981,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
           const NOMBRE_MES_P = MESES[MES-1] + ' ' + ANIO
           const NOMBRE_MES_SOLO = MESES[MES-1]
 
-
-
-          const firmaInputRef = typeof document !== 'undefined' ? document.createElement('input') : null
-
           return (
             <div>
               {!planillaEf ? (
@@ -1040,7 +1039,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     </div>
 
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
-                      {/* Tabla editable */}
                       <div className="panel">
                         <div className="panel-header">
                           <h3>Guardias realizadas — {NOMBRE_MES_P}</h3>
@@ -1088,7 +1086,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                   </tr>
                                 ))
                               })}
-                              {/* Fila para agregar hora manual */}
                               <tr style={{ background:'rgba(200,168,75,0.04)' }}>
                                 <td colSpan={5} style={{ padding:'8px 12px' }}>
                                   <div style={{ display:'flex',gap:8,alignItems:'center',flexWrap:'wrap' }}>
@@ -1109,11 +1106,10 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                                     <button className="btn btn-sm" style={{ fontSize:11,background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                                       onClick={async () => {
                                         if (!manualHorario || !manualHoras) return
-                                        // Calculate hours difference
                                         const [h1,m1] = manualHorario.split(':').map(Number)
                                         const [h2,m2] = manualHoras.split(':').map(Number)
                                         let diff = (h2*60+m2) - (h1*60+m1)
-                                        if (diff <= 0) diff += 24*60  // overnight
+                                        if (diff <= 0) diff += 24*60
                                         const hsCalc = Math.round(diff/60)
                                         const horarioStr = `${manualHorario} a ${manualHoras}`
                                         await guardarHoraManual(ef.legajo, manualDia, horarioStr, hsCalc, '', lugarPlanilla)
@@ -1129,7 +1125,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         </div>
                       </div>
 
-                      {/* Panel derecho: datos + firma */}
                       <div>
                         <div className="panel" style={{ marginBottom:12 }}>
                           <div className="panel-header"><h3>Datos del efectivo</h3></div>
@@ -1186,7 +1181,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             </div>
           )
         })()}
-
 
       </div>
     </div>
