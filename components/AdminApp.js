@@ -684,10 +684,47 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   {e.telefono && turnosEf.length > 0 && (
                     <a href={(() => {
                       const tel = '549' + e.telefono.replace(/\D/g,'')
-                      const lineas = turnosEf.sort((a,b)=>a.dia-b.dia).map(t=>`📅 Día ${t.dia} - ${t.turno==='d'?'Turno DÍA 08:00 a 20:00':'Turno NOCHE 20:00 a 08:00'} - ${t.sector}`).join('%0A')
-                      const msg = `Hola ${e.nombre.split(',')[1]?.trim() || e.nombre.split(' ')[0]}! 👋%0A%0AEste es tu resumen de guardias POLAD para *${NOMBRE_MES}*:%0A%0A${lineas}%0A%0A✅ Total estimado: ${turnosEf.length * 12} hs%0A%0ACualquier consulta comunicarse con el encargado.%0A%0A_POLAD - HIGA UPA - Mar del Plata_`
+                      const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
+                      const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
+
+                      // Sectores por lugar para clasificar turnos
+                      const sectoresHIGA = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+                      const sectoresUPA = ['UPA']
+                      const sectoresMODULAR = ['Modular']
+
+                      const getLugar = sector => {
+                        if (sectoresHIGA.includes(sector)) return 'HIGA'
+                        if (sectoresUPA.includes(sector)) return 'UPA'
+                        if (sectoresMODULAR.includes(sector)) return 'MODULAR'
+                        return 'HIGA'
+                      }
+
+                      // Agrupar turnos por lugar
+                      const porLugar = {}
+                      turnosEf.sort((a,b) => a.dia - b.dia).forEach(t => {
+                        const lugar = getLugar(t.sector)
+                        if (!porLugar[lugar]) porLugar[lugar] = []
+                        porLugar[lugar].push(t)
+                      })
+
+                      // Construir secciones por lugar
+                      let bloques = ''
+                      let totalGeneral = 0
+                      const lugaresOrden = ['HIGA','UPA','MODULAR']
+                      lugaresOrden.forEach(lugar => {
+                        if (!porLugar[lugar]) return
+                        const ts = porLugar[lugar]
+                        const subtotal = ts.length * 12
+                        totalGeneral += subtotal
+                        const lineas = ts.map(t =>
+                          `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${t.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'} hs %E2%80%94 ${encodeURIComponent(t.sector)}`
+                        ).join('%0A')
+                        bloques += `%0A%F0%9F%93%8D *${lugar}* %E2%80%94 Mar del Plata%0A${lineas}%0A   _Subtotal ${lugar}: ${subtotal} hs_%0A`
+                      })
+
+                      const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma de servicios POLAD asignado para el mes de *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A${bloques}%0A%E2%9C%85 *Total general: ${totalGeneral} hs*%0A%0AAnte cualquier consulta comunicarse con el encargado.%0A%0A_Crio. Paulo Corbela_%0A_POLAD %C2%B7 HIGA %C2%B7 UPA %C2%B7 MODULAR_%0A_Mar del Plata_`
                       return `https://wa.me/${tel}?text=${msg}`
-                    })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()} 
+                    })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()}
                     style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px 10px',borderRadius:6,border:'0.5px solid rgba(37,211,102,0.4)',background:'rgba(37,211,102,0.08)',color:'#25D366',fontSize:11,fontWeight:500,textDecoration:'none' }}>
                       <span>📱</span> Enviar guardias por WhatsApp
                     </a>
