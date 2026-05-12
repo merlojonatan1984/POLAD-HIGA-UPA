@@ -289,6 +289,43 @@ export default function AdminApp() {
     await cargarTodo(); setGenerando(false)
   }
 
+  async function descargarPlanilla(lugar, turno) {
+    try {
+      if (lugar === 'HIGA') {
+        // HIGA: descargar 3 archivos (dias 1-10, 11-20, 21-fin)
+        const rangos = [
+          { d1: 1,  d2: 10,       label: '01-10' },
+          { d1: 11, d2: 20,       label: '11-20' },
+          { d1: 21, d2: DIAS_MES, label: `21-${DIAS_MES}` },
+        ]
+        for (const rango of rangos) {
+          const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}&d1=${rango.d1}&d2=${rango.d2}`
+          const res = await fetch(url)
+          if (!res.ok) throw new Error('Error al generar ' + rango.label)
+          const blob = await res.blob()
+          const a = document.createElement('a')
+          a.href = URL.createObjectURL(blob)
+          a.download = `HIGA_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}_Dias${rango.label}.xlsx`
+          a.click()
+          URL.revokeObjectURL(a.href)
+          await new Promise(r => setTimeout(r, 800))
+        }
+      } else {
+        const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}`
+        const res = await fetch(url)
+        if (!res.ok) throw new Error('Error al generar el archivo')
+        const blob = await res.blob()
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${lugar}_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`
+        a.click()
+        URL.revokeObjectURL(a.href)
+      }
+    } catch(e) {
+      alert('Error al generar: ' + e.message)
+    }
+  }
+
   async function handleGuardarEdicion(t) { await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id); setModalTurno(null); await cargarTodo() }
   async function handleEliminarTurno(t) { await supabase.from('turnos').delete().eq('id', t.id); setModalTurno(null); await cargarTodo() }
   async function handleAgregarTurno(n) { await supabase.from('turnos').insert([n]); setModalTurno(null); await cargarTodo() }
@@ -1350,24 +1387,24 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               key:'HIGA', label:'HIGA', color:'#AFA9EC', bg:'rgba(42,37,96,0.3)',
               desc:'5 sectores · 2 efectivos c/u · 3 hojas por turno (10 días cada una)',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'higa-d', fn:()=>descargarHIGA('d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'higa-n', fn:()=>descargarHIGA('n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'higa-d', fn:()=>descargarPlanilla('HIGA','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'higa-n', fn:()=>descargarPlanilla('HIGA','n')},
               ]
             },
             {
               key:'UPA', label:'UPA', color:'#D85A30', bg:'rgba(80,30,10,0.3)',
               desc:'1 sector · 2 efectivos en el mismo renglón · Mes completo en 1 hoja',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'upa-d', fn:()=>descargarUPA('d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'upa-n', fn:()=>descargarUPA('n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'upa-d', fn:()=>descargarPlanilla('UPA','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'upa-n', fn:()=>descargarPlanilla('UPA','n')},
               ]
             },
             {
               key:'MODULAR', label:'MODULAR', color:'#20A0B0', bg:'rgba(10,50,60,0.3)',
               desc:'1 sector · 3 efectivos en el mismo renglón · Mes completo en 1 hoja',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'mod-d', fn:()=>descargarMODULAR('d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'mod-n', fn:()=>descargarMODULAR('n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'mod-d', fn:()=>descargarPlanilla('MODULAR','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'mod-n', fn:()=>descargarPlanilla('MODULAR','n')},
               ]
             }
           ]
