@@ -12,8 +12,8 @@ const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves'
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas']
-const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas' }
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas', 'descarga']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas', descarga: '⬇ Planilla Guardia' }
 
 
 
@@ -1215,6 +1215,191 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   </div>
                 )
               })()}
+            </div>
+          )
+        })()}
+
+        {vista === 'descarga' && (() => {
+
+          async function generarNombres(turnosData, efectivosLista) {
+            return (turnosData || []).reduce((acc, t) => {
+              const ef = efectivosLista.find(e => e.legajo === t.legajo)
+              if (!ef) return acc
+              const jer = ef.jerarquia || ''
+              const partes = ef.nombre.split(',')
+              const apellido = partes[0]?.trim() || ef.nombre
+              const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0] + '.' : ''
+              const nm = jer ? `${jer} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
+              if (!acc[t.dia]) acc[t.dia] = {}
+              if (!acc[t.dia][t.sector]) acc[t.dia][t.sector] = []
+              acc[t.dia][t.sector].push(nm)
+              return acc
+            }, {})
+          }
+
+          async function descargarHIGA(turnoKey) {
+            const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+            const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
+            const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).in('sector',sectores)
+            const gds = await generarNombres(data, efectivos)
+
+            const XLSX = await new Promise((resolve) => {
+              if (window.XLSX) { resolve(window.XLSX); return }
+              const s = document.createElement('script')
+              s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+              s.onload = () => resolve(window.XLSX)
+              document.head.appendChild(s)
+            })
+            const wb = XLSX.utils.book_new()
+            const rangos = [[1,10],[11,20],[21,DIAS_MES]]
+
+            rangos.forEach(([d1,d2]) => {
+              const dias = Array.from({length:d2-d1+1},(_,i)=>i+d1)
+              const rows = []
+              rows.push([`POLAD · HIGA  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Días ${d1} al ${d2})`, ...Array(sectores.length).fill('')])
+              rows.push(['DÍA', '#', ...sectores])
+              dias.forEach(dia => {
+                for (let ef=1; ef<=2; ef++) {
+                  const row = [ef===1?dia:'', ef]
+                  sectores.forEach(sec => {
+                    row.push(gds[dia]?.[sec]?.[ef-1] || '')
+                  })
+                  rows.push(row)
+                }
+              })
+              rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES} ${ANIO}`, ...Array(sectores.length).fill('')])
+              const ws = XLSX.utils.aoa_to_sheet(rows)
+              ws['!cols'] = [{wch:5},{wch:3},...sectores.map(()=>({wch:20}))]
+              XLSX.utils.book_append_sheet(wb, ws, `Días ${d1}-${d2}`)
+            })
+            XLSX.writeFile(wb, `HIGA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+          }
+
+          async function descargarUPA(turnoKey) {
+            const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
+            const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).eq('sector','UPA')
+            const gds = await generarNombres(data, efectivos)
+            const XLSX = await new Promise((resolve) => {
+              if (window.XLSX) { resolve(window.XLSX); return }
+              const s = document.createElement('script')
+              s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+              s.onload = () => resolve(window.XLSX)
+              document.head.appendChild(s)
+            })
+            const rows = []
+            rows.push([`POLAD · UPA  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Mes completo)`,'',''])
+            rows.push(['DÍA','EFECTIVO 1','EFECTIVO 2'])
+            for (let d=1; d<=DIAS_MES; d++) {
+              rows.push([d, gds[d]?.['UPA']?.[0]||'', gds[d]?.['UPA']?.[1]||''])
+            }
+            rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata`,'',''])
+            const wb = XLSX.utils.book_new()
+            const ws = XLSX.utils.aoa_to_sheet(rows)
+            ws['!cols'] = [{wch:5},{wch:28},{wch:28}]
+            XLSX.utils.book_append_sheet(wb, ws, `UPA ${NOMBRE_MES} ${ANIO}`)
+            XLSX.writeFile(wb, `UPA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+          }
+
+          async function descargarMODULAR(turnoKey) {
+            const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
+            const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).eq('sector','Modular')
+            const gds = await generarNombres(data, efectivos)
+            const XLSX = await new Promise((resolve) => {
+              if (window.XLSX) { resolve(window.XLSX); return }
+              const s = document.createElement('script')
+              s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+              s.onload = () => resolve(window.XLSX)
+              document.head.appendChild(s)
+            })
+            const rows = []
+            rows.push([`POLAD · MODULAR  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Mes completo)`,'','',''])
+            rows.push(['DÍA','EFECTIVO 1','EFECTIVO 2','EFECTIVO 3'])
+            for (let d=1; d<=DIAS_MES; d++) {
+              rows.push([d, gds[d]?.['Modular']?.[0]||'', gds[d]?.['Modular']?.[1]||'', gds[d]?.['Modular']?.[2]||''])
+            }
+            rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata`,'','',''])
+            const wb = XLSX.utils.book_new()
+            const ws = XLSX.utils.aoa_to_sheet(rows)
+            ws['!cols'] = [{wch:5},{wch:22},{wch:22},{wch:22}]
+            XLSX.utils.book_append_sheet(wb, ws, `MODULAR ${NOMBRE_MES} ${ANIO}`)
+            XLSX.writeFile(wb, `MODULAR_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+          }
+
+          const [descargando, setDescargando] = React.useState(null)
+
+          const handleDescargar = async (fn, key) => {
+            setDescargando(key)
+            try { await fn() } catch(e) { alert('Error al generar: ' + e.message) }
+            setDescargando(null)
+          }
+
+          const lugares = [
+            {
+              key:'HIGA', label:'HIGA', color:'#AFA9EC', bg:'rgba(42,37,96,0.3)',
+              desc:'5 sectores · 2 efectivos c/u · 3 hojas por turno (10 días cada una)',
+              botones:[
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'higa-d', fn:()=>descargarHIGA('d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'higa-n', fn:()=>descargarHIGA('n')},
+              ]
+            },
+            {
+              key:'UPA', label:'UPA', color:'#D85A30', bg:'rgba(80,30,10,0.3)',
+              desc:'1 sector · 2 efectivos en el mismo renglón · Mes completo en 1 hoja',
+              botones:[
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'upa-d', fn:()=>descargarUPA('d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'upa-n', fn:()=>descargarUPA('n')},
+              ]
+            },
+            {
+              key:'MODULAR', label:'MODULAR', color:'#20A0B0', bg:'rgba(10,50,60,0.3)',
+              desc:'1 sector · 3 efectivos en el mismo renglón · Mes completo en 1 hoja',
+              botones:[
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'mod-d', fn:()=>descargarMODULAR('d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'mod-n', fn:()=>descargarMODULAR('n')},
+              ]
+            }
+          ]
+
+          return (
+            <div>
+              <div style={{marginBottom:20}}>
+                <h3 style={{fontSize:15,fontWeight:500,marginBottom:6}}>Descarga planilla de guardia mensual</h3>
+                <p style={{fontSize:12,color:'var(--text-muted)'}}>
+                  Generá y descargá las planillas de {NOMBRE_MES} {ANIO} por lugar y turno. Los datos se toman en tiempo real del sistema.
+                </p>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>
+                {lugares.map(lg => (
+                  <div key={lg.key} style={{background:'var(--surface)',border:`0.5px solid ${lg.color}44`,borderRadius:12,overflow:'hidden'}}>
+                    <div style={{padding:'14px 16px',background:lg.bg,borderBottom:`0.5px solid ${lg.color}33`}}>
+                      <div style={{fontSize:16,fontWeight:600,color:lg.color,marginBottom:4}}>{lg.label}</div>
+                      <div style={{fontSize:11,color:'var(--text-muted)'}}>{lg.desc}</div>
+                    </div>
+                    <div style={{padding:14,display:'flex',flexDirection:'column',gap:8}}>
+                      {lg.botones.map(btn => (
+                        <button key={btn.k}
+                          disabled={!!descargando}
+                          style={{
+                            display:'flex',alignItems:'center',gap:10,padding:'12px 14px',
+                            borderRadius:8,border:`0.5px solid ${lg.color}55`,
+                            background:descargando===btn.k?`${lg.color}22`:`${lg.color}11`,
+                            color:lg.color,cursor:descargando?'wait':'pointer',
+                            fontSize:12,fontWeight:500,width:'100%',opacity:descargando&&descargando!==btn.k?0.5:1
+                          }}
+                          onClick={()=>handleDescargar(btn.fn, btn.k)}>
+                          <span style={{fontSize:18}}>{descargando===btn.k?'⏳':'⬇'}</span>
+                          <div style={{textAlign:'left'}}>
+                            <div>{btn.label}</div>
+                            <div style={{fontSize:10,opacity:0.7,marginTop:2}}>
+                              {descargando===btn.k ? 'Generando archivo...' : `${lg.key}_${btn.k.includes('-d')?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )
         })()}
