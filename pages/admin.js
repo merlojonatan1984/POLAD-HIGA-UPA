@@ -289,6 +289,22 @@ export default function AdminApp() {
     await cargarTodo(); setGenerando(false)
   }
 
+  async function descargarPlanilla(lugar, turno) {
+    const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}`
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Error al generar el archivo')
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${lugar}_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch(e) {
+      alert('Error al generar: ' + e.message)
+    }
+  }
+
   async function handleGuardarEdicion(t) { await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id); setModalTurno(null); await cargarTodo() }
   async function handleEliminarTurno(t) { await supabase.from('turnos').delete().eq('id', t.id); setModalTurno(null); await cargarTodo() }
   async function handleAgregarTurno(n) { await supabase.from('turnos').insert([n]); setModalTurno(null); await cargarTodo() }
@@ -1350,24 +1366,24 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               key:'HIGA', label:'HIGA', color:'#AFA9EC', bg:'rgba(42,37,96,0.3)',
               desc:'5 sectores · 2 efectivos c/u · 3 hojas por turno (10 días cada una)',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'higa-d', fn:()=>descargar('HIGA','d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'higa-n', fn:()=>descargar('HIGA','n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'higa-d', fn:()=>descargarPlanilla('HIGA','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'higa-n', fn:()=>descargarPlanilla('HIGA','n')},
               ]
             },
             {
               key:'UPA', label:'UPA', color:'#D85A30', bg:'rgba(80,30,10,0.3)',
               desc:'1 sector · 2 efectivos en el mismo renglón · Mes completo en 1 hoja',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'upa-d', fn:()=>descargar('UPA','d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'upa-n', fn:()=>descargar('UPA','n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'upa-d', fn:()=>descargarPlanilla('UPA','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'upa-n', fn:()=>descargarPlanilla('UPA','n')},
               ]
             },
             {
               key:'MODULAR', label:'MODULAR', color:'#20A0B0', bg:'rgba(10,50,60,0.3)',
               desc:'1 sector · 3 efectivos en el mismo renglón · Mes completo en 1 hoja',
               botones:[
-                {label:'⬇ Turno DÍA  08:00-20:00',   k:'mod-d', fn:()=>descargar('MODULAR','d')},
-                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'mod-n', fn:()=>descargar('MODULAR','n')},
+                {label:'⬇ Turno DÍA  08:00-20:00',   k:'mod-d', fn:()=>descargarPlanilla('MODULAR','d')},
+                {label:'⬇ Turno NOCHE  20:00-08:00',  k:'mod-n', fn:()=>descargarPlanilla('MODULAR','n')},
               ]
             }
           ]
