@@ -94,9 +94,9 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     }
 
     // Anchos
-    ws.getColumn(1).width = 5.0   // DIA
-    ws.getColumn(2).width = 2.5   // #
-    sectores.forEach((_, i) => { ws.getColumn(3 + i).width = 11.25 })
+    ws.getColumn(1).width = 4.5   // DIA
+    ws.getColumn(2).width = 2.0   // #
+    sectores.forEach((_, i) => { ws.getColumn(3 + i).width = 16.5 })
 
     const lastCol = 2 + sectores.length
     const lastColLetter = ws.getColumn(lastCol).letter
@@ -173,7 +173,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
           const nm = gds[dia]?.[sec]?.[en - 1] || ''
           const cell = ws.getCell(fila, 3 + j)
           cell.value = nm
-          cell.font = font(false, 8, '111122')
+          cell.font = font(false, 7, '111122')
           cell.alignment = aln('center', true)
           cell.fill = fill(nm ? bgEf : C_VACIO)
           cell.border = {
