@@ -291,26 +291,7 @@ export default function AdminApp() {
 
   async function descargarPlanilla(lugar, turno) {
     try {
-      if (lugar === 'HIGA') {
-        // HIGA: descargar 3 archivos (dias 1-10, 11-20, 21-fin)
-        const rangos = [
-          { d1: 1,  d2: 10,       label: '01-10' },
-          { d1: 11, d2: 20,       label: '11-20' },
-          { d1: 21, d2: DIAS_MES, label: `21-${DIAS_MES}` },
-        ]
-        for (const rango of rangos) {
-          const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}&d1=${rango.d1}&d2=${rango.d2}`
-          const res = await fetch(url)
-          if (!res.ok) throw new Error('Error al generar ' + rango.label)
-          const blob = await res.blob()
-          const a = document.createElement('a')
-          a.href = URL.createObjectURL(blob)
-          a.download = `HIGA_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}_Dias${rango.label}.xlsx`
-          a.click()
-          URL.revokeObjectURL(a.href)
-          await new Promise(r => setTimeout(r, 800))
-        }
-      } else {
+      {
         const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}`
         const res = await fetch(url)
         if (!res.ok) throw new Error('Error al generar el archivo')
