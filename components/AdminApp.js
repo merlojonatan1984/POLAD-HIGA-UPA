@@ -223,6 +223,7 @@ export default function AdminApp() {
   const [manualDia, setManualDia] = useState(1)
   const [manualHorario, setManualHorario] = useState('')
   const [manualHoras, setManualHoras] = useState('')
+  const [descargando, setDescargando] = useState(null)
 
   const [mounted, setMounted] = useState(false)
 
@@ -1324,8 +1325,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             XLSX.utils.book_append_sheet(wb, ws, `MODULAR ${NOMBRE_MES} ${ANIO}`)
             XLSX.writeFile(wb, `MODULAR_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
           }
-
-          const [descargando, setDescargando] = React.useState(null)
 
           const handleDescargar = async (fn, key) => {
             setDescargando(key)
