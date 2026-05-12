@@ -83,11 +83,15 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
 
-    ws.pageSetup.orientation = 'portrait'
-    ws.pageSetup.paperSize = 9
-    ws.pageSetup.fitToPage = false
-    ws.pageSetup.scale = 100
-    ws.pageSetup.margins = { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+    ws.pageSetup = {
+      orientation: 'portrait',
+      paperSize: 9,
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 1,
+      horizontalCentered: true,
+      margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+    }
 
     // Anchos
     ws.getColumn(1).width = 5.0   // DIA
@@ -202,10 +206,15 @@ async function generarUPA(wb, turnoKey, gds, diasMes, nombreMes) {
   const C_TIT   = turnoKey === 'd' ? 'C8A84B' : '85B7EB'
 
   const ws = wb.addWorksheet(`UPA ${nombreMes}`)
-  ws.pageSetup.orientation = 'portrait'
-  ws.pageSetup.paperSize = 9
-  ws.pageSetup.scale = 100
-  ws.pageSetup.margins = { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+  ws.pageSetup = {
+    orientation: 'portrait',
+    paperSize: 9,
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+  }
 
   ws.getColumn(1).width = 5.0
   ws.getColumn(2).width = 42.5
@@ -278,10 +287,15 @@ async function generarMODULAR(wb, turnoKey, gds, diasMes, nombreMes) {
   const C_VACIO = 'F5F5F5'
 
   const ws = wb.addWorksheet(`MODULAR ${nombreMes}`)
-  ws.pageSetup.orientation = 'portrait'
-  ws.pageSetup.paperSize = 9
-  ws.pageSetup.scale = 100
-  ws.pageSetup.margins = { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+  ws.pageSetup = {
+    orientation: 'portrait',
+    paperSize: 9,
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+  }
 
   ws.getColumn(1).width = 5.0
   ws.getColumn(2).width = 28.0
