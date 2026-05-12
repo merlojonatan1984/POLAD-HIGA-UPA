@@ -95,9 +95,9 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   // A4 landscape alto ~190mm = 538pt
   // titulo(24) + header_sec(16) + header_ef(16) + 31dias + pie(12) = 538
   // dias: (538-24-16-16-12)/31 = 15pt
-  const ALTO_TIT    = 22
-  const ALTO_HDR1   = 14
-  const ALTO_HDR2   = 14
+  const ALTO_TIT    = 20
+  const ALTO_HDR1   = 13
+  const ALTO_HDR2   = 13
   const ALTO_DATO   = Math.floor((538 - ALTO_TIT - ALTO_HDR1 - ALTO_HDR2 - 10) / dias.length)
   const ALTO_PIE    = 10
 
@@ -113,7 +113,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   ws.mergeCells(`A1:${lastColLetter}1`)
   const tit = ws.getCell('A1')
   tit.value = `POLAD · HIGA  —  ${turnoStr}  —  ${nombreMes}  (Días ${d1} al ${d2})`
-  tit.font = { name: 'Arial', bold: true, size: 11, color: { argb: 'FF' + C_TIT } }
+  tit.font = { name: 'Arial', bold: true, size: 9, color: { argb: 'FF' + C_TIT } }
   tit.alignment = { horizontal: 'center', vertical: 'middle' }
   tit.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1a1a2e' } }
   tit.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
@@ -138,7 +138,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     ws.mergeCells(`${colLetA}2:${colLetB}2`)
     const cSec = ws.getCell(`${colLetA}2`)
     cSec.value = sec
-    cSec.font = { name:'Arial', bold:true, size:7, color:{argb:'FFFFFFFF'} }
+    cSec.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
     cSec.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
     cSec.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
     cSec.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style: isLast?'medium':'thin'} }
@@ -147,7 +147,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     ;[colLetA, colLetB].forEach((col, ei) => {
       const c = ws.getCell(`${col}3`)
       c.value = ei === 0 ? 'Ef.1' : 'Ef.2'
-      c.font = { name:'Arial', bold:true, size:7, color:{argb:'FFFFFFFF'} }
+      c.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
       c.alignment = { horizontal:'center', vertical:'middle' }
       c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
       c.border = {
@@ -172,7 +172,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     // Col A — Día
     const cDia = ws.getCell(fila, 1)
     cDia.value = dia
-    cDia.font = { name:'Arial', bold:true, size:9, color:{argb:'FFFFFFFF'} }
+    cDia.font = { name:'Arial', bold:true, size:8, color:{argb:'FFFFFFFF'} }
     cDia.alignment = { horizontal:'center', vertical:'middle' }
     cDia.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
     cDia.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'medium'}, right:{style:'medium'} }
@@ -185,7 +185,7 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
         const nm = gds[dia]?.[sec]?.[ei] || ''
         const c = ws.getCell(fila, col)
         c.value = nm
-        c.font = { name:'Arial', size:7, color:{argb:'FF111122'} }
+        c.font = { name:'Arial', size:6, color:{argb:'FF111122'} }
         c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
         c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+(nm ? (ei===0?C_EF1:C_EF2) : C_VACIO)} }
         c.border = {
@@ -201,11 +201,12 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   ws.mergeCells(`A${pieRow}:${lastColLetter}${pieRow}`)
   const pie = ws.getCell(`A${pieRow}`)
   pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${nombreMes}`
-  pie.font = { name:'Arial', size:7.5, italic:true, color:{argb:'FF8b90a0'} }
+  pie.font = { name:'Arial', size:6, italic:true, color:{argb:'FF8b90a0'} }
   pie.alignment = { horizontal:'center', vertical:'middle' }
   pie.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1a1a2e'} }
   pie.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
 }
+
 
 
 // ── UPA ───────────────────────────────────────────────────────────────
@@ -243,7 +244,7 @@ async function generarUPA(wb, turnoKey, gds, diasMes, nombreMes) {
   ws.mergeCells('A1:C1')
   const tit = ws.getCell('A1')
   tit.value = `POLAD · UPA  —  ${turnoStr}  —  ${nombreMes}  (Mes completo)`
-  tit.font = { name: 'Arial', bold: true, size: 11, color: { argb: 'FF' + C_TIT } }
+  tit.font = { name: 'Arial', bold: true, size: 9, color: { argb: 'FF' + C_TIT } }
   tit.alignment = aln(); tit.fill = fill('1a1a2e')
   tit.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'medium' } }
 
@@ -404,7 +405,10 @@ export default async function handler(req, res) {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
       if (ef && gds[t.dia]?.[t.sector]) gds[t.dia][t.sector].push(fmtNombre(ef))
     })
-    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, D1, D2)
+    // Quincena 1
+    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, 1, 15)
+    // Quincena 2
+    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, 16, DIAS_MES)
 
   } else if (lugar === 'UPA') {
     const { data: turnosData } = await supabase.from('turnos').select('*')
