@@ -68,7 +68,7 @@ function aln(h = 'center', wrap = false) {
 }
 
 // ── HIGA ──────────────────────────────────────────────────────────────
-async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nombreMes) {
+async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nombreMes, d1, d2) {
   const turnoStr = turnoKey === 'd' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
   const C_HDR    = turnoKey === 'd' ? 'B8860B' : '1A3A6B'
   const C_SEC    = turnoKey === 'd' ? 'FFF3CC' : 'D6E8FF'
@@ -77,7 +77,8 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   const C_VACIO  = turnoKey === 'd' ? 'FAF6E8' : 'EBF2FF'
   const C_TIT    = turnoKey === 'd' ? 'C8A84B' : '85B7EB'
 
-  const rangos = [[1, 10], [11, 20], [21, diasMes]]
+  // Una sola hoja con el rango indicado
+  const rangos = [[d1, d2]]
 
   rangos.forEach(([d1, d2]) => {
     const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
@@ -364,13 +365,16 @@ async function generarMODULAR(wb, turnoKey, gds, diasMes, nombreMes) {
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
 
-  const { lugar, turno, mes, anio } = req.query
+  const { lugar, turno, mes, anio, d1, d2 } = req.query
   if (!lugar || !turno || !mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
 
   const MES  = parseInt(mes)
   const ANIO = parseInt(anio)
   const DIAS_MES  = new Date(ANIO, MES, 0).getDate()
   const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
+  // Para HIGA: rango de dias especifico
+  const D1 = d1 ? parseInt(d1) : 1
+  const D2 = d2 ? parseInt(d2) : DIAS_MES
 
   // Cargar efectivos
   const { data: efectivos } = await supabase.from('efectivos').select('*').eq('es_admin', false)
@@ -389,7 +393,7 @@ export default async function handler(req, res) {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
       if (ef && gds[t.dia]?.[t.sector]) gds[t.dia][t.sector].push(fmtNombre(ef))
     })
-    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES)
+    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, D1, D2)
 
   } else if (lugar === 'UPA') {
     const { data: turnosData } = await supabase.from('turnos').select('*')
@@ -417,7 +421,8 @@ export default async function handler(req, res) {
   }
 
   const buffer = await wb.xlsx.writeBuffer()
-  const filename = `${lugar}_${turno === 'd' ? 'DIA' : 'NOCHE'}_${NOMBRE_MES.replace(' ', '')}.xlsx`
+  const sufijo = lugar === 'HIGA' ? `_Dias${String(D1).padStart(2,'0')}-${String(D2).padStart(2,'0')}` : ''
+  const filename = `${lugar}_${turno === 'd' ? 'DIA' : 'NOCHE'}_${NOMBRE_MES.replace(' ', '')}${sufijo}.xlsx`
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
