@@ -70,132 +70,156 @@ function aln(h = 'center', wrap = false) {
 // ── HIGA ──────────────────────────────────────────────────────────────
 async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nombreMes, d1, d2) {
   const turnoStr = turnoKey === 'd' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
-  const C_HDR    = turnoKey === 'd' ? 'B8860B' : '1A3A6B'
-  const C_SEC    = turnoKey === 'd' ? 'FFF3CC' : 'D6E8FF'
-  const C_EF1    = turnoKey === 'd' ? 'FFFBF0' : 'EDF4FF'
-  const C_EF2    = turnoKey === 'd' ? 'FFF0C0' : 'C8DEFF'
-  const C_VACIO  = turnoKey === 'd' ? 'FAF6E8' : 'EBF2FF'
-  const C_TIT    = turnoKey === 'd' ? 'C8A84B' : '85B7EB'
+  const C_HDR   = turnoKey === 'd' ? 'B8860B' : '1A3A6B'
+  const C_SEC   = turnoKey === 'd' ? 'FFF3CC' : 'D6E8FF'
+  const C_EF1   = turnoKey === 'd' ? 'FFFBF0' : 'EDF4FF'
+  const C_EF2   = turnoKey === 'd' ? 'FFF0C0' : 'C8DEFF'
+  const C_VACIO = turnoKey === 'd' ? 'FAF6E8' : 'EBF2FF'
+  const C_TIT   = turnoKey === 'd' ? 'C8A84B' : '85B7EB'
 
-  // Una sola hoja con el rango indicado
-  const rangos = [[d1, d2]]
+  // Una hoja por rango (d1-d2)
+  const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
+  const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
 
-  rangos.forEach(([d1, d2]) => {
-    const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
-    const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
+  ws.pageSetup = {
+    orientation: 'landscape',
+    paperSize: 9,
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+  }
 
-    ws.pageSetup = {
-      orientation: 'portrait',
-      paperSize: 9,
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 1,
-      horizontalCentered: true,
-      margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
-    }
+  // Estructura: Col A = DIA, luego 2 cols por sector (ef1, ef2)
+  // Total cols = 1 + 5*2 = 11
+  // A4 landscape imprimible ~277mm
+  // Col A(dia): 5u | 10 cols efectivos: (277/2.2225 - 5) / 10 = 11.9u c/u
+  const COL_DIA = 5.0
+  const COL_EF  = 11.9
+  ws.getColumn(1).width = COL_DIA
+  for (let i = 0; i < sectores.length * 2; i++) {
+    ws.getColumn(2 + i).width = COL_EF
+  }
+  const lastColIdx = 1 + sectores.length * 2
+  const lastColLetter = ws.getColumn(lastColIdx).letter
 
-    // Anchos
-    ws.getColumn(1).width = 4.5   // DIA
-    ws.getColumn(2).width = 2.0   // #
-    sectores.forEach((_, i) => { ws.getColumn(3 + i).width = 16.5 })
+  // Altos
+  // A4 landscape alto ~190mm = 538pt
+  // titulo(24) + header_sec(16) + header_ef(16) + 31dias + pie(12) = 538
+  // dias: (538-24-16-16-12)/31 = 15pt
+  const ALTO_TIT    = 24
+  const ALTO_HDR1   = 16  // fila sectores
+  const ALTO_HDR2   = 16  // fila ef1/ef2
+  const ALTO_DATO   = Math.floor((538 - ALTO_TIT - ALTO_HDR1 - ALTO_HDR2 - 12) / dias.length)
+  const ALTO_PIE    = 12
 
-    const lastCol = 2 + sectores.length
-    const lastColLetter = ws.getColumn(lastCol).letter
+  ws.getRow(1).height = ALTO_TIT
+  ws.getRow(2).height = ALTO_HDR1
+  ws.getRow(3).height = ALTO_HDR2
+  for (let r = 4; r <= 3 + dias.length; r++) ws.getRow(r).height = ALTO_DATO
+  const pieRow = 4 + dias.length
+  ws.getRow(pieRow).height = ALTO_PIE
+  ws.pageSetup.printArea = `A1:${lastColLetter}${pieRow}`
 
-    // Altos
-    ws.getRow(1).height = 26
-    ws.getRow(2).height = 18
-    for (let r = 3; r <= 2 + dias.length * 2; r++) ws.getRow(r).height = 47
-    const pieRow = 3 + dias.length * 2
-    ws.getRow(pieRow).height = 13
+  // TÍTULO
+  ws.mergeCells(`A1:${lastColLetter}1`)
+  const tit = ws.getCell('A1')
+  tit.value = `POLAD · HIGA  —  ${turnoStr}  —  ${nombreMes}  (Días ${d1} al ${d2})`
+  tit.font = { name: 'Arial', bold: true, size: 11, color: { argb: 'FF' + C_TIT } }
+  tit.alignment = { horizontal: 'center', vertical: 'middle' }
+  tit.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1a1a2e' } }
+  tit.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
 
-    ws.pageSetup.printArea = `A1:${lastColLetter}${pieRow}`
+  // HEADER FILA 2: sectores mergeados de a 2 columnas
+  const hdrDia2 = ws.getCell('A2')
+  hdrDia2.value = 'DÍA'
+  hdrDia2.font = { name:'Arial', bold:true, size:8, color:{argb:'FFFFFFFF'} }
+  hdrDia2.alignment = { horizontal:'center', vertical:'middle' }
+  hdrDia2.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF2d2d44'} }
+  hdrDia2.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'medium'}, right:{style:'medium'} }
+  ws.mergeCells('A2:A3')
 
-    // TÍTULO
-    ws.mergeCells(`A1:${lastColLetter}1`)
-    const tit = ws.getCell('A1')
-    tit.value = `POLAD · HIGA  —  ${turnoStr}  —  ${nombreMes}  (Días ${d1} al ${d2})`
-    tit.font = { name: 'Arial', bold: true, size: 11, color: { argb: 'FF' + C_TIT } }
-    tit.alignment = aln('center')
-    tit.fill = fill('1a1a2e')
-    tit.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'medium' } }
+  sectores.forEach((sec, si) => {
+    const colA = 2 + si * 2
+    const colB = colA + 1
+    const colLetA = ws.getColumn(colA).letter
+    const colLetB = ws.getColumn(colB).letter
+    const isLast = si === sectores.length - 1
 
-    // HEADER
-    const hdrDia = ws.getCell('A2')
-    hdrDia.value = 'DÍA'; hdrDia.font = font(true, 9, 'FFFFFF')
-    hdrDia.alignment = aln(); hdrDia.fill = fill('2d2d44')
-    hdrDia.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'medium' } }
+    // Merge las 2 cols del sector en fila 2
+    ws.mergeCells(`${colLetA}2:${colLetB}2`)
+    const cSec = ws.getCell(`${colLetA}2`)
+    cSec.value = sec
+    cSec.font = { name:'Arial', bold:true, size:7, color:{argb:'FFFFFFFF'} }
+    cSec.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
+    cSec.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
+    cSec.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style: isLast?'medium':'thin'} }
 
-    const hdrNum = ws.getCell('B2')
-    hdrNum.value = '#'; hdrNum.font = font(true, 8, 'FFFFFF')
-    hdrNum.alignment = aln(); hdrNum.fill = fill('2d2d44')
-    hdrNum.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: 'medium' } }
-
-    sectores.forEach((sec, j) => {
-      const cell = ws.getCell(2, 3 + j)
-      cell.value = sec; cell.font = font(true, 8, 'FFFFFF')
-      cell.alignment = aln('center', true); cell.fill = fill(C_HDR)
-      const isLast = j === sectores.length - 1
-      cell.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'thin' }, right: { style: isLast ? 'medium' : 'thin' } }
-    })
-
-    // DATOS
-    let fila = 3
-    dias.forEach((dia, di) => {
-      const isFirstDia = di === 0
-      const isLastDia  = di === dias.length - 1
-
-      for (let en = 1; en <= 2; en++) {
-        const ife = en === 1
-        const ile = en === 2
-        const topS = isFirstDia && ife ? 'medium' : 'thin'
-        const botS = isLastDia && ile ? 'medium' : ile ? 'medium' : 'thin'
-        const bgEf = ife ? C_EF1 : C_EF2
-
-        // Col A — Día
-        const cDia = ws.getCell(fila, 1)
-        cDia.value = ife ? dia : ''
-        cDia.font = font(true, 10, 'FFFFFF')
-        cDia.alignment = aln()
-        cDia.fill = fill(C_HDR)
-        cDia.border = { top: { style: topS }, bottom: { style: botS }, left: { style: 'medium' }, right: { style: 'medium' } }
-
-        // Col B — Número
-        const cNum = ws.getCell(fila, 2)
-        cNum.value = en
-        cNum.font = font(true, 7, '888888')
-        cNum.alignment = aln()
-        cNum.fill = fill(C_SEC)
-        cNum.border = { top: { style: topS }, bottom: { style: botS }, left: { style: 'thin' }, right: { style: 'medium' } }
-
-        // Sectores
-        sectores.forEach((sec, j) => {
-          const isLastCol = j === sectores.length - 1
-          const nm = gds[dia]?.[sec]?.[en - 1] || ''
-          const cell = ws.getCell(fila, 3 + j)
-          cell.value = nm
-          cell.font = font(false, 7, '111122')
-          cell.alignment = aln('center', true)
-          cell.fill = fill(nm ? bgEf : C_VACIO)
-          cell.border = {
-            top: { style: topS }, bottom: { style: botS },
-            left: { style: 'thin' }, right: { style: isLastCol ? 'medium' : 'thin' }
-          }
-        })
-        fila++
+    // Fila 3: EF1 | EF2
+    ;[colLetA, colLetB].forEach((col, ei) => {
+      const c = ws.getCell(`${col}3`)
+      c.value = ei === 0 ? 'Ef.1' : 'Ef.2'
+      c.font = { name:'Arial', bold:true, size:7, color:{argb:'FFFFFFFF'} }
+      c.alignment = { horizontal:'center', vertical:'middle' }
+      c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
+      c.border = {
+        top:{style:'thin'}, bottom:{style:'medium'},
+        left:{style:'thin'},
+        right:{style: (isLast && ei===1) ? 'medium' : 'thin'}
       }
     })
-
-    // PIE
-    ws.mergeCells(`A${pieRow}:${lastColLetter}${pieRow}`)
-    const pie = ws.getCell(`A${pieRow}`)
-    pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${nombreMes}`
-    pie.font = { name: 'Arial', size: 7.5, italic: true, color: { argb: 'FF8b90a0' } }
-    pie.alignment = aln()
-    pie.fill = fill('1a1a2e')
-    pie.border = { top: { style: 'medium' }, bottom: { style: 'medium' }, left: { style: 'medium' }, right: { style: 'medium' } }
   })
+
+  // Fila 3 col A (ya mergeada con A2, solo bordes)
+  ws.getCell('A3').border = { bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
+
+  // DATOS
+  dias.forEach((dia, di) => {
+    const fila = 4 + di
+    const isFirst = di === 0
+    const isLast  = di === dias.length - 1
+    const topS = isFirst ? 'medium' : 'thin'
+    const botS = isLast  ? 'medium' : 'thin'
+
+    // Col A — Día
+    const cDia = ws.getCell(fila, 1)
+    cDia.value = dia
+    cDia.font = { name:'Arial', bold:true, size:9, color:{argb:'FFFFFFFF'} }
+    cDia.alignment = { horizontal:'center', vertical:'middle' }
+    cDia.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
+    cDia.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'medium'}, right:{style:'medium'} }
+
+    // Cols efectivos por sector
+    sectores.forEach((sec, si) => {
+      const isLastSec = si === sectores.length - 1
+      ;[0, 1].forEach(ei => {
+        const col = 2 + si * 2 + ei
+        const nm = gds[dia]?.[sec]?.[ei] || ''
+        const c = ws.getCell(fila, col)
+        c.value = nm
+        c.font = { name:'Arial', size:7, color:{argb:'FF111122'} }
+        c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+(nm ? (ei===0?C_EF1:C_EF2) : C_VACIO)} }
+        c.border = {
+          top:{style:topS}, bottom:{style:botS},
+          left:{style:'thin'},
+          right:{style: (isLastSec && ei===1) ? 'medium' : 'thin'}
+        }
+      })
+    })
+  })
+
+  // PIE
+  ws.mergeCells(`A${pieRow}:${lastColLetter}${pieRow}`)
+  const pie = ws.getCell(`A${pieRow}`)
+  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${nombreMes}`
+  pie.font = { name:'Arial', size:7.5, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = { horizontal:'center', vertical:'middle' }
+  pie.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF1a1a2e'} }
+  pie.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
 }
+
 
 // ── UPA ───────────────────────────────────────────────────────────────
 async function generarUPA(wb, turnoKey, gds, diasMes, nombreMes) {
