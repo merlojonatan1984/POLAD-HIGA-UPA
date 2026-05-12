@@ -7,11 +7,45 @@ const supabase = createClient(
 )
 
 function fmtNombre(ef) {
-  const jer = ef.jerarquia || ''
-  const partes = ef.nombre.split(',')
-  const apellido = partes[0]?.trim() || ef.nombre
+  // Intentar usar jerarquia del campo jerarquia primero
+  // Si no, parsear del nombre que viene como "SARGENTO (S.G.) APELLIDO, NOMBRE"
+  const nombre = ef.nombre || ''
+  let jer = ef.jerarquia || ''
+  let resto = nombre
+
+  // Si no hay jerarquia pero el nombre empieza con una jerarquia conocida, extraerla
+  if (!jer) {
+    const matchJer = nombre.match(/^(OFICIAL\s*\([^)]*\)|SARGENTO\s*\([^)]*\)|CABO\s*\([^)]*\)|SUBOFICIAL\s*\([^)]*\)|INSPECTOR\s*\([^)]*\)|SUBINSPECTOR\s*\([^)]*\)|COMISARIO\s*\([^)]*\)|OFICIAL|SARGENTO|CABO|SUBOFICIAL)\s+/i)
+    if (matchJer) {
+      jer = matchJer[0].trim()
+      resto = nombre.slice(matchJer[0].length).trim()
+    }
+  }
+
+  // Ahora parsear apellido e inicial del nombre
+  const partes = resto.split(',')
+  const apellido = partes[0]?.trim() || resto
   const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0] + '.' : ''
-  return jer ? `${jer} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
+
+  // Abreviar jerarquia larga
+  const abreviar = (j) => j
+    .replace(/SARGENTO\s*\(S\.G\.\)/i, 'Sgto.(S.G.)')
+    .replace(/SARGENTO\s*1°\s*\(S\.G\.\)/i, 'Sgto.1°(S.G.)')
+    .replace(/SARGENTO\s*1°/i, 'Sgto.1°')
+    .replace(/SARGENTO/i, 'Sgto.')
+    .replace(/OFICIAL\s*\(S\.G\.\)/i, 'Of.(S.G.)')
+    .replace(/OFICIAL\s*PRINCIPAL/i, 'Of.Ppal.')
+    .replace(/OFICIAL/i, 'Of.')
+    .replace(/CABO\s*\(S\.G\.\)/i, 'Cabo(S.G.)')
+    .replace(/CABO/i, 'Cabo')
+    .replace(/SUBOFICIAL/i, 'Subof.')
+    .replace(/COMISARIO\s*INSPECTOR/i, 'Crio.Insp.')
+    .replace(/COMISARIO/i, 'Crio.')
+    .replace(/INSPECTOR/i, 'Insp.')
+    .replace(/SUBINSPECTOR/i, 'Sub.Insp.')
+
+  const jerAbrev = jer ? abreviar(jer) : ''
+  return jerAbrev ? `${jerAbrev} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
 }
 
 function aplicarBorde(celda, top, bot, left, right) {
