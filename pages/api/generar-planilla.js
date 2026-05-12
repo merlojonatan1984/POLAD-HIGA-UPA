@@ -7,42 +7,32 @@ const supabase = createClient(
 )
 
 function fmtNombre(ef) {
-  // Intentar usar jerarquia del campo jerarquia primero
-  // Si no, parsear del nombre que viene como "SARGENTO (S.G.) APELLIDO, NOMBRE"
-  const nombre = ef.nombre || ''
-  let jer = ef.jerarquia || ''
+  const nombre = (ef.nombre || '').trim()
+  let jer = (ef.jerarquia || '').trim()
   let resto = nombre
 
-  // Si no hay jerarquia pero el nombre empieza con una jerarquia conocida, extraerla
+  // Extraer jerarquia del nombre si no viene en campo separado
   if (!jer) {
-    const matchJer = nombre.match(/^(OFICIAL\s*\([^)]*\)|SARGENTO\s*\([^)]*\)|CABO\s*\([^)]*\)|SUBOFICIAL\s*\([^)]*\)|INSPECTOR\s*\([^)]*\)|SUBINSPECTOR\s*\([^)]*\)|COMISARIO\s*\([^)]*\)|OFICIAL|SARGENTO|CABO|SUBOFICIAL)\s+/i)
-    if (matchJer) {
-      jer = matchJer[0].trim()
-      resto = nombre.slice(matchJer[0].length).trim()
-    }
+    const m = nombre.match(/^(.+?)\s+([A-Z]+,\s*[A-Z]+.*)$/)
+    if (m) { jer = m[1].trim(); resto = m[2].trim() }
   }
 
-  // Ahora parsear apellido e inicial del nombre
+  // Parsear apellido e inicial
   const partes = resto.split(',')
   const apellido = partes[0]?.trim() || resto
   const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0] + '.' : ''
 
-  // Abreviar jerarquia larga
-  const abreviar = (j) => j
-    .replace(/SARGENTO\s*\(S\.G\.\)/i, 'Sgto.(S.G.)')
-    .replace(/SARGENTO\s*1°\s*\(S\.G\.\)/i, 'Sgto.1°(S.G.)')
-    .replace(/SARGENTO\s*1°/i, 'Sgto.1°')
-    .replace(/SARGENTO/i, 'Sgto.')
-    .replace(/OFICIAL\s*\(S\.G\.\)/i, 'Of.(S.G.)')
-    .replace(/OFICIAL\s*PRINCIPAL/i, 'Of.Ppal.')
-    .replace(/OFICIAL/i, 'Of.')
-    .replace(/CABO\s*\(S\.G\.\)/i, 'Cabo(S.G.)')
-    .replace(/CABO/i, 'Cabo')
-    .replace(/SUBOFICIAL/i, 'Subof.')
-    .replace(/COMISARIO\s*INSPECTOR/i, 'Crio.Insp.')
-    .replace(/COMISARIO/i, 'Crio.')
-    .replace(/INSPECTOR/i, 'Insp.')
-    .replace(/SUBINSPECTOR/i, 'Sub.Insp.')
+  // Abreviar jerarquia segun escalafon POLAD
+  const abreviar = j => j
+    .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
+    .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
+    .replace(/SUB\s*COMISARIO/i,          'Scrio.')
+    .replace(/COMISARIO/i,                'Crio.')
+    .replace(/CAPITAN/i,                  'Cap.')
+    .replace(/MAYOR/i,                    'May.')
+    .replace(/TENIENTE/i,                 'Tte.')
+    .replace(/SARGENTO/i,                 'Sgto.')
+    .replace(/OFICIAL/i,                  'Ofl.')
 
   const jerAbrev = jer ? abreviar(jer) : ''
   return jerAbrev ? `${jerAbrev} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
