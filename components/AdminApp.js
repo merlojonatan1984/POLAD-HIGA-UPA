@@ -1222,27 +1222,32 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 
         {vista === 'descarga' && (() => {
 
-          async function generarNombres(turnosData, efectivosLista) {
-            return (turnosData || []).reduce((acc, t) => {
-              const ef = efectivosLista.find(e => e.legajo === t.legajo)
-              if (!ef) return acc
-              const jer = ef.jerarquia || ''
-              const partes = ef.nombre.split(',')
-              const apellido = partes[0]?.trim() || ef.nombre
-              const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0] + '.' : ''
-              const nm = jer ? `${jer} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
-              if (!acc[t.dia]) acc[t.dia] = {}
-              if (!acc[t.dia][t.sector]) acc[t.dia][t.sector] = []
-              acc[t.dia][t.sector].push(nm)
-              return acc
-            }, {})
+          function fmtNombre(ef) {
+            const jer = ef.jerarquia || ''
+            const partes = ef.nombre.split(',')
+            const apellido = partes[0]?.trim() || ef.nombre
+            const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0]+'.' : ''
+            return jer ? (jer+' '+apellido+' '+inicial).trim() : (apellido+' '+inicial).trim()
           }
 
           async function descargarHIGA(turnoKey) {
             const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
             const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
             const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).in('sector',sectores)
-            const gds = await generarNombres(data, efectivos)
+
+            // Agrupar turnos por dia -> sector -> [nombre formateado]
+            const gds = {}
+            for (let d=1; d<=DIAS_MES; d++) { gds[d] = {}; sectores.forEach(s => { gds[d][s] = [] }) }
+            ;(data||[]).forEach(t => {
+              const ef = efectivos.find(e => e.legajo === t.legajo)
+              if (!ef) return
+              const jer = ef.jerarquia || ''
+              const partes = ef.nombre.split(',')
+              const apellido = partes[0]?.trim() || ef.nombre
+              const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0]+'.' : ''
+              const nm = jer ? jer+' '+apellido+' '+inicial : apellido+' '+inicial
+              if (gds[t.dia] && gds[t.dia][t.sector]) gds[t.dia][t.sector].push(nm.trim())
+            })
 
             const XLSX = await new Promise((resolve) => {
               if (window.XLSX) { resolve(window.XLSX); return }
@@ -1257,29 +1262,32 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             rangos.forEach(([d1,d2]) => {
               const dias = Array.from({length:d2-d1+1},(_,i)=>i+d1)
               const rows = []
-              rows.push([`POLAD · HIGA  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Días ${d1} al ${d2})`, ...Array(sectores.length).fill('')])
+              rows.push([`POLAD · HIGA  —  ${turnoStr}  —  ${NOMBRE_MES}  (Días ${d1} al ${d2})`, ...Array(sectores.length).fill('')])
               rows.push(['DÍA', '#', ...sectores])
               dias.forEach(dia => {
                 for (let ef=1; ef<=2; ef++) {
                   const row = [ef===1?dia:'', ef]
-                  sectores.forEach(sec => {
-                    row.push(gds[dia]?.[sec]?.[ef-1] || '')
-                  })
+                  sectores.forEach(sec => { row.push(gds[dia]?.[sec]?.[ef-1] || '') })
                   rows.push(row)
                 }
               })
-              rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES} ${ANIO}`, ...Array(sectores.length).fill('')])
+              rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`, ...Array(sectores.length).fill('')])
               const ws = XLSX.utils.aoa_to_sheet(rows)
-              ws['!cols'] = [{wch:5},{wch:3},...sectores.map(()=>({wch:20}))]
+              ws['!cols'] = [{wch:5},{wch:3},...sectores.map(()=>({wch:22}))]
               XLSX.utils.book_append_sheet(wb, ws, `Días ${d1}-${d2}`)
             })
-            XLSX.writeFile(wb, `HIGA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+            XLSX.writeFile(wb, `HIGA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`)
           }
 
           async function descargarUPA(turnoKey) {
             const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
             const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).eq('sector','UPA')
-            const gds = await generarNombres(data, efectivos)
+            const gds = {}
+            for (let d=1; d<=DIAS_MES; d++) gds[d] = []
+            ;(data||[]).forEach(t => {
+              const ef = efectivos.find(e => e.legajo === t.legajo)
+              if (ef && gds[t.dia]) gds[t.dia].push(fmtNombre(ef))
+            })
             const XLSX = await new Promise((resolve) => {
               if (window.XLSX) { resolve(window.XLSX); return }
               const s = document.createElement('script')
@@ -1288,23 +1296,28 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               document.head.appendChild(s)
             })
             const rows = []
-            rows.push([`POLAD · UPA  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Mes completo)`,'',''])
+            rows.push([`POLAD · UPA  —  ${turnoStr}  —  ${NOMBRE_MES}  (Mes completo)`,'',''])
             rows.push(['DÍA','EFECTIVO 1','EFECTIVO 2'])
             for (let d=1; d<=DIAS_MES; d++) {
-              rows.push([d, gds[d]?.['UPA']?.[0]||'', gds[d]?.['UPA']?.[1]||''])
+              rows.push([d, gds[d]?.[0]||'', gds[d]?.[1]||''])
             }
             rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata`,'',''])
             const wb = XLSX.utils.book_new()
             const ws = XLSX.utils.aoa_to_sheet(rows)
             ws['!cols'] = [{wch:5},{wch:28},{wch:28}]
-            XLSX.utils.book_append_sheet(wb, ws, `UPA ${NOMBRE_MES} ${ANIO}`)
-            XLSX.writeFile(wb, `UPA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+            XLSX.utils.book_append_sheet(wb, ws, `UPA ${NOMBRE_MES}`)
+            XLSX.writeFile(wb, `UPA_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`)
           }
 
           async function descargarMODULAR(turnoKey) {
             const turnoStr = turnoKey==='d' ? 'TURNO DÍA  08:00 a 20:00' : 'TURNO NOCHE  20:00 a 08:00'
             const { data } = await supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO).eq('turno',turnoKey).eq('sector','Modular')
-            const gds = await generarNombres(data, efectivos)
+            const gds = {}
+            for (let d=1; d<=DIAS_MES; d++) gds[d] = []
+            ;(data||[]).forEach(t => {
+              const ef = efectivos.find(e => e.legajo === t.legajo)
+              if (ef && gds[t.dia]) gds[t.dia].push(fmtNombre(ef))
+            })
             const XLSX = await new Promise((resolve) => {
               if (window.XLSX) { resolve(window.XLSX); return }
               const s = document.createElement('script')
@@ -1313,17 +1326,17 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               document.head.appendChild(s)
             })
             const rows = []
-            rows.push([`POLAD · MODULAR  —  ${turnoStr}  —  ${NOMBRE_MES} ${ANIO}  (Mes completo)`,'','',''])
+            rows.push([`POLAD · MODULAR  —  ${turnoStr}  —  ${NOMBRE_MES}  (Mes completo)`,'','',''])
             rows.push(['DÍA','EFECTIVO 1','EFECTIVO 2','EFECTIVO 3'])
             for (let d=1; d<=DIAS_MES; d++) {
-              rows.push([d, gds[d]?.['Modular']?.[0]||'', gds[d]?.['Modular']?.[1]||'', gds[d]?.['Modular']?.[2]||''])
+              rows.push([d, gds[d]?.[0]||'', gds[d]?.[1]||'', gds[d]?.[2]||''])
             }
             rows.push([`POLAD · HIGA · UPA · MODULAR — Mar del Plata`,'','',''])
             const wb = XLSX.utils.book_new()
             const ws = XLSX.utils.aoa_to_sheet(rows)
             ws['!cols'] = [{wch:5},{wch:22},{wch:22},{wch:22}]
-            XLSX.utils.book_append_sheet(wb, ws, `MODULAR ${NOMBRE_MES} ${ANIO}`)
-            XLSX.writeFile(wb, `MODULAR_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`)
+            XLSX.utils.book_append_sheet(wb, ws, `MODULAR ${NOMBRE_MES}`)
+            XLSX.writeFile(wb, `MODULAR_${turnoKey==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`)
           }
 
           const handleDescargar = async (fn, key) => {
@@ -1390,7 +1403,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                           <div style={{textAlign:'left'}}>
                             <div>{btn.label}</div>
                             <div style={{fontSize:10,opacity:0.7,marginTop:2}}>
-                              {descargando===btn.k ? 'Generando archivo...' : `${lg.key}_${btn.k.includes('-d')?'DIA':'NOCHE'}_${NOMBRE_MES}${ANIO}.xlsx`}
+                              {descargando===btn.k ? 'Generando archivo...' : `${lg.key}_${btn.k.includes('-d')?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`}
                             </div>
                           </div>
                         </button>
