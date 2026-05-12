@@ -81,22 +81,19 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
   const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
 
-  ws.pageSetup = {
-    orientation: 'landscape',
-    paperSize: 9,
-    fitToPage: true,
-    fitToWidth: 1,
-    fitToHeight: 1,
-    horizontalCentered: true,
-    margins: { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
-  }
+  ws.pageSetup.orientation = 'landscape'
+  ws.pageSetup.paperSize = 9
+  ws.pageSetup.fitToPage = true
+  ws.pageSetup.fitToWidth = 1
+  ws.pageSetup.fitToHeight = 1
+  ws.pageSetup.margins = { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
 
   // Estructura: Col A = DIA, luego 2 cols por sector (ef1, ef2)
   // Total cols = 1 + 5*2 = 11
   // A4 landscape imprimible ~277mm
   // Col A(dia): 5u | 10 cols efectivos: (277/2.2225 - 5) / 10 = 11.9u c/u
-  const COL_DIA = 5.0
-  const COL_EF  = 11.9
+  const COL_DIA = 4.0
+  const COL_EF  = 12.0
   ws.getColumn(1).width = COL_DIA
   for (let i = 0; i < sectores.length * 2; i++) {
     ws.getColumn(2 + i).width = COL_EF
@@ -108,11 +105,11 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   // A4 landscape alto ~190mm = 538pt
   // titulo(24) + header_sec(16) + header_ef(16) + 31dias + pie(12) = 538
   // dias: (538-24-16-16-12)/31 = 15pt
-  const ALTO_TIT    = 24
-  const ALTO_HDR1   = 16  // fila sectores
-  const ALTO_HDR2   = 16  // fila ef1/ef2
-  const ALTO_DATO   = Math.floor((538 - ALTO_TIT - ALTO_HDR1 - ALTO_HDR2 - 12) / dias.length)
-  const ALTO_PIE    = 12
+  const ALTO_TIT    = 22
+  const ALTO_HDR1   = 14
+  const ALTO_HDR2   = 14
+  const ALTO_DATO   = Math.floor((538 - ALTO_TIT - ALTO_HDR1 - ALTO_HDR2 - 10) / dias.length)
+  const ALTO_PIE    = 10
 
   ws.getRow(1).height = ALTO_TIT
   ws.getRow(2).height = ALTO_HDR1
