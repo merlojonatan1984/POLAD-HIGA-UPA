@@ -97,7 +97,10 @@ export default async function handler(req, res) {
 
   // Totales
   ws.getCell('G26').value = totalHoras
-  ws.getCell('G27').value = total90
+  // Forzar formato numerico sin simbolo de moneda
+  const cellTotal90 = ws.getCell('G27')
+  cellTotal90.value = total90
+  cellTotal90.numFmt = '0'
 
   // Declaración
   ws.getCell('A29').value = `Declaro de conformidad, haber prestado ${totalHoras} horas de servicio de Policia Adicional, en el destino que figura la presente planilla.`
