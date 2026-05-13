@@ -292,7 +292,7 @@ export default function AdminApp() {
   async function descargarPlanilla(lugar, turno) {
     try {
       {
-        const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}`
+        const url = `/api/generar-planilla?lugar=${encodeURIComponent(lugar)}&turno=${encodeURIComponent(turno)}&mes=${MES}&anio=${ANIO}`
         const res = await fetch(url)
         if (!res.ok) throw new Error('Error al generar el archivo')
         const blob = await res.blob()
