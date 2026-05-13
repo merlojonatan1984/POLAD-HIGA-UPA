@@ -1089,8 +1089,6 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P}</span>
                       </div>
                       <div style={{ display:'flex',gap:8 }}>
-                        <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                          onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
                         <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
                           onClick={async () => {
                             const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarPlanilla}`
