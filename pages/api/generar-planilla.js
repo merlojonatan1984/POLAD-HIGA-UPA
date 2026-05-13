@@ -358,8 +358,8 @@ async function generarMODULAR(wb, turnoKey, gds, diasMes, nombreMes) {
     ;[0, 1, 2].forEach(j => {
       const nm = gds[dia]?.[j] || ''
       const c = ws.getCell(fila, 2 + j)
-      c.value = nm; c.font = font(false, 9, '111122')
-      c.alignment = aln(); c.fill = fill(nm ? BG[j] : C_VACIO)
+      c.value = nm; c.font = font(false, 7, '111122')
+      c.alignment = aln('center', true); c.fill = fill(nm ? BG[j] : C_VACIO)
       c.border = { top: { style: topS }, bottom: { style: botS }, left: { style: 'thin' }, right: { style: j === 2 ? 'medium' : 'thin' } }
     })
   }
