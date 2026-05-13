@@ -290,16 +290,18 @@ export default function AdminApp() {
   }
 
   async function descargarPlanilla(lugar, turno) {
-    const url = `/api/generar-planilla?lugar=${lugar}&turno=${turno}&mes=${MES}&anio=${ANIO}`
     try {
-      const res = await fetch(url)
-      if (!res.ok) throw new Error('Error al generar el archivo')
-      const blob = await res.blob()
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `${lugar}_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`
-      a.click()
-      URL.revokeObjectURL(a.href)
+      {
+        const url = `/api/generar-planilla?lugar=${encodeURIComponent(lugar)}&turno=${encodeURIComponent(turno)}&mes=${MES}&anio=${ANIO}`
+        const res = await fetch(url)
+        if (!res.ok) throw new Error('Error al generar el archivo')
+        const blob = await res.blob()
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${lugar}_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`
+        a.click()
+        URL.revokeObjectURL(a.href)
+      }
     } catch(e) {
       alert('Error al generar: ' + e.message)
     }
@@ -1089,6 +1091,18 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       <div style={{ display:'flex',gap:8 }}>
                         <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                           onClick={() => imprimirPlanillaAdmin(ef)}>🖨 Imprimir</button>
+                        <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
+                          onClick={async () => {
+                            const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarPlanilla}`
+                            const res = await fetch(url)
+                            if (!res.ok) { alert('Error al generar la planilla'); return }
+                            const blob = await res.blob()
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob)
+                            a.download = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${NOMBRE_MES}.xlsx`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                          }}>⬇ Planilla Excel</button>
                       </div>
                     </div>
 
