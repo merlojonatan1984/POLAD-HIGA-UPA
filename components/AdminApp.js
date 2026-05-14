@@ -9,6 +9,7 @@ const SECTORES_POR_LUGAR = {
 }
 const SECTORES = ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'UPA', 'Modular']
 const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30', 'Modular': '#20A0B0' }
+const TIPO_COLORS = { 'Uniformado': '#AFA9EC', 'Serv. General': '#5DCAA5', 'Destacamento': '#F5C518' }
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -163,6 +164,7 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
               <option>Uniformado</option>
               <option>Serv. General</option>
+              <option>Destacamento</option>
             </select>
           </div>
         </div>
@@ -617,6 +619,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
         {vista === 'resumen' && (() => {
           const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
           const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+          const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
           const renderGrupo = lista => lista.map(e => {
             const dias = Object.keys(disponibilidad[e.legajo] || {}).length
             const hs = horasAsig[e.legajo] || 0
@@ -656,6 +659,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 </div>
                 <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 8 }}>{renderGrupo(servGeneral)}</div>
               </div>
+              {destacamento.length > 0 && (
+                <div className="panel" style={{ marginTop: 16 }}>
+                  <div className="panel-header" style={{ background: 'rgba(80,70,0,0.4)' }}>
+                    <h3 style={{ color: '#F5C518' }}>Destacamento — {destacamento.length} efectivos</h3>
+                  </div>
+                  <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 8 }}>{renderGrupo(destacamento)}</div>
+                </div>
+              )}
             </div>
           )
         })()}
@@ -663,6 +674,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
         {vista === 'personal' && (() => {
           const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
           const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+          const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
           const renderFichas = lista => lista.map(e => {
             const hs = horasAsig[e.legajo] || 0
             const pct = Math.round(hs / 180 * 100)
@@ -772,6 +784,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 </div>
                 <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 10 }}>{renderFichas(servGeneral)}</div>
               </div>
+              {destacamento.length > 0 && (
+                <div className="panel" style={{ marginTop: 16 }}>
+                  <div className="panel-header" style={{ background: 'rgba(80,70,0,0.4)' }}>
+                    <h3 style={{ color: '#F5C518' }}>Destacamento — {destacamento.length} efectivos</h3>
+                  </div>
+                  <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 10 }}>{renderFichas(destacamento)}</div>
+                </div>
+              )}
             </div>
           )
         })()}
