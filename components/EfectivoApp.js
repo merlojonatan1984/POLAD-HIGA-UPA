@@ -7,10 +7,9 @@ const SECTORES_COLORS = {
   'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27',
   'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30'
 }
-const MES = new Date().getMonth() + 1
-const ANIO = new Date().getFullYear()
-const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1]
+const MES_ACTUAL = new Date().getMonth() + 1
+const ANIO_ACTUAL = new Date().getFullYear()
+const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default function EfectivoApp() {
   const router = useRouter()
@@ -22,6 +21,12 @@ export default function EfectivoApp() {
   const [guardado, setGuardado] = useState(false)
   const [vistaActual, setVistaActual] = useState('disponibilidad')
   const [loading, setLoading] = useState(true)
+  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1)
+  const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear())
+  const MES = mesSeleccionado
+  const ANIO = anioSeleccionado
+  const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+  const NOMBRE_MES = MESES_NOMBRES[MES - 1]
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -33,6 +38,10 @@ export default function EfectivoApp() {
     setUser(parsed)
     cargarDatos(parsed.legajo)
   }, [])
+
+  useEffect(() => {
+    if (user) cargarDatos(user.legajo)
+  }, [mesSeleccionado, anioSeleccionado])
 
   async function cargarDatos(legajo) {
     setLoading(true)
@@ -108,6 +117,16 @@ export default function EfectivoApp() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ background: tipoTag.bg, color: tipoTag.color, fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>{user.tipo}</span>
+          <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
+            <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
+              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
+            </select>
+            <select value={anioSeleccionado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
+              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+              {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
+            </select>
+          </div>
           <button className="btn btn-sm" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
       </div>
