@@ -63,10 +63,8 @@ export default function EfectivoApp() {
   async function guardar() {
     if (!user) return
     setGuardando(true)
-    // Borrar disponibilidad anterior del mes
     await supabase.from('disponibilidad').delete()
       .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO)
-    // Insertar nueva
     const rows = Object.entries(disponibilidad).map(([dia, turno]) => ({
       legajo: user.legajo, mes: MES, anio: ANIO, dia: parseInt(dia), turno
     }))
@@ -89,6 +87,13 @@ export default function EfectivoApp() {
   const pctHoras = Math.round(horasAsig / 180 * 100)
   const colorHoras = pctHoras >= 100 ? '#A32D2D' : pctHoras >= 80 ? '#BA7517' : '#1D9E75'
 
+  // Color del tag según tipo
+  const tipoTag = user.tipo === 'Uniformado'
+    ? { bg: '#EEEDFE', color: '#3C3489' }
+    : user.tipo === 'Destacamento'
+    ? { bg: 'rgba(245,197,24,0.2)', color: '#7A6000' }
+    : { bg: '#E1F5EE', color: '#085041' }
+
   return (
     <div>
       <div className="topbar">
@@ -102,7 +107,7 @@ export default function EfectivoApp() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span className={`tag ${user.tipo === 'Uniformado' ? 'tag-u' : 'tag-g'}`}>{user.tipo}</span>
+          <span style={{ background: tipoTag.bg, color: tipoTag.color, fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>{user.tipo}</span>
           <button className="btn btn-sm" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
       </div>
