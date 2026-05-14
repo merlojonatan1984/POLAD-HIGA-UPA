@@ -915,7 +915,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:(SECTORES_POR_LUGAR[lugarEdicion]||SECTORES)[0],turno:'d',legajo:'' })}>+ Agregar turno</button>
               </div>
             </div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12 }}>
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 240px',gap:12 }}>
+              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignContent:'start' }}>
               {(SECTORES_POR_LUGAR[lugarEdicion] || SECTORES).map(sector => {
                 const tDia = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='d'&&t.sector===sector)
                 const tNoche = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='n'&&t.sector===sector)
@@ -951,6 +952,64 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   </div>
                 )
               })}
+              </div>
+
+              {/* Panel lateral disponibilidad del día */}
+              <div style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,overflow:'hidden',height:'fit-content',position:'sticky',top:16 }}>
+                <div style={{ padding:'10px 14px',background:'var(--surface2)',borderBottom:'0.5px solid var(--border)' }}>
+                  <div style={{ fontSize:13,fontWeight:500,marginBottom:2 }}>Disponibles — Día {filtroDia}</div>
+                  <div style={{ fontSize:11,color:'var(--text-muted)' }}>Clic para asignar rápido</div>
+                </div>
+                {(() => {
+                  const dispDia = efectivos.filter(e => {
+                    const v = (disponibilidad[e.legajo] || {})[filtroDia] || ''
+                    return v !== ''
+                  }).map(e => ({
+                    ...e,
+                    disp: (disponibilidad[e.legajo] || {})[filtroDia] || '',
+                    hs: horasAsig[e.legajo] || 0
+                  }))
+                  const dispTurnoDia   = dispDia.filter(e => e.disp === 'd' || e.disp === 'dn')
+                  const dispTurnoNoche = dispDia.filter(e => e.disp === 'n' || e.disp === 'dn')
+
+                  const renderEf = (e, turno) => {
+                    const pct = Math.round(e.hs / 180 * 100)
+                    const colorHs = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
+                    const badgeColor = e.disp === 'dn' ? { bg:'rgba(93,202,165,0.15)', color:'#1D9E75', label:'Ambos' }
+                      : e.disp === 'd' ? { bg:'rgba(239,159,39,0.15)', color:'#EF9F27', label:'Día' }
+                      : { bg:'rgba(133,183,235,0.15)', color:'#85B7EB', label:'Noche' }
+                    return (
+                      <div key={e.legajo} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0',borderBottom:'0.5px solid var(--border)',cursor:'pointer' }}
+                        onClick={() => setModalTurno({ dia:filtroDia, sector:(SECTORES_POR_LUGAR[lugarEdicion]||SECTORES)[0], turno, legajo:e.legajo })}>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <div style={{ fontSize:11,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.nombre.split(',')[0]}</div>
+                          <div style={{ fontSize:10,color:colorHs }}>{e.hs} hs</div>
+                        </div>
+                        <span style={{ fontSize:10,padding:'1px 6px',borderRadius:3,background:badgeColor.bg,color:badgeColor.color,flexShrink:0,marginLeft:6 }}>{badgeColor.label}</span>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div>
+                      <div style={{ padding:'8px 12px 4px' }}>
+                        <div style={{ fontSize:10,fontWeight:500,color:'#EF9F27',marginBottom:6,paddingBottom:4,borderBottom:'0.5px solid var(--border)' }}>Turno día (08-20) — {dispTurnoDia.length}</div>
+                        {dispTurnoDia.length === 0
+                          ? <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic',paddingBottom:6 }}>Sin disponibilidad</div>
+                          : dispTurnoDia.map(e => renderEf(e, 'd'))
+                        }
+                      </div>
+                      <div style={{ padding:'8px 12px 8px' }}>
+                        <div style={{ fontSize:10,fontWeight:500,color:'#85B7EB',marginBottom:6,paddingBottom:4,borderBottom:'0.5px solid var(--border)' }}>Turno noche (20-08) — {dispTurnoNoche.length}</div>
+                        {dispTurnoNoche.length === 0
+                          ? <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin disponibilidad</div>
+                          : dispTurnoNoche.map(e => renderEf(e, 'n'))
+                        }
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
           </div>
         )}
