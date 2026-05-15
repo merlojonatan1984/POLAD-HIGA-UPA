@@ -23,6 +23,7 @@ export default function EfectivoApp() {
   const [loading, setLoading] = useState(true)
   const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1)
   const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear())
+  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA')
   const MES = mesSeleccionado
   const ANIO = anioSeleccionado
   const DIAS_MES = new Date(ANIO, MES, 0).getDate()
@@ -40,13 +41,14 @@ export default function EfectivoApp() {
   }, [])
 
   useEffect(() => {
-    if (user) cargarDatos(user.legajo)
-  }, [mesSeleccionado, anioSeleccionado])
+    if (user) { setDisponibilidad({}); cargarDatos(user.legajo, lugarSeleccionado) }
+  }, [mesSeleccionado, anioSeleccionado, lugarSeleccionado])
 
-  async function cargarDatos(legajo) {
+  async function cargarDatos(legajo, lugar) {
     setLoading(true)
+    const lg = lugar || lugarSeleccionado
     const [{ data: disp }, { data: turns }] = await Promise.all([
-      supabase.from('disponibilidad').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO),
+      supabase.from('disponibilidad').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lg),
       supabase.from('turnos').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).order('dia')
     ])
     const dispMap = {}
@@ -75,7 +77,7 @@ export default function EfectivoApp() {
     await supabase.from('disponibilidad').delete()
       .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO)
     const rows = Object.entries(disponibilidad).map(([dia, turno]) => ({
-      legajo: user.legajo, mes: MES, anio: ANIO, dia: parseInt(dia), turno
+      legajo: user.legajo, mes: MES, anio: ANIO, dia: parseInt(dia), turno, lugar: lugarSeleccionado
     }))
     if (rows.length > 0) {
       await supabase.from('disponibilidad').insert(rows)
@@ -118,6 +120,11 @@ export default function EfectivoApp() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ background: tipoTag.bg, color: tipoTag.color, fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>{user.tipo}</span>
           <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
+            <select value={lugarSeleccionado} onChange={e => { setLugarSeleccionado(e.target.value); setDisponibilidad({}) }}
+              style={{ background:'transparent',border:'none',color:'#20A0B0',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+              {['HIGA','UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
+            </select>
+            <span style={{ color:'#555b6e',fontSize:11 }}>|</span>
             <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
               style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
               {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
@@ -167,7 +174,7 @@ export default function EfectivoApp() {
             {vistaActual === 'disponibilidad' && (
               <div className="panel">
                 <div className="panel-header">
-                  <h3>Disponibilidad — {NOMBRE_MES} {ANIO}</h3>
+                  <h3>Disponibilidad — {lugarSeleccionado} · {NOMBRE_MES} {ANIO}</h3>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{diasDisp} días marcados</span>
                 </div>
                 <div style={{ padding: 14 }}>
