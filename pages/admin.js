@@ -135,9 +135,10 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
           {msg && <div className={`alert ${msg.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom:12 }}>{msg}</div>}
           <div style={{ marginBottom:12 }}>
             <label>Legajo</label>
-            <input type="text" placeholder="Ej: 71234" value={form.legajo||''} disabled={!esNuevo}
+            <input type="text" placeholder="Ej: 71234" value={form.legajo||''}
               onChange={e => setForm({...form,legajo:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:esNuevo?'#1e2130':'#111',color:'#e8eaf0',outline:'none' }} />
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+            {!esNuevo && <p style={{ fontSize:11,color:'#EF9F27',marginTop:4 }}>⚠ Al cambiar el legajo también cambia la clave de acceso del efectivo.</p>}
           </div>
           <div style={{ marginBottom:12 }}>
             <label>Apellido y nombre</label>
@@ -328,7 +329,7 @@ export default function AdminApp() {
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
-      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
       const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '' }])
