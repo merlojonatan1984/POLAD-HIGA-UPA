@@ -211,6 +211,7 @@ export default function AdminApp() {
   const [msgPersonal, setMsgPersonal] = useState(null)
   const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroSector, setFiltroSector] = useState('Todos')
+  const [filtroLugarDisp, setFiltroLugarDisp] = useState('HIGA-UPA')
   const [filtroDia, setFiltroDia] = useState(1)
   const [lugarEdicion, setLugarEdicion] = useState('HIGA')
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
@@ -252,7 +253,10 @@ export default function AdminApp() {
     ])
     setEfectivos(efs || [])
     const dispMap = {}
-    ;(disp || []).forEach(d => { if (!dispMap[d.legajo]) dispMap[d.legajo] = {}; dispMap[d.legajo][d.dia] = d.turno })
+    ;(disp || []).forEach(d => { 
+      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
+      dispMap[d.legajo][d.dia] = { turno: d.turno, lugar: d.lugar || 'HIGA-UPA' }
+    })
     setDisponibilidad(dispMap)
     const turnosMap = {}; const hsMap = {}
     ;(turns || []).forEach(t => { if (!turnosMap[t.legajo]) turnosMap[t.legajo] = []; turnosMap[t.legajo].push(t); hsMap[t.legajo] = (hsMap[t.legajo] || 0) + 12 })
@@ -279,7 +283,8 @@ export default function AdminApp() {
       for (const turno of ['d', 'n']) {
         for (const sector of SECTORES) {
           const candidatos = pool.filter(e => {
-            const avail = (disponibilidad[e.legajo] || {})[dia] || ''
+            const entry = (disponibilidad[e.legajo] || {})[dia]
+            const avail = entry ? (entry.turno || entry) : ''
             return ((turno === 'd' && (avail === 'd' || avail === 'dn')) || (turno === 'n' && (avail === 'n' || avail === 'dn'))) && e.hs < e.maxHs
           }).sort((a, b) => a.hs - b.hs)
           candidatos.slice(0, 2).forEach(e => { e.hs += 12; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
@@ -798,6 +803,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 
         {vista === 'disponibilidad' && (
           <div>
+            <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:14 }}>
+              <span style={{ fontSize:12,color:'var(--text-muted)' }}>Lugar:</span>
+              {['HIGA-UPA','MODULAR'].map(lg => (
+                <button key={lg} className="btn btn-sm"
+                  style={{ fontWeight:filtroLugarDisp===lg?600:400,background:filtroLugarDisp===lg?'rgba(200,168,75,0.15)':'transparent',color:filtroLugarDisp===lg?'#c8a84b':'#8b90a0',border:filtroLugarDisp===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
+                  onClick={() => setFiltroLugarDisp(lg)}>{lg}</button>
+              ))}
+            </div>
             <div className="panel" style={{ marginBottom: 14 }}>
               <div className="panel-header"><h3>Disponibilidad cargada — {NOMBRE_MES}</h3></div>
               <div style={{ padding: 14, overflowX: 'auto' }}>
@@ -809,18 +822,28 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {efectivos.map(e => (
+                    {efectivos.map(e => {
+                      const dispEf = Object.fromEntries(
+                        Object.entries(disponibilidad[e.legajo] || {}).filter(([dia, val]) => {
+                          // Filtrar por lugar - necesitamos saber qué lugar tiene cada día
+                          return true // Mostrar todo por ahora, el lugar está en supabase
+                        })
+                      )
+                      return (
                       <tr key={e.legajo} style={{ cursor: 'pointer' }} onClick={() => setEfectivoDetalle(efDetalle === e.legajo ? null : e.legajo)}>
                         <td style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: efDetalle === e.legajo ? '#c8a84b' : 'var(--text)', fontWeight: efDetalle === e.legajo ? 500 : 400 }}>{e.nombre}</td>
                         {Array.from({ length: DIAS_MES }, (_, i) => {
-                          const v = (disponibilidad[e.legajo] || {})[i+1] || ''
+                          const entry = (disponibilidad[e.legajo] || {})[i+1]
+                          const v = entry ? (entry.turno || entry) : ''
+                          const lugar_entry = entry ? (entry.lugar || 'HIGA-UPA') : ''
+                          if (lugar_entry && lugar_entry !== filtroLugarDisp) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
                           const bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
                           const label = v==='dn'?'A':v==='d'?'D':v==='n'?'N':'·'
                           const color = v==='dn'?'#5DCAA5':v==='d'?'#EF9F27':v==='n'?'#85B7EB':'#444'
                           return <td key={i} style={{ textAlign: 'center', padding: '3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,background:bg,borderRadius:3,fontSize:9,fontWeight:500,lineHeight:'16px',color }}>{label}</span></td>
                         })}
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -844,7 +867,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 3 }}>
                       {Array.from({ length: primerDia }).map((_,i) => <div key={`e-${i}`}></div>)}
                       {Array.from({ length: DIAS_MES }, (_, i) => i+1).map(dia => {
-                        const v = disp[dia] || ''
+                        const entry = disp[dia]
+                        const v = entry ? (entry.turno || entry) : ''
                         const bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
                         const bc = v==='dn'?'#1D9E75':v==='d'?'#BA7517':v==='n'?'#378ADD':'var(--border)'
                         const tsDia = turnosEf.filter(t => t.dia === dia)
@@ -982,11 +1006,12 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 </div>
                 {(() => {
                   const dispDia = efectivos.filter(e => {
-                    const v = (disponibilidad[e.legajo] || {})[filtroDia] || ''
+                    const entry = (disponibilidad[e.legajo] || {})[filtroDia]
+                    const v = entry ? (entry.turno || entry) : ''
                     return v !== ''
                   }).map(e => ({
                     ...e,
-                    disp: (disponibilidad[e.legajo] || {})[filtroDia] || '',
+                    disp: (() => { const entry = (disponibilidad[e.legajo] || {})[filtroDia]; return entry ? (entry.turno || entry) : '' })(),
                     hs: horasAsig[e.legajo] || 0
                   }))
                   const dispTurnoDia   = dispDia.filter(e => e.disp === 'd' || e.disp === 'dn')
