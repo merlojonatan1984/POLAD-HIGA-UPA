@@ -337,15 +337,17 @@ export default function AdminApp() {
     // Obtener disponibilidad del efectivo para el mes
     const dispEf = disponibilidad[legajo] || {}
     
-    // Filtrar días disponibles según tipo de turno
+    // Filtrar días disponibles según tipo de turno y lugar
+    const lugarFiltro = lugar === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
     const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
-      const v = entry.turno || entry
-      const lg = entry.lugar || 'HIGA-UPA'
-      const lugarOk = lugar === 'MODULAR' ? lg === 'MODULAR' : lg === 'HIGA-UPA'
-      if (!lugarOk) return false
-      if (tipoTurno === 'd') return v === 'd' || v === 'dn'
-      if (tipoTurno === 'n') return v === 'n' || v === 'dn'
-      return v !== ''
+      const v = typeof entry === 'object' ? (entry.turno || '') : (entry || '')
+      const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA-UPA') : 'HIGA-UPA'
+      if (lg !== lugarFiltro) return false
+      const tipoBase = tipoTurno === 'doble' ? 'dn' : tipoTurno
+      if (tipoBase === 'd') return v === 'd' || v === 'dn'
+      if (tipoBase === 'n') return v === 'n' || v === 'dn'
+      if (tipoBase === 'dn') return v !== ''
+      return false
     }).map(([dia]) => parseInt(dia))
 
     // Verificar días que ya tienen turno asignado para este efectivo
@@ -743,10 +745,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   {(() => {
                     const dispEf = disponibilidad[modalAsignar.legajo] || {}
                     const turno = modalAsignar.tipoTurno || 'd'
+                    const lugarFiltroM = modalAsignar.lugar === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
                     const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
-                      const v = entry.turno || entry
-                      if (turno === 'd') return v === 'd' || v === 'dn'
-                      if (turno === 'n') return v === 'n' || v === 'dn'
+                      const v = typeof entry === 'object' ? (entry.turno || '') : (entry || '')
+                      const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA-UPA') : 'HIGA-UPA'
+                      if (lg !== lugarFiltroM) return false
+                      const tipoBase = turno === 'doble' ? 'dn' : turno
+                      if (tipoBase === 'd') return v === 'd' || v === 'dn'
+                      if (tipoBase === 'n') return v === 'n' || v === 'dn'
                       return v !== ''
                     }).length
                     const turnosEf = turnos[modalAsignar.legajo] || []
