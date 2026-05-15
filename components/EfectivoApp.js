@@ -23,7 +23,7 @@ export default function EfectivoApp() {
   const [loading, setLoading] = useState(true)
   const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1)
   const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear())
-  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA')
+  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA-UPA')
   const MES = mesSeleccionado
   const ANIO = anioSeleccionado
   const DIAS_MES = new Date(ANIO, MES, 0).getDate()
@@ -122,7 +122,7 @@ export default function EfectivoApp() {
           <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
             <select value={lugarSeleccionado} onChange={e => { setLugarSeleccionado(e.target.value); setDisponibilidad({}) }}
               style={{ background:'transparent',border:'none',color:'#20A0B0',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
-              {['HIGA','UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
+              {['HIGA-UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
             </select>
             <span style={{ color:'#555b6e',fontSize:11 }}>|</span>
             <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
