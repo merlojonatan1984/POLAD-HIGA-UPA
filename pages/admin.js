@@ -167,6 +167,13 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               <option>Destacamento</option>
             </select>
           </div>
+          <div style={{ marginBottom:12 }}>
+            <label>📝 Nota / Recordatorio</label>
+            <textarea value={form.notas||''} onChange={e => setForm({...form,notas:e.target.value})}
+              placeholder="Ej: Puede hacer 9 guardias · Pide turno noche · etc."
+              rows={3}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'vertical' }} />
+          </div>
         </div>
         <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-between' }}>
           <div>
@@ -321,7 +328,7 @@ export default function AdminApp() {
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
-      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '' }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
       const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '' }])
@@ -693,7 +700,10 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 <div style={{ padding: '12px 14px', borderBottom: '0.5px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(200,168,75,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500, color: '#c8a84b', flexShrink: 0 }}>{iniciales}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nombre}</div>
+                    <div style={{ fontWeight: 500, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display:'flex', alignItems:'center', gap:5 }}>
+                      {e.nombre}
+                      {e.notas && <span title={e.notas} style={{ fontSize:13, cursor:'help' }}>📝</span>}
+                    </div>
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Leg. {e.legajo} · {e.jerarquia || e.tipo}</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -1309,6 +1319,12 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                               </div>
                             ))}
                           </div>
+                          {ef.notas && (
+                            <div style={{ margin:'8px 12px',padding:'8px 10px',background:'rgba(200,168,75,0.08)',borderRadius:6,border:'0.5px solid rgba(200,168,75,0.3)' }}>
+                              <div style={{ fontSize:10,color:'#c8a84b',fontWeight:500,marginBottom:3 }}>📝 Nota</div>
+                              <div style={{ fontSize:11,color:'var(--text)',lineHeight:1.4 }}>{ef.notas}</div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="panel">
