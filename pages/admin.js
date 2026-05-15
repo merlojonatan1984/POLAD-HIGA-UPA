@@ -350,12 +350,20 @@ export default function AdminApp() {
       return false
     }).map(([dia]) => parseInt(dia))
 
+    console.log('Días disponibles para', legajo, ':', diasDisp)
+
     // Verificar días que ya tienen turno asignado para este efectivo
     const turnosEf = turnos[legajo] || []
-    const diasConTurno = new Set(turnosEf.filter(t => t.turno === tipoTurno || tipoTurno === 'dn').map(t => t.dia))
+    const tipoFiltro = tipoTurno === 'doble' ? null : tipoTurno
+    const diasConTurno = new Set(turnosEf
+      .filter(t => tipoFiltro === null || tipoFiltro === 'dn' || t.turno === tipoFiltro)
+      .map(t => parseInt(t.dia)))
     
+    console.log('Días con turno ya asignado:', [...diasConTurno])
+
     // Días disponibles sin turno asignado
     const diasLibres = diasDisp.filter(d => !diasConTurno.has(d))
+    console.log('Días libres:', diasLibres)
     
     if (diasLibres.length < cantidad) {
       alert(`Solo hay ${diasLibres.length} días disponibles sin turno asignado para este efectivo.`)
