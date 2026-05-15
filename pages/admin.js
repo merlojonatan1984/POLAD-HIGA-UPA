@@ -334,36 +334,39 @@ export default function AdminApp() {
 
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno, lugar) {
     setAsignando(true)
-    // Obtener disponibilidad del efectivo para el mes
-    const dispEf = disponibilidad[legajo] || {}
-    
-    // Filtrar días disponibles según tipo de turno y lugar
+
+    // Consultar directamente a Supabase para tener datos frescos
     const lugarFiltro = lugar === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
-    const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
-      const v = typeof entry === 'object' ? (entry.turno || '') : (entry || '')
-      const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA-UPA') : 'HIGA-UPA'
+
+    const [{ data: dispData }, { data: turnosData }] = await Promise.all([
+      supabase.from('disponibilidad').select('dia, turno, lugar')
+        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO),
+      supabase.from('turnos').select('dia, turno')
+        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+    ])
+
+    // Filtrar días disponibles según tipo de turno y lugar
+    const diasDisp = (dispData || []).filter(d => {
+      const lg = d.lugar || 'HIGA-UPA'
       if (lg !== lugarFiltro) return false
       const tipoBase = tipoTurno === 'doble' ? 'dn' : tipoTurno
-      if (tipoBase === 'd') return v === 'd' || v === 'dn'
-      if (tipoBase === 'n') return v === 'n' || v === 'dn'
-      if (tipoBase === 'dn') return v !== ''
+      if (tipoBase === 'd') return d.turno === 'd' || d.turno === 'dn'
+      if (tipoBase === 'n') return d.turno === 'n' || d.turno === 'dn'
+      if (tipoBase === 'dn') return d.turno !== ''
       return false
-    }).map(([dia]) => parseInt(dia))
+    }).map(d => parseInt(d.dia))
 
-    console.log('Días disponibles para', legajo, ':', diasDisp)
-
-    // Verificar días que ya tienen turno asignado para este efectivo
-    const turnosEf = turnos[legajo] || []
-    const tipoFiltro = tipoTurno === 'doble' ? null : tipoTurno
-    const diasConTurno = new Set(turnosEf
-      .filter(t => tipoFiltro === null || tipoFiltro === 'dn' || t.turno === tipoFiltro)
+    // Días que ya tienen el tipo de turno asignado
+    const diasConTurno = new Set((turnosData || [])
+      .filter(t => {
+        if (tipoTurno === 'doble') return true
+        if (tipoTurno === 'dn') return true
+        return t.turno === tipoTurno
+      })
       .map(t => parseInt(t.dia)))
-    
-    console.log('Días con turno ya asignado:', [...diasConTurno])
 
-    // Días disponibles sin turno asignado
+    // Días libres = disponibles sin turno asignado
     const diasLibres = diasDisp.filter(d => !diasConTurno.has(d))
-    console.log('Días libres:', diasLibres)
     
     if (diasLibres.length < cantidad) {
       alert(`Solo hay ${diasLibres.length} días disponibles sin turno asignado para este efectivo.`)
