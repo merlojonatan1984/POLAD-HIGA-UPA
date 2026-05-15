@@ -126,75 +126,80 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
   const esNuevo = !datos.id
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
-      <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.2)',width:'100%',maxWidth:420,overflow:'hidden' }}>
+      <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.2)',width:'100%',maxWidth:560,maxHeight:'90vh',display:'flex',flexDirection:'column',overflow:'hidden' }}>
         <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.15)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)' }}>
           <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>{esNuevo ? 'Dar de alta efectivo' : 'Editar efectivo'}</h3>
           <button className="btn btn-sm" onClick={onClose}>Cerrar</button>
         </div>
-        <div style={{ padding:16 }}>
+        <div style={{ padding:16,overflowY:'auto',flex:1 }}>
           {msg && <div className={`alert ${msg.startsWith('Error') ? 'alert-err' : 'alert-ok'}`} style={{ marginBottom:12 }}>{msg}</div>}
-          <div style={{ marginBottom:12 }}>
-            <label>Legajo</label>
-            <input type="text" placeholder="Ej: 71234" value={form.legajo||''}
-              onChange={e => setForm({...form,legajo:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
-            {!esNuevo && <p style={{ fontSize:11,color:'#EF9F27',marginTop:4 }}>⚠ Al cambiar el legajo también cambia la clave de acceso del efectivo.</p>}
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:4 }}>
+            <div>
+              <label>Legajo</label>
+              <input type="text" placeholder="Ej: 71234" value={form.legajo||''}
+                onChange={e => setForm({...form,legajo:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+              {!esNuevo && <p style={{ fontSize:10,color:'#EF9F27',marginTop:3 }}>⚠ Cambia la clave de acceso</p>}
+            </div>
+            <div>
+              <label>DNI</label>
+              <input type="text" placeholder="Ej: 39282445" value={form.dni||''}
+                onChange={e => setForm({...form,dni:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+            </div>
           </div>
-          <div style={{ marginBottom:12 }}>
+          <div style={{ marginBottom:8 }}>
             <label>Apellido y nombre</label>
             <input type="text" placeholder="Ej: GARCÍA, MARCOS" value={form.nombre||''}
               onChange={e => setForm({...form,nombre:e.target.value.toUpperCase()})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
           </div>
-          <div style={{ marginBottom:12 }}>
-            <label>Email</label>
-            <input type="email" placeholder="ejemplo@gmail.com" value={form.email||''}
-              onChange={e => setForm({...form,email:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <label>Teléfono (WhatsApp)</label>
-            <input type="tel" placeholder="Ej: 2235123456" value={form.telefono||''}
-              onChange={e => setForm({...form,telefono:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
-            <p style={{ fontSize:11,color:'#555b6e',marginTop:4 }}>Sin 0 ni 15, solo números. Ej: 2235123456</p>
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <label>DNI</label>
-            <input type="text" placeholder="Ej: 39282445" value={form.dni||''}
-              onChange={e => setForm({...form,dni:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
-          </div>
-          <div style={{ marginBottom:12 }}>
+          <div style={{ marginBottom:8 }}>
             <label>Jerarquía</label>
             <input type="text" placeholder="Ej: SARGENTO (E.G.)" value={form.jerarquia||''}
               onChange={e => setForm({...form,jerarquia:e.target.value.toUpperCase()})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
           </div>
-          <div style={{ marginBottom:12 }}>
-            <label>Lugar / Destino</label>
-            <select value={form.lugar||'HIGA'} onChange={e => setForm({...form,lugar:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
-              <option>HIGA</option>
-              <option>UPA</option>
-              <option>MODULAR</option>
-            </select>
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8 }}>
+            <div>
+              <label>Email</label>
+              <input type="email" placeholder="ejemplo@gmail.com" value={form.email||''}
+                onChange={e => setForm({...form,email:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+            </div>
+            <div>
+              <label>Teléfono (WhatsApp)</label>
+              <input type="tel" placeholder="Ej: 2235123456" value={form.telefono||''}
+                onChange={e => setForm({...form,telefono:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+            </div>
           </div>
-          <div style={{ marginBottom:12 }}>
-            <label>Escalafón</label>
-            <select value={form.tipo||'Uniformado'} onChange={e => setForm({...form,tipo:e.target.value})}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
-              <option>Uniformado</option>
-              <option>Serv. General</option>
-              <option>Destacamento</option>
-            </select>
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8 }}>
+            <div>
+              <label>Lugar / Destino</label>
+              <select value={form.lugar||'HIGA'} onChange={e => setForm({...form,lugar:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+                <option>HIGA</option>
+                <option>UPA</option>
+                <option>MODULAR</option>
+              </select>
+            </div>
+            <div>
+              <label>Escalafón</label>
+              <select value={form.tipo||'Uniformado'} onChange={e => setForm({...form,tipo:e.target.value})}
+                style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+                <option>Uniformado</option>
+                <option>Serv. General</option>
+                <option>Destacamento</option>
+              </select>
+            </div>
           </div>
-          <div style={{ marginBottom:12 }}>
+          <div style={{ marginBottom:4 }}>
             <label>📝 Nota / Recordatorio</label>
             <textarea value={form.notas||''} onChange={e => setForm({...form,notas:e.target.value})}
               placeholder="Ej: Puede hacer 9 guardias · Pide turno noche · etc."
-              rows={3}
-              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'vertical' }} />
+              rows={2}
+              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:12,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'none' }} />
           </div>
         </div>
         <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-between' }}>
