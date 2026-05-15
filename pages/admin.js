@@ -261,6 +261,8 @@ export default function AdminApp() {
   const [manualHorario, setManualHorario] = useState('')
   const [manualHoras, setManualHoras] = useState('')
   const [descargando, setDescargando] = useState(null)
+  const [modalAsignar, setModalAsignar] = useState(null) // { ef, cantGuardias, tipoTurno }
+  const [asignando, setAsignando] = useState(false)
 
   const [mounted, setMounted] = useState(false)
 
@@ -328,6 +330,66 @@ export default function AdminApp() {
     for (let i = 0; i < nuevos.length; i += 500) await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
     setMsgGen(`Se generaron ${nuevos.length} asignaciones. Uniformados: hasta ${maxU} hs · Serv. General: hasta ${maxG} hs.`)
     await cargarTodo(); setGenerando(false)
+  }
+
+  async function asignarGuardiasAuto(legajo, cantidad, tipoTurno, lugar) {
+    setAsignando(true)
+    // Obtener disponibilidad del efectivo para el mes
+    const dispEf = disponibilidad[legajo] || {}
+    
+    // Filtrar días disponibles según tipo de turno
+    const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
+      const v = entry.turno || entry
+      const lg = entry.lugar || 'HIGA-UPA'
+      const lugarOk = lugar === 'MODULAR' ? lg === 'MODULAR' : lg === 'HIGA-UPA'
+      if (!lugarOk) return false
+      if (tipoTurno === 'd') return v === 'd' || v === 'dn'
+      if (tipoTurno === 'n') return v === 'n' || v === 'dn'
+      return v !== ''
+    }).map(([dia]) => parseInt(dia))
+
+    // Verificar días que ya tienen turno asignado para este efectivo
+    const turnosEf = turnos[legajo] || []
+    const diasConTurno = new Set(turnosEf.filter(t => t.turno === tipoTurno || tipoTurno === 'dn').map(t => t.dia))
+    
+    // Días disponibles sin turno asignado
+    const diasLibres = diasDisp.filter(d => !diasConTurno.has(d))
+    
+    if (diasLibres.length < cantidad) {
+      alert(`Solo hay ${diasLibres.length} días disponibles sin turno asignado para este efectivo.`)
+      setAsignando(false)
+      return
+    }
+
+    // Mezclar aleatoriamente y tomar la cantidad pedida
+    const diasMezclados = [...diasLibres].sort(() => Math.random() - 0.5)
+    const diasSeleccionados = diasMezclados.slice(0, cantidad)
+    
+    // Determinar sector según lugar
+    const sectoresLugar = SECTORES_POR_LUGAR[lugar] || SECTORES
+    const sector = sectoresLugar[0]
+
+    // Determinar turno
+    const turnoFinal = tipoTurno === 'dn' ? 'd' : tipoTurno
+
+    // Crear los turnos
+    const nuevos = diasSeleccionados.map(dia => ({
+      legajo, mes: MES, anio: ANIO, dia, turno: turnoFinal, sector
+    }))
+
+    // Si es mixto, alternar día y noche
+    if (tipoTurno === 'dn') {
+      nuevos.forEach((t, i) => { t.turno = i % 2 === 0 ? 'd' : 'n' })
+    }
+
+    for (let i = 0; i < nuevos.length; i += 100) {
+      await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+    }
+
+    setModalAsignar(null)
+    setAsignando(false)
+    await cargarTodo()
+    alert(`✓ Se asignaron ${cantidad} guardias a ${efectivos.find(e=>e.legajo===legajo)?.nombre?.split(',')[0] || legajo}`)
   }
 
   async function descargarPlanilla(lugar, turno) {
@@ -632,6 +694,72 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
         mes={MES}
         anio={ANIO}
       />}
+      {modalAsignar && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+          <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.2)',width:'100%',maxWidth:440,overflow:'hidden' }}>
+            <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.15)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)' }}>
+              <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>⚡ Asignar guardias — {modalAsignar.lugar}</h3>
+              <button className="btn btn-sm" onClick={() => setModalAsignar(null)}>Cerrar</button>
+            </div>
+            <div style={{ padding:16 }}>
+              <div style={{ marginBottom:14 }}>
+                <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>Efectivo</label>
+                <select value={modalAsignar.legajo||''} onChange={e => setModalAsignar(prev => ({...prev,legajo:e.target.value}))}
+                  style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+                  <option value="">— Seleccionar efectivo —</option>
+                  {efectivos.filter(e => {
+                    const dispEf = disponibilidad[e.legajo] || {}
+                    return Object.keys(dispEf).length > 0
+                  }).map(e => <option key={e.legajo} value={e.legajo}>{e.nombre} (Leg. {e.legajo})</option>)}
+                </select>
+              </div>
+              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14 }}>
+                <div>
+                  <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>Cantidad de guardias</label>
+                  <input type="number" min="1" max="31" value={modalAsignar.cantidad||''} 
+                    onChange={e => setModalAsignar(prev => ({...prev,cantidad:parseInt(e.target.value)||''}))}
+                    placeholder="Ej: 9"
+                    style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none',textAlign:'center' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>Tipo de turno</label>
+                  <select value={modalAsignar.tipoTurno||'d'} onChange={e => setModalAsignar(prev => ({...prev,tipoTurno:e.target.value}))}
+                    style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+                    <option value="d">Solo día (08-20)</option>
+                    <option value="n">Solo noche (20-08)</option>
+                    <option value="dn">Mixto (día y noche)</option>
+                  </select>
+                </div>
+              </div>
+              {modalAsignar.legajo && (
+                <div style={{ background:'rgba(200,168,75,0.06)',borderRadius:8,padding:'10px 12px',fontSize:11,color:'var(--text-muted)' }}>
+                  {(() => {
+                    const dispEf = disponibilidad[modalAsignar.legajo] || {}
+                    const turno = modalAsignar.tipoTurno || 'd'
+                    const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
+                      const v = entry.turno || entry
+                      if (turno === 'd') return v === 'd' || v === 'dn'
+                      if (turno === 'n') return v === 'n' || v === 'dn'
+                      return v !== ''
+                    }).length
+                    const turnosEf = turnos[modalAsignar.legajo] || []
+                    const diasOcupados = turnosEf.filter(t => turno === 'dn' || t.turno === turno).length
+                    return <span>Días disponibles: <strong style={{color:'#1D9E75'}}>{diasDisp}</strong> · Ya asignados: <strong style={{color:'#EF9F27'}}>{diasOcupados}</strong> · Libres: <strong style={{color:'#c8a84b'}}>{Math.max(0, diasDisp - diasOcupados)}</strong></span>
+                  })()}
+                </div>
+              )}
+            </div>
+            <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'flex-end',gap:8 }}>
+              <button className="btn btn-sm" onClick={() => setModalAsignar(null)}>Cancelar</button>
+              <button className="btn btn-sm" disabled={!modalAsignar.legajo || !modalAsignar.cantidad || asignando}
+                style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                onClick={() => asignarGuardiasAuto(modalAsignar.legajo, modalAsignar.cantidad, modalAsignar.tipoTurno || 'd', modalAsignar.lugar)}>
+                {asignando ? 'Asignando...' : '⚡ Asignar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {modalPersonal && <ModalPersonal datos={modalPersonal} onClose={() => { setModalPersonal(null); setMsgPersonal(null) }} onGuardar={handleGuardarPersonal} onEliminar={handleEliminarPersonal} guardando={guardandoPersonal} msg={msgPersonal} />}
 
       <div className="topbar">
@@ -1103,6 +1231,12 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                           ? <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin disponibilidad</div>
                           : dispTurnoNoche.map(e => renderEf(e, 'n'))
                         }
+                      </div>
+                      <div style={{ padding:'8px 12px',borderTop:'0.5px solid var(--border)' }}>
+                        <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
+                          onClick={() => setModalAsignar({ lugar: lugarEdicion })}>
+                          ⚡ Asignar guardias rápido
+                        </button>
                       </div>
                     </div>
                   )
