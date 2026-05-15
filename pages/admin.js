@@ -329,6 +329,19 @@ export default function AdminApp() {
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
+      // Si cambió el legajo, actualizar todas las tablas relacionadas
+      const efOriginal = efectivos.find(e => e.id === datos.id)
+      const legajoViejo = efOriginal?.legajo
+      if (legajoViejo && legajoViejo !== datos.legajo) {
+        // Actualizar legajo en todas las tablas
+        await Promise.all([
+          supabase.from('disponibilidad').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
+          supabase.from('turnos').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
+          supabase.from('asistencia').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
+          supabase.from('planilla_manual').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
+          supabase.from('firmas').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
+        ])
+      }
       await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
