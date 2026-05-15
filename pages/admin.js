@@ -160,6 +160,27 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
             <p style={{ fontSize:11,color:'#555b6e',marginTop:4 }}>Sin 0 ni 15, solo números. Ej: 2235123456</p>
           </div>
           <div style={{ marginBottom:12 }}>
+            <label>DNI</label>
+            <input type="text" placeholder="Ej: 39282445" value={form.dni||''}
+              onChange={e => setForm({...form,dni:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Jerarquía</label>
+            <input type="text" placeholder="Ej: SARGENTO (E.G.)" value={form.jerarquia||''}
+              onChange={e => setForm({...form,jerarquia:e.target.value.toUpperCase()})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Lugar / Destino</label>
+            <select value={form.lugar||'HIGA'} onChange={e => setForm({...form,lugar:e.target.value})}
+              style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+              <option>HIGA</option>
+              <option>UPA</option>
+              <option>MODULAR</option>
+            </select>
+          </div>
+          <div style={{ marginBottom:12 }}>
             <label>Escalafón</label>
             <select value={form.tipo||'Uniformado'} onChange={e => setForm({...form,tipo:e.target.value})}
               style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
@@ -342,7 +363,7 @@ export default function AdminApp() {
           supabase.from('firmas').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
         ])
       }
-      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: datos.lugar || 'HIGA' }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
       const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '' }])
