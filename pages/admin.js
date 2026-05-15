@@ -369,17 +369,23 @@ export default function AdminApp() {
     const sectoresLugar = SECTORES_POR_LUGAR[lugar] || SECTORES
     const sector = sectoresLugar[0]
 
-    // Determinar turno
-    const turnoFinal = tipoTurno === 'dn' ? 'd' : tipoTurno
-
     // Crear los turnos
-    const nuevos = diasSeleccionados.map(dia => ({
-      legajo, mes: MES, anio: ANIO, dia, turno: turnoFinal, sector
-    }))
-
-    // Si es mixto, alternar día y noche
-    if (tipoTurno === 'dn') {
-      nuevos.forEach((t, i) => { t.turno = i % 2 === 0 ? 'd' : 'n' })
+    let nuevos = []
+    if (tipoTurno === 'doble') {
+      // Doble: día + noche en el mismo día = 2 guardias por día
+      diasSeleccionados.forEach(dia => {
+        nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'd', sector })
+        nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'n', sector })
+      })
+    } else if (tipoTurno === 'dn') {
+      // Mixto: alternar día y noche
+      nuevos = diasSeleccionados.map((dia, i) => ({
+        legajo, mes: MES, anio: ANIO, dia, turno: i % 2 === 0 ? 'd' : 'n', sector
+      }))
+    } else {
+      nuevos = diasSeleccionados.map(dia => ({
+        legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector
+      }))
     }
 
     for (let i = 0; i < nuevos.length; i += 100) {
@@ -727,7 +733,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
                     <option value="d">Solo día (08-20)</option>
                     <option value="n">Solo noche (20-08)</option>
-                    <option value="dn">Mixto (día y noche)</option>
+                    <option value="dn">Mixto alternado (día y noche)</option>
+                    <option value="doble">Doble (día + noche = 2 guardias)</option>
                   </select>
                 </div>
               </div>
@@ -754,7 +761,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               <button className="btn btn-sm" disabled={!modalAsignar.legajo || !modalAsignar.cantidad || asignando}
                 style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
                 onClick={() => asignarGuardiasAuto(modalAsignar.legajo, modalAsignar.cantidad, modalAsignar.tipoTurno || 'd', modalAsignar.lugar)}>
-                {asignando ? 'Asignando...' : '⚡ Asignar'}
+                {asignando ? 'Asignando...' : `⚡ Asignar ${modalAsignar.tipoTurno === 'doble' ? (modalAsignar.cantidad||0)*2 + ' turnos' : (modalAsignar.cantidad||0) + ' guardias'}`}
               </button>
             </div>
           </div>
