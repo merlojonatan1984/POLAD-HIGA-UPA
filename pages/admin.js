@@ -1005,10 +1005,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   <div style={{ fontSize:11,color:'var(--text-muted)' }}>Clic para asignar rápido</div>
                 </div>
                 {(() => {
+                  const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
                   const dispDia = efectivos.filter(e => {
                     const entry = (disponibilidad[e.legajo] || {})[filtroDia]
-                    const v = entry ? (entry.turno || entry) : ''
-                    return v !== ''
+                    if (!entry) return false
+                    const v = entry.turno || entry
+                    const lg = entry.lugar || 'HIGA-UPA'
+                    return v !== '' && lg === lugarFiltroDisp
                   }).map(e => ({
                     ...e,
                     disp: (() => { const entry = (disponibilidad[e.legajo] || {})[filtroDia]; return entry ? (entry.turno || entry) : '' })(),
