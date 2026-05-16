@@ -19,12 +19,13 @@ async function generarPlanilla(ef, MES, ANIO, NOMBRE_MES_SOLO, LUGAR, turnos, as
 
   const gdsMap = {}
   ;(turnos||[]).filter(t=>t.legajo===ef.legajo).forEach(t=>{
-    if (!gdsMap[t.dia]) gdsMap[t.dia]=[]
     const presente = asistMap[t.dia+'-'+t.turno]
+    if (!presente) return // Solo guardias confirmadas
+    if (!gdsMap[t.dia]) gdsMap[t.dia]=[]
     const horario = t.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'
     const manualEntry = (manual||[]).find(m=>m.legajo===ef.legajo&&parseInt(m.dia)===t.dia&&m.horario===horario)
-    const horas = presente?(manualEntry?parseInt(manualEntry.horas):12):0
-    gdsMap[t.dia].push({horario,horas,confirmado:!!presente})
+    const horas = manualEntry?parseInt(manualEntry.horas):12
+    gdsMap[t.dia].push({horario,horas,confirmado:true})
   })
 
   ;(manual||[]).filter(m=>m.legajo===ef.legajo).forEach(m=>{
