@@ -40,16 +40,20 @@ export default async function handler(req, res) {
   // Construir guardias por dia
   const gdsMap = {}
   ;(turnosData || []).forEach(t => {
-    if (!gdsMap[t.dia]) gdsMap[t.dia] = []
     const presente = asistMap[`${t.dia}-${t.turno}`]
+    if (!presente) return // Solo guardias confirmadas
+    if (!gdsMap[t.dia]) gdsMap[t.dia] = []
     const horario = t.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
     const manualEntry = (manualData || []).find(m => parseInt(m.dia) === t.dia && m.horario === horario)
-    const horas = presente ? (manualEntry ? parseInt(manualEntry.horas) : 12) : null
+    const horas = manualEntry ? parseInt(manualEntry.horas) : 12
     gdsMap[t.dia].push({ horario, horas })
   })
-  // Agregar horas manuales sin turno asignado
+  // Agregar horas manuales solo si tienen asistencia confirmada
   ;(manualData || []).forEach(m => {
     const dia = parseInt(m.dia)
+    const turno = m.horario === '08:00 a 20:00' ? 'd' : 'n'
+    const presente = asistMap[`${dia}-${turno}`]
+    if (!presente) return // Solo si está confirmada
     if (!gdsMap[dia]) gdsMap[dia] = []
     const yaExiste = gdsMap[dia].find(g => g.horario === m.horario)
     if (!yaExiste) gdsMap[dia].push({ horario: m.horario, horas: parseInt(m.horas) || 0 })
