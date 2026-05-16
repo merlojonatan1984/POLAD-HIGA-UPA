@@ -724,7 +724,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 <div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
 <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
 <div class="firma-box"><div style="flex:1"></div>
-<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
+<div class="firma-line">FIRMA REFERENTE — Crio. Paulo Corbela</div></div>
 </div></body></html>`)
     win.document.close()
     setTimeout(() => win.print(), 500)
