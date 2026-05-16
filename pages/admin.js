@@ -1445,6 +1445,22 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     ))}
                     <span style={{ fontSize:11,color:'var(--text-hint)',marginLeft:8 }}>Solo se muestran efectivos con horas en este lugar</span>
                   </div>
+                  <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:10 }}>
+                    <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)',display:'flex',alignItems:'center',gap:6 }}
+                      onClick={async () => {
+                        const url = `/api/planillas-zip?mes=${{MES}}&anio=${{ANIO}}&lugar=${{lugarPlanilla}}`
+                        const res = await fetch(url)
+                        if (!res.ok) {{ alert('Error al generar el ZIP'); return }}
+                        const blob = await res.blob()
+                        const a = document.createElement('a')
+                        a.href = URL.createObjectURL(blob)
+                        a.download = `Planillas_Ministerio_${{NOMBRE_MES.replace(' ','_')}}.zip`
+                        a.click()
+                        URL.revokeObjectURL(a.href)
+                      }}>
+                      📦 Descargar todas las planillas (ZIP)
+                    </button>
+                  </div>
                   <p style={{ fontSize:12,color:'var(--text-muted)',marginBottom:14 }}>Seleccioná un efectivo para ver y editar su planilla del mes.</p>
                   <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10 }}>
                     {efectivos.map(ef => {
