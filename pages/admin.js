@@ -19,7 +19,7 @@ const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disp
 
 
 // ← FIX: diasMes, mes y anio ahora vienen como props
-function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, sectores, diasMes, mes, anio }) {
+function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, sectores, diasMes, mes, anio, turnosDelDia }) {
   const esNuevo = !turno.id
   const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
   const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
@@ -84,9 +84,18 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
               <option value="">— Seleccionar efectivo —</option>
               {efectivos.map(e => {
                 const h = horasAsig[e.legajo] || 0
-                return <option key={e.legajo} value={e.legajo}>[{e.legajo}] {e.nombre} — {h} hs{h >= 180 ? ' ⚠ TOPE' : ''}</option>
+                const tope = h >= 180
+                // Si es nuevo, verificar si ya tiene turno del mismo tipo ese día
+                const yaAsignado = esNuevo && turnosDelDia
+                  ? turnosDelDia.some(t => t.legajo === e.legajo && t.turno === turnoSel)
+                  : false
+                const disabled = tope || yaAsignado
+                return <option key={e.legajo} value={e.legajo} disabled={disabled}>
+                  {tope ? '⛔ TOPE — ' : yaAsignado ? '✓ Ya asignado — ' : ''}{e.legajo ? `[${e.legajo}] ` : ''}{e.nombre} — {h} hs
+                </option>
               })}
             </select>
+            {esNuevo && <p style={{ fontSize:10,color:'var(--text-muted)',marginTop:3 }}>Los marcados como "Ya asignado" ya tienen ese turno en este día.</p>}
           </div>
           {efSel && (
             <div style={{ background:'#1a1d27',borderRadius:8,padding:'10px 12px',fontSize:12 }}>
@@ -753,6 +762,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
         diasMes={DIAS_MES}
         mes={MES}
         anio={ANIO}
+        turnosDelDia={todosLosTurnos.filter(t => t.dia === (modalTurno.dia || filtroDia))}
       />}
       {modalAsignar && (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
@@ -1265,6 +1275,18 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 </div>
                 {(() => {
                   const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
+                  // Ya asignados este día
+                  const yaAsignadosDia = new Set(todosLosTurnos.filter(t => t.dia === filtroDia && t.turno === 'd').map(t => t.legajo))
+                  const yaAsignadosNoche = new Set(todosLosTurnos.filter(t => t.dia === filtroDia && t.turno === 'n').map(t => t.legajo))
+                  // Verificar si hay sectores con lugar libre
+                  const sectoresLugar = SECTORES_POR_LUGAR[lugarEdicion] || SECTORES
+                  const ocupDia = {}; const ocupNoche = {}
+                  todosLosTurnos.filter(t => t.dia === filtroDia).forEach(t => {
+                    if (t.turno === 'd') ocupDia[t.sector] = (ocupDia[t.sector] || 0) + 1
+                    else ocupNoche[t.sector] = (ocupNoche[t.sector] || 0) + 1
+                  })
+                  const hayLugarDia = sectoresLugar.some(s => (ocupDia[s] || 0) < 2)
+                  const hayLugarNoche = sectoresLugar.some(s => (ocupNoche[s] || 0) < 2)
                   const dispDia = efectivos.filter(e => {
                     const entry = (disponibilidad[e.legajo] || {})[filtroDia]
                     if (!entry) return false
@@ -1276,8 +1298,9 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                     disp: (() => { const entry = (disponibilidad[e.legajo] || {})[filtroDia]; return entry ? (entry.turno || entry) : '' })(),
                     hs: horasAsig[e.legajo] || 0
                   }))
-                  const dispTurnoDia   = dispDia.filter(e => e.disp === 'd' || e.disp === 'dn')
-                  const dispTurnoNoche = dispDia.filter(e => e.disp === 'n' || e.disp === 'dn')
+                  // Solo mostrar los que NO tienen turno asignado ese día, no superan 180hs y hay lugar disponible
+                  const dispTurnoDia   = dispDia.filter(e => (e.disp === 'd' || e.disp === 'dn') && !yaAsignadosDia.has(e.legajo) && e.hs < 180 && hayLugarDia)
+                  const dispTurnoNoche = dispDia.filter(e => (e.disp === 'n' || e.disp === 'dn') && !yaAsignadosNoche.has(e.legajo) && e.hs < 180 && hayLugarNoche)
 
                   const renderEf = (e, turno) => {
                     const pct = Math.round(e.hs / 180 * 100)
