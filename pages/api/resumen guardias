@@ -1,0 +1,161 @@
+import { createClient } from '@supabase/supabase-js'
+import PDFDocument from 'pdfkit'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).end()
+
+  const { mes, anio } = req.query
+  if (!mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
+
+  const MES = parseInt(mes)
+  const ANIO = parseInt(anio)
+  const NOMBRE_MES = MESES[MES - 1] + ' ' + ANIO
+
+  // Cargar datos
+  const [{ data: efectivos }, { data: turnos }] = await Promise.all([
+    supabase.from('efectivos').select('legajo, nombre, tipo').eq('es_admin', false).order('nombre'),
+    supabase.from('turnos').select('legajo, turno, sector').eq('mes', MES).eq('anio', ANIO)
+  ])
+
+  // Contar guardias por efectivo
+  const conteo = {}
+  ;(turnos || []).forEach(t => {
+    if (!conteo[t.legajo]) conteo[t.legajo] = { total: 0, dia: 0, noche: 0 }
+    conteo[t.legajo].total++
+    if (t.turno === 'd') conteo[t.legajo].dia++
+    else conteo[t.legajo].noche++
+  })
+
+  const conTurnos = (efectivos || []).filter(e => (conteo[e.legajo]?.total || 0) > 0)
+  const sinTurnos = (efectivos || []).filter(e => (conteo[e.legajo]?.total || 0) === 0)
+
+  // Generar PDF
+  const doc = new PDFDocument({ margin: 40, size: 'A4' })
+  const chunks = []
+  doc.on('data', chunk => chunks.push(chunk))
+
+  await new Promise((resolve) => {
+    doc.on('end', resolve)
+
+    const W = doc.page.width
+    const ML = 40
+    const MR = 40
+    const TW = W - ML - MR
+
+    // Header azul
+    doc.rect(ML, 30, TW, 28).fill('#1a3a6b')
+    doc.fontSize(8).fillColor('white').font('Helvetica-Bold')
+      .text('POLICIA ADICIONAL · MINISTERIO DE SEGURIDAD · MAR DEL PLATA', ML, 40, { width: TW, align: 'center' })
+
+    // Título
+    doc.fontSize(16).fillColor('#1a3a6b').font('Helvetica-Bold')
+      .text(`Resumen de Guardias Designadas — ${NOMBRE_MES}`, ML, 72, { width: TW, align: 'center' })
+    doc.fontSize(9).fillColor('#666').font('Helvetica')
+      .text(`Efectivos con guardias: ${conTurnos.length}  ·  Sin guardias: ${sinTurnos.length}`, ML, 93, { width: TW, align: 'center' })
+
+    let y = 115
+
+    // Encabezado de tabla
+    const cols = [30, 240, 75, 65, 50, 55, 55]
+    const headers = ['N°', 'Apellido y Nombre', 'Legajo', 'Guardias', 'Día', 'Noche', 'Horas']
+    const aligns = ['center','left','center','center','center','center','center']
+
+    doc.rect(ML, y, TW, 22).fill('#1a3a6b')
+    let x = ML
+    headers.forEach((h, i) => {
+      doc.fontSize(8.5).fillColor('white').font('Helvetica-Bold')
+        .text(h, x + 3, y + 7, { width: cols[i] - 6, align: aligns[i] })
+      x += cols[i]
+    })
+    y += 22
+
+    // Filas
+    let totalG = 0, totalD = 0, totalN = 0
+    conTurnos.forEach((ef, idx) => {
+      const c = conteo[ef.legajo] || { total: 0, dia: 0, noche: 0 }
+      totalG += c.total; totalD += c.dia; totalN += c.noche
+      const rowH = 18
+      const bg = idx % 2 === 0 ? '#ffffff' : '#f0f0f0'
+      doc.rect(ML, y, TW, rowH).fill(bg).stroke('#cccccc')
+
+      const vals = [String(idx+1), ef.nombre, ef.legajo, String(c.total), String(c.dia), String(c.noche), String(c.total*12)]
+      x = ML
+      vals.forEach((v, i) => {
+        doc.fontSize(8).fillColor('#111').font(i === 1 ? 'Helvetica' : 'Helvetica')
+          .text(v, x + 3, y + 5, { width: cols[i] - 6, align: aligns[i], lineBreak: false })
+        x += cols[i]
+      })
+      y += rowH
+
+      // Nueva página si necesario
+      if (y > doc.page.height - 80) {
+        doc.addPage()
+        y = 40
+      }
+    })
+
+    // Fila total
+    doc.rect(ML, y, TW, 22).fill('#1a3a6b')
+    const totals = ['', 'TOTAL GENERAL', '', String(totalG), String(totalD), String(totalN), String(totalG*12)]
+    x = ML
+    totals.forEach((v, i) => {
+      doc.fontSize(9).fillColor('white').font('Helvetica-Bold')
+        .text(v, x + 3, y + 7, { width: cols[i] - 6, align: aligns[i], lineBreak: false })
+      x += cols[i]
+    })
+    y += 22
+
+    // Efectivos sin guardias
+    if (sinTurnos.length > 0) {
+      y += 16
+      if (y > doc.page.height - 100) { doc.addPage(); y = 40 }
+      doc.fontSize(11).fillColor('#8b4040').font('Helvetica-Bold')
+        .text('Efectivos sin guardias asignadas', ML, y)
+      y += 18
+
+      const cols2 = [30, 390, 100]
+      const hdrs2 = ['N°', 'Apellido y Nombre', 'Legajo']
+      doc.rect(ML, y, TW, 20).fill('#8b4040')
+      x = ML
+      hdrs2.forEach((h, i) => {
+        doc.fontSize(8.5).fillColor('white').font('Helvetica-Bold')
+          .text(h, x + 3, y + 6, { width: cols2[i] - 6, align: i === 0 ? 'center' : 'left' })
+        x += cols2[i]
+      })
+      y += 20
+
+      sinTurnos.forEach((ef, idx) => {
+        const rowH = 16
+        const bg = idx % 2 === 0 ? '#fff5f5' : '#fff0f0'
+        doc.rect(ML, y, TW, rowH).fill(bg).stroke('#cccccc')
+        const vs = [String(idx+1), ef.nombre, ef.legajo]
+        x = ML
+        vs.forEach((v, i) => {
+          doc.fontSize(8).fillColor('#444').font('Helvetica')
+            .text(v, x + 3, y + 4, { width: cols2[i] - 6, align: i === 0 ? 'center' : 'left', lineBreak: false })
+          x += cols2[i]
+        })
+        y += rowH
+        if (y > doc.page.height - 60) { doc.addPage(); y = 40 }
+      })
+    }
+
+    // Pie
+    doc.fontSize(7.5).fillColor('#888').font('Helvetica')
+      .text(`POLAD · Policía Adicional · Mar del Plata · ${NOMBRE_MES}`, ML, doc.page.height - 35, { width: TW, align: 'center' })
+
+    doc.end()
+  })
+
+  const buffer = Buffer.concat(chunks)
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="Resumen_Guardias_${NOMBRE_MES.replace(' ','_')}.pdf"`)
+  res.send(buffer)
+}
