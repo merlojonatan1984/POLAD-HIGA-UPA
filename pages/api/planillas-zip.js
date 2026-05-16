@@ -149,8 +149,9 @@ export default async function handler(req, res) {
   ])
 
   const efectivos=ef_r.data||[], turnos=t_r.data||[], asistencia=a_r.data||[], manual=m_r.data||[]
-  const legajosConTurnos=new Set(turnos.map(t=>t.legajo))
-  const efConTurnos=efectivos.filter(e=>legajosConTurnos.has(e.legajo))
+  // Filtrar por efectivos con asistencia confirmada (no solo turnos designados)
+  const legajosConAsistencia=new Set(asistencia.map(a=>a.legajo))
+  const efConTurnos=efectivos.filter(e=>legajosConAsistencia.has(e.legajo))
 
   const zip=new JSZip()
   const carpeta=zip.folder('Planillas_'+NOMBRE_MES.replace(' ','_'))
