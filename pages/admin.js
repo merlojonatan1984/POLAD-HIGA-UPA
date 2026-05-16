@@ -442,7 +442,14 @@ export default function AdminApp() {
     setModalAsignar(null)
     setAsignando(false)
     await cargarTodo()
-    alert(`✓ Se asignaron ${cantidad} guardias a ${efectivos.find(e=>e.legajo===legajo)?.nombre?.split(',')[0] || legajo}`)
+    const nombre = efectivos.find(e=>e.legajo===legajo)?.nombre?.split(',')[0] || legajo
+    const asignadas = nuevos.length
+    const pedidas = tipoTurno === 'doble' ? cantidad * 2 : cantidad
+    if (asignadas < pedidas) {
+      alert(`✓ Se asignaron ${asignadas} de ${pedidas} guardias a ${nombre}.\n⚠ ${pedidas - asignadas} no pudieron asignarse por falta de lugar disponible en esos días.`)
+    } else {
+      alert(`✓ Se asignaron ${asignadas} guardias a ${nombre} correctamente.`)
+    }
   }
 
   async function descargarPlanilla(lugar, turno) {
@@ -852,6 +859,22 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
           <div className="metric"><div className="metric-label">Cargaron disponib.</div><div className="metric-val">{cargaron}</div><div className="metric-sub">de {efectivos.length}</div></div>
           <div className="metric"><div className="metric-label">Turnos asignados</div><div className="metric-val">{todosLosTurnos.length}</div><div className="metric-sub">{NOMBRE_MES}</div></div>
           <div className="metric"><div className="metric-label">Estado</div><div className="metric-val" style={{ fontSize: 13, marginTop: 4, color: hayTurnos ? '#1D9E75' : '#8b90a0' }}>{hayTurnos ? 'Generado' : 'Sin generar'}</div><div className="metric-sub">{NOMBRE_MES}</div></div>
+        </div>
+        <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:12 }}>
+          <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)',display:'flex',alignItems:'center',gap:6 }}
+            onClick={async () => {
+              const url = `/api/resumen-guardias?mes=${MES}&anio=${ANIO}`
+              const res = await fetch(url)
+              if (!res.ok) { alert('Error al generar el PDF'); return }
+              const blob = await res.blob()
+              const a = document.createElement('a')
+              a.href = URL.createObjectURL(blob)
+              a.download = `Resumen_Guardias_${NOMBRE_MES.replace(' ','_')}.pdf`
+              a.click()
+              URL.revokeObjectURL(a.href)
+            }}>
+            📄 Descargar resumen de guardias
+          </button>
         </div>
 
         {vista === 'resumen' && (() => {
