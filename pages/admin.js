@@ -270,6 +270,7 @@ export default function AdminApp() {
   const [manualHorario, setManualHorario] = useState('')
   const [manualHoras, setManualHoras] = useState('')
   const [descargando, setDescargando] = useState(null)
+  const [dispDelDia, setDispDelDia] = useState({ dia: null, data: [] })
   const [modalAsignar, setModalAsignar] = useState(null) // { ef, cantGuardias, tipoTurno }
   const [asignando, setAsignando] = useState(false)
 
@@ -287,6 +288,17 @@ export default function AdminApp() {
   useEffect(() => {
     if (mounted) cargarTodo()
   }, [mesSeleccionado, anioSeleccionado])
+
+  useEffect(() => {
+    if (!mounted) return
+    async function cargarDispDia() {
+      const { data } = await supabase.from('disponibilidad')
+        .select('legajo, dia, turno, lugar')
+        .eq('mes', MES).eq('anio', ANIO).eq('dia', filtroDia)
+      setDispDelDia({ dia: filtroDia, data: data || [] })
+    }
+    cargarDispDia()
+  }, [filtroDia, lugarEdicion, mesSeleccionado, anioSeleccionado, mounted])
 
   async function cargarTodo() {
     setLoading(true)
@@ -1275,7 +1287,9 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 </div>
                 {(() => {
                   const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
-                  // Ya asignados este día
+                  // Disponibilidad del día consultada directamente de Supabase
+                  const dispDatos = dispDelDia.dia === filtroDia ? dispDelDia.data : []
+                  // Ya asignados este día (de turnos en memoria)
                   const yaAsignadosDia = new Set(todosLosTurnos.filter(t => t.dia === filtroDia && t.turno === 'd').map(t => t.legajo))
                   const yaAsignadosNoche = new Set(todosLosTurnos.filter(t => t.dia === filtroDia && t.turno === 'n').map(t => t.legajo))
                   // Verificar si hay sectores con lugar libre
@@ -1287,17 +1301,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   })
                   const hayLugarDia = sectoresLugar.some(s => (ocupDia[s] || 0) < 2)
                   const hayLugarNoche = sectoresLugar.some(s => (ocupNoche[s] || 0) < 2)
-                  const dispDia = efectivos.filter(e => {
-                    const entry = (disponibilidad[e.legajo] || {})[filtroDia]
-                    if (!entry) return false
-                    const v = entry.turno || entry
-                    const lg = entry.lugar || 'HIGA-UPA'
-                    return v !== '' && lg === lugarFiltroDisp
-                  }).map(e => ({
-                    ...e,
-                    disp: (() => { const entry = (disponibilidad[e.legajo] || {})[filtroDia]; return entry ? (entry.turno || entry) : '' })(),
-                    hs: horasAsig[e.legajo] || 0
-                  }))
+                  // Filtrar por lugar correcto
+                  const dispFiltrada = dispDatos.filter(d => (d.lugar || 'HIGA-UPA') === lugarFiltroDisp)
+                  // Construir lista con datos de efectivos
+                  const dispDia = dispFiltrada.map(d => {
+                    const ef = efectivos.find(e => e.legajo === d.legajo)
+                    if (!ef) return null
+                    return { ...ef, disp: d.turno, hs: horasAsig[ef.legajo] || 0 }
+                  }).filter(Boolean)
                   // Solo mostrar los que NO tienen turno asignado ese día, no superan 180hs y hay lugar disponible
                   const dispTurnoDia   = dispDia.filter(e => (e.disp === 'd' || e.disp === 'dn') && !yaAsignadosDia.has(e.legajo) && e.hs < 180 && hayLugarDia)
                   const dispTurnoNoche = dispDia.filter(e => (e.disp === 'n' || e.disp === 'dn') && !yaAsignadosNoche.has(e.legajo) && e.hs < 180 && hayLugarNoche)
