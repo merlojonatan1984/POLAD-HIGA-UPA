@@ -28,11 +28,15 @@ async function generarPlanilla(ef, MES, ANIO, NOMBRE_MES_SOLO, LUGAR, turnos, as
     gdsMap[t.dia].push({horario,horas,confirmado:true})
   })
 
+  // Solo entradas manuales que coincidan con una asistencia confirmada
   ;(manual||[]).filter(m=>m.legajo===ef.legajo).forEach(m=>{
     const dia=parseInt(m.dia)
+    const turno = m.horario==='08:00 a 20:00'?'d':'n'
+    const presente = asistMap[dia+'-'+turno]
+    if (!presente) return // Solo si está confirmada
     if (!gdsMap[dia]) gdsMap[dia]=[]
     const yaExiste=gdsMap[dia].find(g=>g.horario===m.horario)
-    if (!yaExiste) gdsMap[dia].push({horario:m.horario,horas:parseInt(m.horas)||0,confirmado:false})
+    if (!yaExiste) gdsMap[dia].push({horario:m.horario,horas:parseInt(m.horas)||0,confirmado:true})
   })
 
   const totalHoras = Object.values(gdsMap).flat().reduce((s,g)=>s+(g.horas||0),0)
