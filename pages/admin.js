@@ -869,7 +869,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               const blob = await res.blob()
               const a = document.createElement('a')
               a.href = URL.createObjectURL(blob)
-              a.download = `Resumen_Guardias_${NOMBRE_MES.replace(' ','_')}.pdf`
+              a.download = `Resumen_Guardias_${NOMBRE_MES.replace(' ','_')}.xlsx`
               a.click()
               URL.revokeObjectURL(a.href)
             }}>
