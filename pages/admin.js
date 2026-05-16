@@ -724,7 +724,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
 <div class="firma-box">${firma?`<img src="${firma}" class="firma-img" />`:'<div style="flex:1"></div>'}
 <div class="firma-line">FIRMA EFECTIVO — ${ef.nombre}</div></div>
 <div class="firma-box"><div style="flex:1"></div>
-<div class="firma-line">FIRMA REFERENTE — Crio. Paulo Corbela</div></div>
+<div class="firma-line">FIRMA ENCARGADO — Crio. Paulo Corbela</div></div>
 </div></body></html>`)
     win.document.close()
     setTimeout(() => win.print(), 500)
@@ -1017,7 +1017,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         bloques += `%0A%F0%9F%93%8D *${lugar}* %E2%80%94 Mar del Plata%0A${lineas}%0A   _Subtotal ${lugar}: ${subtotal} hs_%0A`
                       })
 
-                      const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma de servicios POLAD asignado para el mes de *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A${bloques}%0A%E2%9C%85 *Total general: ${totalGeneral} hs*%0A%0AAnte cualquier consulta comunicarse con el encargado.%0A%0A_Crio. Paulo Corbela_%0A_POLAD %C2%B7 HIGA %C2%B7 UPA %C2%B7 MODULAR_%0A_Mar del Plata_`
+                      const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma de servicios POLAD asignado para el mes de *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A${bloques}%0A%E2%9C%85 *Total general: ${totalGeneral} hs*%0A%0AAnte cualquier consulta comunicarse con el referente.%0A%0A_Crio. Paulo Corbela_%0A_POLAD %C2%B7 HIGA %C2%B7 UPA %C2%B7 MODULAR_%0A_Mar del Plata_`
                       return `https://wa.me/${tel}?text=${msg}`
                     })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()}
                     style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px 10px',borderRadius:6,border:'0.5px solid rgba(37,211,102,0.4)',background:'rgba(37,211,102,0.08)',color:'#25D366',fontSize:11,fontWeight:500,textDecoration:'none' }}>
