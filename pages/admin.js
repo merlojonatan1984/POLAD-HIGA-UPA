@@ -1324,7 +1324,12 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         onClick={() => setModalTurno({ dia:filtroDia, sector:(SECTORES_POR_LUGAR[lugarEdicion]||SECTORES)[0], turno, legajo:e.legajo })}>
                         <div style={{ flex:1,minWidth:0 }}>
                           <div style={{ fontSize:11,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.nombre.split(',')[0]}</div>
-                          <div style={{ fontSize:10,color:colorHs }}>{e.hs} hs</div>
+                          <div style={{ display:'flex',alignItems:'center',gap:4,marginTop:2 }}>
+                            <span style={{ fontSize:9,color:colorHs }}>{e.hs} hs</span>
+                            <span style={{ fontSize:9,color: e.tipo==='Uniformado'?'#AFA9EC': e.tipo==='Destacamento'?'#F5C518':'#5DCAA5' }}>
+                              · {e.tipo==='Uniformado'?'Unif.': e.tipo==='Destacamento'?'Dest.':'S.G.'}
+                            </span>
+                          </div>
                         </div>
                         <span style={{ fontSize:10,padding:'1px 6px',borderRadius:3,background:badgeColor.bg,color:badgeColor.color,flexShrink:0,marginLeft:6 }}>{badgeColor.label}</span>
                       </div>
