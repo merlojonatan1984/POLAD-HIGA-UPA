@@ -128,14 +128,16 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
   ws.mergeCells('A2:A3')
 
   sectores.forEach((sec, si) => {
-    const colA = 2 + si * 2
+    const colA = 2 + si * 3
     const colB = colA + 1
+    const colC = colA + 2
     const colLetA = ws.getColumn(colA).letter
     const colLetB = ws.getColumn(colB).letter
+    const colLetC = ws.getColumn(colC).letter
     const isLast = si === sectores.length - 1
 
-    // Merge las 2 cols del sector en fila 2
-    ws.mergeCells(`${colLetA}2:${colLetB}2`)
+    // Merge las 3 cols del sector en fila 2
+    ws.mergeCells(`${colLetA}2:${colLetC}2`)
     const cSec = ws.getCell(`${colLetA}2`)
     cSec.value = sec
     cSec.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
@@ -143,17 +145,17 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     cSec.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
     cSec.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style: isLast?'medium':'thin'} }
 
-    // Fila 3: EF1 | EF2
-    ;[colLetA, colLetB].forEach((col, ei) => {
+    // Fila 3: EF1 | EF2 | EF3
+    ;[colLetA, colLetB, colLetC].forEach((col, ei) => {
       const c = ws.getCell(`${col}3`)
-      c.value = ei === 0 ? 'Ef.1' : 'Ef.2'
+      c.value = ei === 0 ? 'Ef.1' : ei === 1 ? 'Ef.2' : 'Ef.3'
       c.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
       c.alignment = { horizontal:'center', vertical:'middle' }
       c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+C_HDR} }
       c.border = {
         top:{style:'thin'}, bottom:{style:'medium'},
         left:{style:'thin'},
-        right:{style: (isLast && ei===1) ? 'medium' : 'thin'}
+        right:{style: (isLast && ei===2) ? 'medium' : 'thin'}
       }
     })
   })
@@ -180,18 +182,18 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
     // Cols efectivos por sector
     sectores.forEach((sec, si) => {
       const isLastSec = si === sectores.length - 1
-      ;[0, 1].forEach(ei => {
-        const col = 2 + si * 2 + ei
+      ;[0, 1, 2].forEach(ei => {
+        const col = 2 + si * 3 + ei
         const nm = gds[dia]?.[sec]?.[ei] || ''
         const c = ws.getCell(fila, col)
         c.value = nm
         c.font = { name:'Arial', size:6, color:{argb:'FF111122'} }
         c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
-        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+(nm ? (ei===0?C_EF1:C_EF2) : C_VACIO)} }
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+(nm ? (ei===0?C_EF1:ei===1?C_EF2:'FFE8E8') : C_VACIO)} }
         c.border = {
           top:{style:topS}, bottom:{style:botS},
           left:{style:'thin'},
-          right:{style: (isLastSec && ei===1) ? 'medium' : 'thin'}
+          right:{style: (isLastSec && ei===2) ? 'medium' : 'thin'}
         }
       })
     })
