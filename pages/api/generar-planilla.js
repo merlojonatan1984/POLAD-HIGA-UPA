@@ -189,7 +189,9 @@ async function generarHIGA(wb, turnoKey, gds, sectores, mes, anio, diasMes, nomb
         c.value = nm
         c.font = { name:'Arial', size:6, color:{argb:'FF111122'} }
         c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
-        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+(nm ? (ei===0?C_EF1:ei===1?C_EF2:'FFE8E8') : C_VACIO)} }
+        // Rojo si falta ef obligatorio (ei=0 o ei=1) y celda vacía
+        const colorFill = nm ? (ei===0?C_EF1:ei===1?C_EF2:'FFE8E8') : (ei < 2 ? 'E84040' : C_VACIO)
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+colorFill} }
         c.border = {
           top:{style:topS}, bottom:{style:botS},
           left:{style:'thin'},
