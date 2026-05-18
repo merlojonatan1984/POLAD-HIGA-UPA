@@ -1094,7 +1094,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
           <div>
             <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:14 }}>
               <span style={{ fontSize:12,color:'var(--text-muted)' }}>Lugar:</span>
-              {['HIGA','MODULAR'].map(lg => (
+              {['HIGA','UPA','MODULAR'].map(lg => (
                 <button key={lg} className="btn btn-sm"
                   style={{ fontWeight:filtroLugarDisp===lg?600:400,background:filtroLugarDisp===lg?'rgba(200,168,75,0.15)':'transparent',color:filtroLugarDisp===lg?'#c8a84b':'#8b90a0',border:filtroLugarDisp===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
                   onClick={() => setFiltroLugarDisp(lg)}>{lg}</button>
@@ -1125,7 +1125,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                           const entry = (disponibilidad[e.legajo] || {})[i+1]
                           const v = entry ? (entry.turno || entry) : ''
                           const lugar_entry = entry ? (entry.lugar || 'HIGA') : ''
-                          if (lugar_entry && lugar_entry !== filtroLugarDisp) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
+                          if (lugar_entry !== filtroLugarDisp) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
                           const bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
                           const label = v==='dn'?'A':v==='d'?'D':v==='n'?'N':'·'
                           const color = v==='dn'?'#5DCAA5':v==='d'?'#EF9F27':v==='n'?'#85B7EB':'#444'
