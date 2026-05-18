@@ -295,7 +295,7 @@ export default function AdminApp() {
 
   useEffect(() => {
     if (mounted) cargarTodo()
-  }, [mesSeleccionado, anioSeleccionado])
+  }, [mesSeleccionado, anioSeleccionado, filtroLugarDisp])
 
   useEffect(() => {
     if (!mounted) return
@@ -312,7 +312,7 @@ export default function AdminApp() {
     setLoading(true)
     const [{ data: efs }, { data: disp }, { data: turns }, { data: manual }] = await Promise.all([
       supabase.from('efectivos').select('*').eq('es_admin', false).order('nombre'),
-      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO),
+      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', filtroLugarDisp),
       supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO),
       supabase.from('planilla_manual').select('*').eq('mes', MES).eq('anio', ANIO)
     ])
@@ -1097,7 +1097,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               {['HIGA','UPA','MODULAR'].map(lg => (
                 <button key={lg} className="btn btn-sm"
                   style={{ fontWeight:filtroLugarDisp===lg?600:400,background:filtroLugarDisp===lg?'rgba(200,168,75,0.15)':'transparent',color:filtroLugarDisp===lg?'#c8a84b':'#8b90a0',border:filtroLugarDisp===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
-                  onClick={() => setFiltroLugarDisp(lg)}>{lg}</button>
+                  onClick={() => { setFiltroLugarDisp(lg); setEfectivoDetalle(null) }}>{lg}</button>
               ))}
             </div>
             <div className="panel" style={{ marginBottom: 14 }}>
@@ -1144,7 +1144,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
               // Filtrar por lugar seleccionado
               const disp = Object.fromEntries(
                 Object.entries(dispTodo).filter(([dia, entry]) => {
-                  const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA') : 'HIGA'
+                  const lg = entry && typeof entry === 'object' ? (entry.lugar || 'HIGA') : (entry ? 'HIGA' : '')
+                  console.log('dia', dia, 'lugar entry:', lg, 'filtro:', filtroLugarDisp, 'match:', lg === filtroLugarDisp)
                   return lg === filtroLugarDisp
                 })
               )
