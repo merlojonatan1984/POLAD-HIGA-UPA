@@ -254,10 +254,16 @@ export default function AdminApp() {
   const [msgPersonal, setMsgPersonal] = useState(null)
   const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroSector, setFiltroSector] = useState('Todos')
-  const [filtroLugarDisp, setFiltroLugarDisp] = useState('HIGA-UPA')
+  const [filtroLugarDisp, setFiltroLugarDisp] = useState('HIGA')
   const [filtroDia, setFiltroDia] = useState(1)
   const [lugarEdicion, setLugarEdicion] = useState('HIGA')
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
+  const [ventanas, setVentanas] = useState({
+    HIGA:    { dia: '', horaInicio: '08:00', horaFin: '20:00', activa: false },
+    UPA:     { dia: '', horaInicio: '08:00', horaFin: '20:00', activa: false },
+    MODULAR: { dia: '', horaInicio: '08:00', horaFin: '20:00', activa: false }
+  })
+  const [ventanasGuardadas, setVentanasGuardadas] = useState(false)
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
   const [lugarPlanilla, setLugarPlanilla] = useState('HIGA')
@@ -283,6 +289,8 @@ export default function AdminApp() {
     const parsed = JSON.parse(u)
     if (!parsed.es_admin) { router.push('/efectivo'); return }
     cargarTodo()
+    const v = localStorage.getItem('polad_ventanas')
+    if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
   }, [])
 
   useEffect(() => {
@@ -312,7 +320,7 @@ export default function AdminApp() {
     const dispMap = {}
     ;(disp || []).forEach(d => { 
       if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-      dispMap[d.legajo][d.dia] = { turno: d.turno, lugar: d.lugar || 'HIGA-UPA' }
+      dispMap[d.legajo][d.dia] = { turno: d.turno, lugar: d.lugar || 'HIGA' }
     })
     setDisponibilidad(dispMap)
     const turnosMap = {}; const hsMap = {}
@@ -357,7 +365,7 @@ export default function AdminApp() {
     setAsignando(true)
 
     // Consultar directamente a Supabase para tener datos frescos
-    const lugarFiltro = lugar === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
+    const lugarFiltro = lugar === 'MODULAR' ? 'MODULAR' : 'HIGA'
 
     const [{ data: dispData }, { data: turnosData }] = await Promise.all([
       supabase.from('disponibilidad').select('dia, turno, lugar')
@@ -368,7 +376,7 @@ export default function AdminApp() {
 
     // Filtrar días disponibles según tipo de turno y lugar
     const diasDisp = (dispData || []).filter(d => {
-      const lg = d.lugar || 'HIGA-UPA'
+      const lg = d.lugar || 'HIGA'
       if (lg !== lugarFiltro) return false
       const tipoBase = tipoTurno === 'doble' ? 'dn' : tipoTurno
       if (tipoBase === 'd') return d.turno === 'd' || d.turno === 'dn'
@@ -819,10 +827,10 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   {(() => {
                     const dispEf = disponibilidad[modalAsignar.legajo] || {}
                     const turno = modalAsignar.tipoTurno || 'd'
-                    const lugarFiltroM = modalAsignar.lugar === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
+                    const lugarFiltroM = modalAsignar.lugar === 'MODULAR' ? 'MODULAR' : 'HIGA'
                     const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
                       const v = typeof entry === 'object' ? (entry.turno || '') : (entry || '')
-                      const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA-UPA') : 'HIGA-UPA'
+                      const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA') : 'HIGA'
                       if (lg !== lugarFiltroM) return false
                       const tipoBase = turno === 'doble' ? 'dn' : turno
                       if (tipoBase === 'd') return v === 'd' || v === 'dn'
@@ -1086,7 +1094,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
           <div>
             <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:14 }}>
               <span style={{ fontSize:12,color:'var(--text-muted)' }}>Lugar:</span>
-              {['HIGA-UPA','MODULAR'].map(lg => (
+              {['HIGA','MODULAR'].map(lg => (
                 <button key={lg} className="btn btn-sm"
                   style={{ fontWeight:filtroLugarDisp===lg?600:400,background:filtroLugarDisp===lg?'rgba(200,168,75,0.15)':'transparent',color:filtroLugarDisp===lg?'#c8a84b':'#8b90a0',border:filtroLugarDisp===lg?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }}
                   onClick={() => setFiltroLugarDisp(lg)}>{lg}</button>
@@ -1116,7 +1124,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         {Array.from({ length: DIAS_MES }, (_, i) => {
                           const entry = (disponibilidad[e.legajo] || {})[i+1]
                           const v = entry ? (entry.turno || entry) : ''
-                          const lugar_entry = entry ? (entry.lugar || 'HIGA-UPA') : ''
+                          const lugar_entry = entry ? (entry.lugar || 'HIGA') : ''
                           if (lugar_entry && lugar_entry !== filtroLugarDisp) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
                           const bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
                           const label = v==='dn'?'A':v==='d'?'D':v==='n'?'N':'·'
@@ -1286,7 +1294,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   <div style={{ fontSize:11,color:'var(--text-muted)' }}>Clic para asignar rápido</div>
                 </div>
                 {(() => {
-                  const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA-UPA'
+                  const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA'
                   // Disponibilidad del día consultada directamente de Supabase
                   const dispDatos = dispDelDia.dia === filtroDia ? dispDelDia.data : []
                   // Ya asignados este día (de turnos en memoria)
@@ -1302,7 +1310,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   const hayLugarDia = sectoresLugar.some(s => (ocupDia[s] || 0) < 2)
                   const hayLugarNoche = sectoresLugar.some(s => (ocupNoche[s] || 0) < 2)
                   // Filtrar por lugar correcto
-                  const dispFiltrada = dispDatos.filter(d => (d.lugar || 'HIGA-UPA') === lugarFiltroDisp)
+                  const dispFiltrada = dispDatos.filter(d => (d.lugar || 'HIGA') === lugarFiltroDisp)
                   // Construir lista con datos de efectivos
                   const dispDia = dispFiltrada.map(d => {
                     const ef = efectivos.find(e => e.legajo === d.legajo)
@@ -1402,10 +1410,50 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       style={{ width:'100%',accentColor:'#5DCAA5' }} />
                   </div>
                   <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
-                    onClick={() => { setConfigGuardada(true); setTimeout(()=>setConfigGuardada(false),2500) }}>
+                    onClick={() => { localStorage.setItem('polad_ventanas', JSON.stringify(ventanas)); setConfigGuardada(true); setTimeout(()=>setConfigGuardada(false),2500) }}>
                     Guardar configuración
                   </button>
                   {configGuardada && <div className="alert alert-ok" style={{ marginTop:10,textAlign:'center' }}>Configuración guardada.</div>}
+                  
+                  <div style={{ marginTop:20,borderTop:'0.5px solid rgba(255,255,255,0.08)',paddingTop:16 }}>
+                    <div style={{ fontSize:13,fontWeight:500,color:'#c8a84b',marginBottom:12 }}>Ventanas de inscripción de disponibilidad</div>
+                    {['HIGA','UPA','MODULAR'].map(lugar => (
+                      <div key={lugar} style={{ marginBottom:14,background:'rgba(255,255,255,0.03)',borderRadius:8,padding:12,border:'0.5px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ fontSize:12,fontWeight:500,marginBottom:8,color: lugar==='HIGA'?'#AFA9EC':lugar==='UPA'?'#D85A30':'#20A0B0' }}>{lugar}</div>
+                        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8 }}>
+                          <div>
+                            <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Día de inscripción</label>
+                            <input type="number" min="1" max="31" placeholder="Ej: 20"
+                              value={ventanas[lugar].dia}
+                              onChange={e => setVentanas(prev => ({...prev,[lugar]:{...prev[lugar],dia:e.target.value}}))}
+                              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Hora inicio</label>
+                            <input type="time" min="08:00" max="20:00"
+                              value={ventanas[lugar].horaInicio}
+                              onChange={e => setVentanas(prev => ({...prev,[lugar]:{...prev[lugar],horaInicio:e.target.value}}))}
+                              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Hora fin</label>
+                            <input type="time" min="08:00" max="20:00"
+                              value={ventanas[lugar].horaFin}
+                              onChange={e => setVentanas(prev => ({...prev,[lugar]:{...prev[lugar],horaFin:e.target.value}}))}
+                              style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
+                          </div>
+                        </div>
+                        <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>
+                          {ventanas[lugar].dia ? `Inscripción habilitada el día ${ventanas[lugar].dia} de ${NOMBRE_MES_SOLO} de ${ventanas[lugar].horaInicio} a ${ventanas[lugar].horaFin}` : 'Sin ventana configurada — inscripción bloqueada'}
+                        </div>
+                      </div>
+                    ))}
+                    <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }}
+                      onClick={() => { localStorage.setItem('polad_ventanas', JSON.stringify(ventanas)); setVentanasGuardadas(true); setTimeout(()=>setVentanasGuardadas(false),2500) }}>
+                      Guardar ventanas de inscripción
+                    </button>
+                    {ventanasGuardadas && <div className="alert alert-ok" style={{ marginTop:8,textAlign:'center' }}>Ventanas guardadas.</div>}
+                  </div>
                 </div>
               </div>
               <div className="panel">
