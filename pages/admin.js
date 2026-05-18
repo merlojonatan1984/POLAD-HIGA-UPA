@@ -1140,7 +1140,14 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
             {efDetalle && (() => {
               const e = efectivos.find(x => x.legajo === efDetalle)
               if (!e) return null
-              const disp = disponibilidad[e.legajo] || {}
+              const dispTodo = disponibilidad[e.legajo] || {}
+              // Filtrar por lugar seleccionado
+              const disp = Object.fromEntries(
+                Object.entries(dispTodo).filter(([dia, entry]) => {
+                  const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA') : 'HIGA'
+                  return lg === filtroLugarDisp
+                })
+              )
               const primerDia = (new Date(ANIO, MES-1, 1).getDay() + 6) % 7
               const turnosEf = turnos[e.legajo] || []
               return (
