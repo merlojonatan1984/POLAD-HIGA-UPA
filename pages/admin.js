@@ -1174,7 +1174,8 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                         const v = entry ? (entry.turno || entry) : ''
                         const bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
                         const bc = v==='dn'?'#1D9E75':v==='d'?'#BA7517':v==='n'?'#378ADD':'var(--border)'
-                        const tsDia = turnosEf.filter(t => t.dia === dia)
+                        const sectoresLugarDet = SECTORES_POR_LUGAR[filtroLugarDisp] || SECTORES
+                        const tsDia = turnosEf.filter(t => t.dia === dia && sectoresLugarDet.includes(t.sector))
                         return (
                           <div key={dia} style={{ border:`0.5px solid ${bc}`,borderRadius:6,padding:'5px 4px',minHeight:52,background:bg,cursor:'pointer' }}
                             onClick={() => setModalTurno({ dia, sector: SECTORES[0], turno: 'd', legajo: e.legajo })}>
