@@ -308,15 +308,9 @@ export default function AdminApp() {
     cargarDispDia()
   }, [filtroDia, lugarEdicion, mesSeleccionado, anioSeleccionado, mounted])
 
-  async function cargarDisponibilidad(lugar) {
-    const { data: disp } = await supabase.from('disponibilidad')
-      .select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', lugar)
-    const dispMap = {}
-    ;(disp || []).forEach(d => {
-      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-      dispMap[d.legajo][d.dia] = { turno: d.turno, lugar: d.lugar || 'HIGA' }
-    })
-    setDisponibilidad(dispMap)
+  function cargarDisponibilidad(lugar) {
+    setFiltroLugarDisp(lugar)
+    setEfectivoDetalle(null)
   }
 
   async function cargarTodo(lugarParam) {
@@ -324,7 +318,7 @@ export default function AdminApp() {
     const lugarFiltro = lugarParam || 'HIGA'
     const [{ data: efs }, { data: disp }, { data: turns }, { data: manual }] = await Promise.all([
       supabase.from('efectivos').select('*').eq('es_admin', false).order('nombre'),
-      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarFiltro),
+      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO),
       supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO),
       supabase.from('planilla_manual').select('*').eq('mes', MES).eq('anio', ANIO)
     ])
