@@ -370,102 +370,77 @@ export default function AdminApp() {
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno, lugar) {
     setAsignando(true)
 
-    // Consultar directamente a Supabase para tener datos frescos
-    const lugarFiltro = lugar === 'MODULAR' ? 'MODULAR' : 'HIGA'
-
-    const [{ data: dispData }, { data: turnosData }] = await Promise.all([
-      supabase.from('disponibilidad').select('dia, turno, lugar')
+    const [{ data: dispData }, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
+      supabase.from('disponibilidad').select('dia, turno')
+        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugar),
+      supabase.from('turnos').select('dia, turno, sector')
         .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO),
-      supabase.from('turnos').select('dia, turno')
-        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+      supabase.from('turnos').select('dia, turno, sector')
+        .eq('mes', MES).eq('anio', ANIO)
     ])
 
-    // Filtrar días disponibles según tipo de turno y lugar
-    const diasDisp = (dispData || []).filter(d => {
-      const lg = d.lugar || 'HIGA'
-      if (lg !== lugarFiltro) return false
-      const tipoBase = tipoTurno === 'doble' ? 'dn' : tipoTurno
-      if (tipoBase === 'd') return d.turno === 'd' || d.turno === 'dn'
-      if (tipoBase === 'n') return d.turno === 'n' || d.turno === 'dn'
-      if (tipoBase === 'dn') return d.turno !== ''
+    const sectoresLugar = SECTORES_POR_LUGAR[lugar] || SECTORES
+
+    const ocupacion = {}
+    ;(turnosTodos || []).forEach(t => {
+      if (!sectoresLugar.includes(t.sector)) return
+      const k = t.dia + '-' + t.turno + '-' + t.sector
+      ocupacion[k] = (ocupacion[k] || 0) + 1
+    })
+
+    const yaAsignadosDia = new Set((turnosEfData || []).filter(t => t.turno === 'd').map(t => parseInt(t.dia)))
+    const yaAsignadosNoche = new Set((turnosEfData || []).filter(t => t.turno === 'n').map(t => parseInt(t.dia)))
+
+    const diasDisp = [...new Set((dispData || []).filter(d => {
+      const diaNum = parseInt(d.dia)
+      if (tipoTurno === 'd') return (d.turno === 'd' || d.turno === 'dn') && !yaAsignadosDia.has(diaNum)
+      if (tipoTurno === 'n') return (d.turno === 'n' || d.turno === 'dn') && !yaAsignadosNoche.has(diaNum)
+      if (tipoTurno === 'dn') return d.turno !== '' && (!yaAsignadosDia.has(parseInt(d.dia)) || !yaAsignadosNoche.has(parseInt(d.dia)))
+      if (tipoTurno === 'doble') return d.turno === 'dn' && !yaAsignadosDia.has(diaNum) && !yaAsignadosNoche.has(diaNum)
       return false
-    }).map(d => parseInt(d.dia))
+    }).map(d => parseInt(d.dia)))]
 
-    // Días que ya tienen el tipo de turno asignado
-    const diasConTurno = new Set((turnosData || [])
-      .filter(t => {
-        if (tipoTurno === 'doble') return true
-        if (tipoTurno === 'dn') return true
-        return t.turno === tipoTurno
-      })
-      .map(t => parseInt(t.dia)))
-
-    // Días libres = disponibles sin turno asignado
-    const diasLibres = diasDisp.filter(d => !diasConTurno.has(d))
-    
-    if (diasLibres.length < cantidad) {
-      alert(`Solo hay ${diasLibres.length} días disponibles sin turno asignado para este efectivo.`)
+    if (diasDisp.length === 0) {
+      alert('Este efectivo no tiene dias disponibles en ' + lugar + ' para el turno seleccionado.')
       setAsignando(false)
       return
     }
 
-    // Mezclar aleatoriamente y tomar la cantidad pedida
-    const diasMezclados = [...diasLibres].sort(() => Math.random() - 0.5)
-    const diasSeleccionados = diasMezclados.slice(0, cantidad)
-    
-    // Determinar sector según lugar
-    const sectoresLugar = SECTORES_POR_LUGAR[lugar] || SECTORES
-    const sector = sectoresLugar[0]
+    const diasMezclados = [...diasDisp].sort(() => Math.random() - 0.5)
+    const diasSeleccionados = diasMezclados.slice(0, Math.min(cantidad, diasMezclados.length))
 
-    // Verificar cuántos efectivos hay por sector/turno/día para respetar máximo 2
-    const { data: turnosTodos } = await supabase.from('turnos').select('dia, turno, sector')
-      .eq('mes', MES).eq('anio', ANIO)
-
-    // Mapa de ocupación por dia-turno-sector
-    const ocupacion = {}
-    ;(turnosTodos || []).forEach(t => {
-      const k = `${t.dia}-${t.turno}-${t.sector}`
-      ocupacion[k] = (ocupacion[k] || 0) + 1
-    })
-
-    // Crear los turnos respetando límite de 2 por sector y turno correcto
-    let nuevos = []
-    const sectoresLugar2 = SECTORES_POR_LUGAR[lugar] || SECTORES
+    const nuevos = []
 
     for (const dia of diasSeleccionados) {
       if (tipoTurno === 'doble') {
-        // Buscar sector con lugar para día
-        const sectorD = sectoresLugar2.find(s => (ocupacion[`${dia}-d-${s}`] || 0) < 2)
-        const sectorN = sectoresLugar2.find(s => (ocupacion[`${dia}-n-${s}`] || 0) < 2)
-        if (sectorD) {
-          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'd', sector: sectorD })
-          ocupacion[`${dia}-d-${sectorD}`] = (ocupacion[`${dia}-d-${sectorD}`] || 0) + 1
+        if (!yaAsignadosDia.has(dia)) {
+          const s = sectoresLugar.find(s => (ocupacion[dia+'-d-'+s] || 0) < 2)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'd', sector: s }); ocupacion[dia+'-d-'+s]=(ocupacion[dia+'-d-'+s]||0)+1; yaAsignadosDia.add(dia) }
         }
-        if (sectorN) {
-          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'n', sector: sectorN })
-          ocupacion[`${dia}-n-${sectorN}`] = (ocupacion[`${dia}-n-${sectorN}`] || 0) + 1
+        if (!yaAsignadosNoche.has(dia)) {
+          const s = sectoresLugar.find(s => (ocupacion[dia+'-n-'+s] || 0) < 2)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'n', sector: s }); ocupacion[dia+'-n-'+s]=(ocupacion[dia+'-n-'+s]||0)+1; yaAsignadosNoche.add(dia) }
         }
       } else if (tipoTurno === 'dn') {
-        const turnoElegido = nuevos.length % 2 === 0 ? 'd' : 'n'
-        const sectorLibre = sectoresLugar2.find(s => (ocupacion[`${dia}-${turnoElegido}-${s}`] || 0) < 2)
-        if (sectorLibre) {
-          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: turnoElegido, sector: sectorLibre })
-          ocupacion[`${dia}-${turnoElegido}-${sectorLibre}`] = (ocupacion[`${dia}-${turnoElegido}-${sectorLibre}`] || 0) + 1
+        const dC = nuevos.filter(n=>n.turno==='d').length
+        const nC = nuevos.filter(n=>n.turno==='n').length
+        const t = dC <= nC ? 'd' : 'n'
+        const ya = t === 'd' ? yaAsignadosDia : yaAsignadosNoche
+        if (!ya.has(dia)) {
+          const s = sectoresLugar.find(s => (ocupacion[dia+'-'+t+'-'+s] || 0) < 2)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: t, sector: s }); ocupacion[dia+'-'+t+'-'+s]=(ocupacion[dia+'-'+t+'-'+s]||0)+1; ya.add(dia) }
         }
       } else {
-        // Solo día o solo noche — respetar turno exacto de disponibilidad
-        const dispDia = (dispData || []).find(d => parseInt(d.dia) === dia)
-        const turnoReal = tipoTurno // 'd' o 'n'
-        const sectorLibre = sectoresLugar2.find(s => (ocupacion[`${dia}-${turnoReal}-${s}`] || 0) < 2)
-        if (sectorLibre) {
-          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: turnoReal, sector: sectorLibre })
-          ocupacion[`${dia}-${turnoReal}-${sectorLibre}`] = (ocupacion[`${dia}-${turnoReal}-${sectorLibre}`] || 0) + 1
+        const ya = tipoTurno === 'd' ? yaAsignadosDia : yaAsignadosNoche
+        if (!ya.has(dia)) {
+          const s = sectoresLugar.find(s => (ocupacion[dia+'-'+tipoTurno+'-'+s] || 0) < 2)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector: s }); ocupacion[dia+'-'+tipoTurno+'-'+s]=(ocupacion[dia+'-'+tipoTurno+'-'+s]||0)+1; ya.add(dia) }
         }
       }
     }
 
     if (nuevos.length === 0) {
-      alert('No hay sectores disponibles con lugar libre para este efectivo en los días seleccionados.')
+      alert('No hay sectores con lugar libre para asignar guardias en ' + lugar + '.')
       setAsignando(false)
       return
     }
