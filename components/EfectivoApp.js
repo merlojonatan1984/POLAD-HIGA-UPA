@@ -23,12 +23,14 @@ export default function EfectivoApp() {
   const [loading, setLoading] = useState(true)
   const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1)
   const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear())
-  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA-UPA')
+  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA')
   const MES = mesSeleccionado
   const ANIO = anioSeleccionado
   const DIAS_MES = new Date(ANIO, MES, 0).getDate()
   const NOMBRE_MES = MESES_NOMBRES[MES - 1]
   const [mounted, setMounted] = useState(false)
+  const [ventana, setVentana] = useState(null)
+  const [bloqueado, setBloqueado] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -37,11 +39,24 @@ export default function EfectivoApp() {
     const parsed = JSON.parse(u)
     if (parsed.es_admin) { router.push('/admin'); return }
     setUser(parsed)
+    // Cargar ventana de inscripción
+    const v = localStorage.getItem('polad_ventanas')
+    if (v) {
+      try {
+        const ventanas = JSON.parse(v)
+        setVentana(ventanas)
+        verificarVentana(ventanas, lugarSeleccionado)
+      } catch(e) {}
+    }
     cargarDatos(parsed.legajo)
   }, [])
 
   useEffect(() => {
-    if (user) { setDisponibilidad({}); cargarDatos(user.legajo, lugarSeleccionado) }
+    if (user) {
+      setDisponibilidad({})
+      cargarDatos(user.legajo, lugarSeleccionado)
+      if (ventana) verificarVentana(ventana, lugarSeleccionado)
+    }
   }, [mesSeleccionado, anioSeleccionado, lugarSeleccionado])
 
   async function cargarDatos(legajo, lugar) {
@@ -91,6 +106,23 @@ export default function EfectivoApp() {
     return (new Date(ANIO, MES - 1, 1).getDay() + 6) % 7
   }
 
+  function verificarVentana(ventanas, lugar) {
+    const v = ventanas?.[lugar]
+    if (!v || !v.dia) { setBloqueado(true); return }
+    const ahora = new Date()
+    const diaHoy = ahora.getDate()
+    const mesHoy = ahora.getMonth() + 1
+    const anioHoy = ahora.getFullYear()
+    const horaActual = ahora.getHours() * 60 + ahora.getMinutes()
+    const [hIni, mIni] = (v.horaInicio || '08:00').split(':').map(Number)
+    const [hFin, mFin] = (v.horaFin || '20:00').split(':').map(Number)
+    const inicioMin = hIni * 60 + mIni
+    const finMin = hFin * 60 + mFin
+    const diaOk = parseInt(v.dia) === diaHoy
+    const horaOk = horaActual >= inicioMin && horaActual < finMin
+    setBloqueado(!(diaOk && horaOk))
+  }
+
   if (!mounted || loading) return <div className="loading">Cargando...</div>
   if (!user) return null
 
@@ -122,7 +154,7 @@ export default function EfectivoApp() {
           <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
             <select value={lugarSeleccionado} onChange={e => { setLugarSeleccionado(e.target.value); setDisponibilidad({}) }}
               style={{ background:'transparent',border:'none',color:'#20A0B0',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
-              {['HIGA-UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
+              {['HIGA','UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
             </select>
             <span style={{ color:'#555b6e',fontSize:11 }}>|</span>
             <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
@@ -174,7 +206,13 @@ export default function EfectivoApp() {
             {vistaActual === 'disponibilidad' && (
               <div className="panel">
                 <div className="panel-header">
-                  <h3>Disponibilidad — {lugarSeleccionado} · {NOMBRE_MES} {ANIO}</h3>
+                  <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                    <h3>Disponibilidad — {lugarSeleccionado} · {NOMBRE_MES} {ANIO}</h3>
+                    {bloqueado
+                      ? <span style={{ fontSize:11,color:'#F09595',background:'rgba(240,149,149,0.1)',padding:'2px 8px',borderRadius:4,border:'0.5px solid rgba(240,149,149,0.3)' }}>🔒 Inscripción cerrada</span>
+                      : <span style={{ fontSize:11,color:'#1D9E75',background:'rgba(29,158,117,0.1)',padding:'2px 8px',borderRadius:4,border:'0.5px solid rgba(29,158,117,0.3)' }}>✓ Inscripción abierta</span>
+                    }
+                  </div>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{diasDisp} días marcados</span>
                 </div>
                 <div style={{ padding: 14 }}>
