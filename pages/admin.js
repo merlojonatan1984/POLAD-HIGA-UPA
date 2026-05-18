@@ -1284,7 +1284,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   <div style={{ fontSize:11,color:'var(--text-muted)' }}>Clic para asignar rápido</div>
                 </div>
                 {(() => {
-                  const lugarFiltroDisp = lugarEdicion === 'MODULAR' ? 'MODULAR' : 'HIGA'
+                  const lugarFiltroDisp = lugarEdicion
                   // Disponibilidad del día consultada directamente de Supabase
                   const dispDatos = dispDelDia.dia === filtroDia ? dispDelDia.data : []
                   // Ya asignados este día (de turnos en memoria)
