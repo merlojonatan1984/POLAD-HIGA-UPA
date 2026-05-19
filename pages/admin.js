@@ -278,6 +278,7 @@ export default function AdminApp() {
   const [descargando, setDescargando] = useState(null)
   const [dispDelDia, setDispDelDia] = useState({ dia: null, data: [] })
   const [modalAsignar, setModalAsignar] = useState(null) // { ef, cantGuardias, tipoTurno }
+  const [efDisponiblesLugar, setEfDisponiblesLugar] = useState([])
   const [asignando, setAsignando] = useState(false)
 
   const [mounted, setMounted] = useState(false)
@@ -778,10 +779,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                 <select value={modalAsignar.legajo||''} onChange={e => setModalAsignar(prev => ({...prev,legajo:e.target.value}))}
                   style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
                   <option value="">— Seleccionar efectivo —</option>
-                  {efectivos.filter(e => {
-                    const dispEf = disponibilidad[e.legajo] || {}
-                    return Object.keys(dispEf).length > 0
-                  }).map(e => <option key={e.legajo} value={e.legajo}>{e.nombre} (Leg. {e.legajo})</option>)}
+                  {efDisponiblesLugar.map(e => <option key={e.legajo} value={e.legajo}>{e.nombre} (Leg. {e.legajo})</option>)}
                 </select>
               </div>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14 }}>
@@ -1352,7 +1350,13 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                       </div>
                       <div style={{ padding:'8px 12px',borderTop:'0.5px solid var(--border)' }}>
                         <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
-                          onClick={() => setModalAsignar({ lugar: lugarEdicion })}>
+                          onClick={async () => {
+                        setModalAsignar({ lugar: lugarEdicion })
+                        const { data } = await supabase.from('disponibilidad')
+                          .select('legajo').eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarEdicion)
+                        const legajos = new Set((data || []).map(d => d.legajo))
+                        setEfDisponiblesLugar(efectivos.filter(e => legajos.has(e.legajo)))
+                      }}>
                           ⚡ Asignar guardias rápido
                         </button>
                       </div>
