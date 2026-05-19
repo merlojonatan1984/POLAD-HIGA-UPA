@@ -122,9 +122,7 @@ export default async function handler(req, res) {
       // Headers tabla
       ws.getRow(6).height = 18
       ;['DÍA','HORARIO','HORAS','DÍA','HORARIO','HORAS'].forEach((h, i) => {
-        if (i === 3) ws.mergeCells('D6:D6')
         const cols = ['A','B','C','D','E','F']
-        // G queda para posibles extras
         setCell(cols[i] + '6', h, true, navy, white)
       })
       setCell('G6', '', true, navy, white)
