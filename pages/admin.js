@@ -1510,15 +1510,50 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:10 }}>
                     <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)',display:'flex',alignItems:'center',gap:6 }}
                       onClick={async () => {
-                        const url = `/api/planillas-zip?mes=${MES}&anio=${ANIO}&lugar=${lugarPlanilla}`
-                        const res = await fetch(url)
-                        if (!res.ok) { alert('Error al generar el ZIP'); return }
-                        const blob = await res.blob()
-                        const a = document.createElement('a')
-                        a.href = URL.createObjectURL(blob)
-                        a.download = `Planillas_Ministerio_${NOMBRE_MES.replace(' ','_')}.zip`
-                        a.click()
-                        URL.revokeObjectURL(a.href)
+                        try {
+                          // Cargar JSZip desde CDN
+                          if (!window.JSZip) {
+                            await new Promise((res, rej) => {
+                              const s = document.createElement('script')
+                              s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+                              s.onload = res; s.onerror = rej
+                              document.head.appendChild(s)
+                            })
+                          }
+                          // Obtener efectivos con asistencia confirmada
+                          const { data: asist } = await supabase.from('asistencia')
+                            .select('legajo').eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarPlanilla)
+                          if (!asist || asist.length === 0) { alert('No hay asistencias confirmadas para ' + lugarPlanilla); return }
+                          const legajosConAsist = [...new Set(asist.map(a => a.legajo))]
+                          const efConAsist = efectivos.filter(e => legajosConAsist.includes(e.legajo))
+                          if (efConAsist.length === 0) { alert('No hay efectivos con asistencia confirmada'); return }
+
+                          const zip = new window.JSZip()
+                          const carpeta = zip.folder('Planillas_' + NOMBRE_MES.replace(' ','_'))
+                          let generadas = 0
+
+                          for (const ef of efConAsist) {
+                            try {
+                              const url = '/api/planilla-efectivo?legajo=' + ef.legajo + '&mes=' + MES + '&anio=' + ANIO + '&lugar=' + lugarPlanilla
+                              const resp = await fetch(url)
+                              if (!resp.ok) continue
+                              const blob = await resp.blob()
+                              const arrBuf = await blob.arrayBuffer()
+                              const nombre = ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0,25)
+                              carpeta.file(nombre + '_' + ef.legajo + '.xlsx', arrBuf)
+                              generadas++
+                            } catch(e) { console.error('Error', ef.legajo, e) }
+                          }
+
+                          if (generadas === 0) { alert('No se pudieron generar las planillas'); return }
+                          const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+                          const a = document.createElement('a')
+                          a.href = URL.createObjectURL(zipBlob)
+                          a.download = 'Planillas_' + lugarPlanilla + '_' + NOMBRE_MES.replace(' ','_') + '.zip'
+                          a.click()
+                          URL.revokeObjectURL(a.href)
+                          alert('✓ ZIP generado con ' + generadas + ' planillas')
+                        } catch(e) { alert('Error: ' + e.message) }
                       }}>
                       📦 Descargar todas las planillas (ZIP)
                     </button>
