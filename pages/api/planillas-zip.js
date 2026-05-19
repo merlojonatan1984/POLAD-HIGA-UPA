@@ -10,182 +10,132 @@ const supabase = createClient(
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default async function handler(req, res) {
-  const { mes, anio, lugar } = req.query
-  const MES = parseInt(mes), ANIO = parseInt(anio)
-  const LUGAR = lugar || 'HIGA'
-  const NOMBRE_MES_SOLO = MESES[MES-1]
-  const NOMBRE_MES = NOMBRE_MES_SOLO + ' ' + ANIO
+  try {
+    const { mes, anio, lugar } = req.query
+    const MES = parseInt(mes), ANIO = parseInt(anio)
+    const LUGAR = lugar || 'HIGA'
+    const NOMBRE_MES_SOLO = MESES[MES-1]
+    const NOMBRE_MES = NOMBRE_MES_SOLO + ' ' + ANIO
 
-  // Traer asistencias del lugar indicado
-  const { data: asistencias } = await supabase
-    .from('asistencia')
-    .select('*')
-    .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
+    const { data: asistencias, error: aErr } = await supabase
+      .from('asistencia').select('*')
+      .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
 
-  if (!asistencias || asistencias.length === 0) {
-    return res.status(200).json({ error: 'No hay asistencias confirmadas para ' + LUGAR + ' en ' + NOMBRE_MES })
-  }
+    if (aErr) return res.status(500).json({ error: aErr.message })
+    if (!asistencias || asistencias.length === 0)
+      return res.status(200).json({ error: 'Sin asistencias para ' + LUGAR })
 
-  // Legajos únicos con asistencia
-  const legajos = [...new Set(asistencias.map(a => a.legajo))]
+    const legajos = [...new Set(asistencias.map(a => a.legajo))]
+    const { data: efectivos } = await supabase.from('efectivos').select('*').in('legajo', legajos)
+    const { data: manual } = await supabase.from('planilla_manual').select('*')
+      .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
 
-  // Traer efectivos
-  const { data: efectivos } = await supabase
-    .from('efectivos')
-    .select('*')
-    .in('legajo', legajos)
+    const zip = new JSZip()
+    const carpeta = zip.folder('Planillas_' + NOMBRE_MES.replace(' ', '_'))
 
-  // Traer planilla manual del lugar
-  const { data: manual } = await supabase
-    .from('planilla_manual')
-    .select('*')
-    .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
-
-  const zip = new JSZip()
-  const carpeta = zip.folder('Planillas_' + NOMBRE_MES.replace(' ', '_'))
-
-  for (const ef of (efectivos || [])) {
-    try {
-      // Asistencias de este efectivo
+    for (const ef of (efectivos || [])) {
       const asistEf = asistencias.filter(a => a.legajo === ef.legajo)
       const manualEf = (manual || []).filter(m => m.legajo === ef.legajo)
 
-      // Construir mapa de guardias por día
+      // Mapa dia -> guardias confirmadas
       const gdsMap = {}
       asistEf.forEach(a => {
         const horario = a.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
-        const manualEntry = manualEf.find(m => parseInt(m.dia) === a.dia && m.horario === horario)
-        const horas = manualEntry ? parseInt(manualEntry.horas) : 12
+        const man = manualEf.find(m => parseInt(m.dia) === a.dia && m.horario === horario)
+        const horas = man ? parseInt(man.horas) : 12
         if (!gdsMap[a.dia]) gdsMap[a.dia] = []
-        if (!gdsMap[a.dia].find(g => g.horario === horario)) {
-          gdsMap[a.dia].push({ horario, horas })
-        }
+        if (!gdsMap[a.dia].find(g => g.h === horario))
+          gdsMap[a.dia].push({ h: horario, hs: horas })
       })
 
-      const totalHoras = Object.values(gdsMap).flat().reduce((s, g) => s + g.horas, 0)
+      const totalHoras = Object.values(gdsMap).flat().reduce((s, g) => s + g.hs, 0)
       const total90 = Math.round(totalHoras * 0.9)
 
-      // Generar Excel simple
+      // Excel sin mergeCells
       const wb = new ExcelJS.Workbook()
-      const ws = wb.addWorksheet('PLANILLA')
+      const ws = wb.addWorksheet('Planilla')
 
-      ws.getColumn(1).width = 12
-      ws.getColumn(2).width = 22
-      ws.getColumn(3).width = 14
-      ws.getColumn(4).width = 11
-      ws.getColumn(5).width = 22
-      ws.getColumn(6).width = 12
-      ws.getColumn(7).width = 13
+      ws.getColumn(1).width = 5
+      ws.getColumn(2).width = 20
+      ws.getColumn(3).width = 10
+      ws.getColumn(4).width = 5
+      ws.getColumn(5).width = 20
+      ws.getColumn(6).width = 10
 
-      const navy = 'FF1a3a6b'
-      const white = 'FFFFFFFF'
-      const black = 'FF111111'
-      const gray = 'FFf0f0f0'
+      const N = { argb: 'FF1a3a6b' }
+      const W = { argb: 'FFFFFFFF' }
+      const K = { argb: 'FF111111' }
+      const G = { argb: 'FFf0f0f0' }
+      const bn = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
+      const br = () => ({ top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} })
 
-      const setCell = (coord, val, bold, fill, color) => {
-        const c = ws.getCell(coord)
-        c.value = val
-        c.font = { name: 'Arial', size: 9, bold: !!bold, color: { argb: color || black } }
-        if (fill) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
-        c.alignment = { horizontal: 'center', vertical: 'middle' }
-        c.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} }
-      }
+      const r1 = ws.addRow(['POLICIA ADICIONAL - MINISTERIO DE SEGURIDAD - MAR DEL PLATA', '', '', '', '', ''])
+      r1.height = 20
+      r1.getCell(1).font = { name:'Arial', bold:true, size:9, color:W }
+      r1.getCell(1).fill = bn('FF1a3a6b')
+      r1.getCell(1).alignment = { horizontal:'center', vertical:'middle' }
+      r1.getCell(1).border = br()
 
-      // Encabezado
-      ws.mergeCells('A1:G1')
-      setCell('A1', 'POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD', true, navy, white)
-      ws.getRow(1).height = 22
+      const r2 = ws.addRow(['PLANILLA DE CUMPLIMIENTO - SERVICIO DE POLICIA ADICIONAL', '', '', '', '', ''])
+      r2.height = 18
+      r2.getCell(1).font = { name:'Arial', bold:true, size:9, color:W }
+      r2.getCell(1).fill = bn('FF1a3a6b')
+      r2.getCell(1).alignment = { horizontal:'center', vertical:'middle' }
+      r2.getCell(1).border = br()
 
-      ws.mergeCells('A2:G2')
-      setCell('A2', 'PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICIA ADICIONAL', true, navy, white)
-      ws.getRow(2).height = 18
+      ws.addRow(['Nombre', ef.nombre, '', 'Lugar', LUGAR, ''])
+      ws.addRow(['Legajo', ef.legajo, '', 'Mes', NOMBRE_MES_SOLO.toUpperCase() + ' ' + ANIO, ''])
+      ws.addRow(['Jerarquia', ef.jerarquia || '', '', 'DNI', ef.dni || '', ''])
 
-      // Datos del efectivo
-      ws.getRow(3).height = 16
-      setCell('A3', 'Nombre:', true, gray)
-      ws.mergeCells('B3:D3'); setCell('B3', ef.nombre, true)
-      setCell('E3', 'Sucursal:', true, gray)
-      ws.mergeCells('F3:G3'); setCell('F3', LUGAR, true)
-
-      ws.getRow(4).height = 16
-      setCell('A4', 'Legajo:', true, gray)
-      ws.mergeCells('B4:D4'); setCell('B4', ef.legajo)
-      setCell('E4', 'Mes/Año:', true, gray)
-      ws.mergeCells('F4:G4'); setCell('F4', NOMBRE_MES_SOLO.toUpperCase() + ' ' + ANIO)
-
-      ws.getRow(5).height = 16
-      setCell('A5', 'Jerarquía:', true, gray)
-      ws.mergeCells('B5:D5'); setCell('B5', ef.jerarquia || '')
-      setCell('E5', 'DNI:', true, gray)
-      ws.mergeCells('F5:G5'); setCell('F5', ef.dni || '')
-
-      // Headers tabla
-      ws.getRow(6).height = 18
-      ;['DÍA','HORARIO','HORAS','DÍA','HORARIO','HORAS'].forEach((h, i) => {
-        const cols = ['A','B','C','D','E','F']
-        setCell(cols[i] + '6', h, true, navy, white)
+      const rh = ws.addRow(['DIA', 'HORARIO', 'HORAS', 'DIA', 'HORARIO', 'HORAS'])
+      rh.height = 18
+      rh.eachCell(c => {
+        c.font = { name:'Arial', bold:true, size:9, color:W }
+        c.fill = bn('FF1a3a6b')
+        c.alignment = { horizontal:'center', vertical:'middle' }
+        c.border = br()
       })
-      setCell('G6', '', true, navy, white)
 
-      // Filas de datos — columna izq días 1-16, columna der días 17-31
       for (let i = 0; i < 16; i++) {
-        const dia1 = i + 1
-        const dia2 = i + 17
-        const fila = 7 + i
-        ws.getRow(fila).height = 16
-
-        const gs1 = gdsMap[dia1] || []
-        const gs2 = gdsMap[dia2] || []
-
-        setCell('A' + fila, dia1, true, 'FFf5f5f5')
-        setCell('B' + fila, gs1[0] ? gs1[0].horario : '')
-        setCell('C' + fila, gs1[0] ? gs1[0].horas : '')
-
-        if (dia2 <= 31) {
-          setCell('D' + fila, dia2, true, 'FFf5f5f5')
-          setCell('E' + fila, gs2[0] ? gs2[0].horario : '')
-          setCell('F' + fila, gs2[0] ? gs2[0].horas : '')
-          setCell('G' + fila, '')
-        } else {
-          ;['D','E','F','G'].forEach(c => setCell(c + fila, ''))
-        }
+        const d1 = i + 1, d2 = i + 17
+        const g1 = gdsMap[d1] || []
+        const g2 = gdsMap[d2] || []
+        const row = ws.addRow([
+          d1,
+          g1[0] ? g1[0].h : '',
+          g1[0] ? g1[0].hs : '',
+          d2 <= 31 ? d2 : '',
+          g2[0] ? g2[0].h : '',
+          g2[0] ? g2[0].hs : ''
+        ])
+        row.height = 16
+        row.eachCell(c => { c.font = { name:'Arial', size:9, color:K }; c.border = br(); c.alignment = { horizontal:'center', vertical:'middle' } })
+        row.getCell(1).fill = bn('FFf5f5f5')
+        row.getCell(4).fill = bn('FFf5f5f5')
       }
 
-      // Totales
-      const filaTotal = 23
-      ws.getRow(filaTotal).height = 20
-      ws.mergeCells('A' + filaTotal + ':E' + filaTotal)
-      setCell('A' + filaTotal, 'TOTAL HORAS CUMPLIDAS EN EL MES', true, navy, white)
-      ws.mergeCells('F' + filaTotal + ':G' + filaTotal)
-      setCell('F' + filaTotal, totalHoras, true, navy, white)
+      const rt = ws.addRow(['TOTAL HORAS CUMPLIDAS', totalHoras, '', 'TOTAL 90%', total90, ''])
+      rt.height = 20
+      rt.eachCell(c => {
+        c.font = { name:'Arial', bold:true, size:10, color:W }
+        c.fill = bn('FF1a3a6b')
+        c.border = br()
+        c.alignment = { horizontal:'center', vertical:'middle' }
+      })
 
-      const filaTot90 = 24
-      ws.getRow(filaTot90).height = 20
-      ws.mergeCells('A' + filaTot90 + ':E' + filaTot90)
-      setCell('A' + filaTot90, 'TOTAL 90%', true, navy, white)
-      ws.mergeCells('F' + filaTot90 + ':G' + filaTot90)
-      setCell('F' + filaTot90, total90, true, navy, white)
-
-      // Declaración
-      ws.getRow(25).height = 30
-      ws.mergeCells('A25:G25')
-      const cDecl = ws.getCell('A25')
-      cDecl.value = 'Declaro de conformidad, haber prestado ' + totalHoras + ' horas de servicio de Policia Adicional, en el destino que figura la presente planilla.'
-      cDecl.font = { name: 'Arial', size: 8 }
-      cDecl.alignment = { wrapText: true, vertical: 'middle' }
-      cDecl.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} }
+      ws.addRow(['Declaro de conformidad, haber prestado ' + totalHoras + ' horas de servicio de Policia Adicional.'])
 
       const buffer = await wb.xlsx.writeBuffer()
-      const nombre = ef.nombre.replace(/,/g, '').replace(/\s+/g, '_').substring(0, 25)
+      const nombre = ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0, 25)
       carpeta.file(nombre + '_' + ef.legajo + '.xlsx', Buffer.from(buffer))
-
-    } catch (err) {
-      console.error('Error generando planilla para', ef.legajo, err.message)
     }
-  }
 
-  const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
-  res.setHeader('Content-Type', 'application/zip')
-  res.setHeader('Content-Disposition', 'attachment; filename="Planillas_' + LUGAR + '_' + NOMBRE_MES.replace(' ', '_') + '.zip"')
-  res.send(zipBuffer)
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', 'attachment; filename="Planillas_' + LUGAR + '_' + NOMBRE_MES.replace(' ','_') + '.zip"')
+    res.send(zipBuffer)
+
+  } catch(err) {
+    res.status(500).json({ error: err.message, stack: err.stack })
+  }
 }
