@@ -9,174 +9,185 @@ const supabase = createClient(
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
-function B(s='thin') { return {top:{style:s},bottom:{style:s},left:{style:s},right:{style:s}} }
-function F(argb) { return {type:'pattern',pattern:'solid',fgColor:{argb}} }
-function A(h='center') { return {horizontal:h,vertical:'middle',wrapText:false} }
-
-async function generarPlanilla(ef, MES, ANIO, NOMBRE_MES_SOLO, LUGAR, turnos, asistencia, manual) {
-  const asistMap = {}
-  ;(asistencia||[]).filter(a=>a.legajo===ef.legajo).forEach(a=>{ asistMap[a.dia+'-'+a.turno]=a })
-
-  const gdsMap = {}
-  // Procesar todas las asistencias confirmadas directamente
-  ;(asistencia||[]).filter(a=>a.legajo===ef.legajo).forEach(a=>{
-    if (!gdsMap[a.dia]) gdsMap[a.dia]=[]
-    const horario = a.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'
-    const manualEntry = (manual||[]).find(m=>m.legajo===ef.legajo&&parseInt(m.dia)===a.dia&&m.horario===horario)
-    const horas = manualEntry?parseInt(manualEntry.horas):12
-    const yaExiste = gdsMap[a.dia].find(g=>g.horario===horario)
-    if (!yaExiste) gdsMap[a.dia].push({horario,horas,confirmado:true})
-  })
-
-  // Solo entradas manuales que coincidan con una asistencia confirmada
-  ;(manual||[]).filter(m=>m.legajo===ef.legajo).forEach(m=>{
-    const dia=parseInt(m.dia)
-    const turno = m.horario==='08:00 a 20:00'?'d':'n'
-    const presente = asistMap[dia+'-'+turno]
-    if (!presente) return // Solo si está confirmada
-    if (!gdsMap[dia]) gdsMap[dia]=[]
-    const yaExiste=gdsMap[dia].find(g=>g.horario===m.horario)
-    if (!yaExiste) gdsMap[dia].push({horario:m.horario,horas:parseInt(m.horas)||0,confirmado:true})
-  })
-
-  const totalHoras = Object.values(gdsMap).flat().reduce((s,g)=>s+(g.horas||0),0)
-  const total90 = Math.round(totalHoras*0.9)
-
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('PLANILLA')
-
-  ws.pageSetup = {orientation:'portrait',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:1,
-    margins:{left:0.5,right:0.3,top:0.5,bottom:0.5,header:0.1,footer:0.1}}
-
-  ws.getColumn(1).width=11.85; ws.getColumn(2).width=20.71; ws.getColumn(3).width=13.71
-  ws.getColumn(4).width=10.71; ws.getColumn(5).width=20.71; ws.getColumn(6).width=11.85; ws.getColumn(7).width=12.57
-
-  const sv = (coord,val,opts={}) => {
-    const c=ws.getCell(coord); c.value=val
-    if (opts.bold||opts.size||opts.color) c.font={name:'Arial',bold:opts.bold,size:opts.size||10,color:{argb:opts.color||'FF000000'}}
-    if (opts.fill) c.fill=F(opts.fill)
-    if (opts.align) c.alignment=A(opts.align)
-    if (opts.border) c.border=B(opts.border)
-    if (opts.wrap) c.alignment={...c.alignment,wrapText:true}
-  }
-
-  ws.getRow(1).height=14; ws.getRow(2).height=14; ws.getRow(3).height=22
-  ws.getRow(4).height=14; ws.getRow(5).height=14; ws.getRow(6).height=14
-  ws.getRow(7).height=22; ws.getRow(8).height=14; ws.getRow(9).height=22
-  ws.getRow(10).height=16
-  for (let r=11;r<=26;r++) ws.getRow(r).height=18
-  ws.getRow(27).height=16; ws.getRow(28).height=14; ws.getRow(29).height=30
-
-  ws.mergeCells('A1:G1'); sv('A1','POLICIA ADICIONAL',{align:'center'})
-  ws.mergeCells('A2:G2'); sv('A2','MINISTERIO DE SEGURIDAD',{align:'center'})
-  ws.mergeCells('A3:G3'); sv('A3','PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICIA ADICIONAL',
-    {bold:true,size:12,align:'center',border:'medium'})
-
-  ws.mergeCells('A4:C4'); sv('A4','Servicio Polad',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D4:G4'); sv('D4','Destino / domicilio del servicio',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('A5:C5'); sv('A5','Ministerio de Salud - Pcia de Bs As',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D5:G5'); sv('D5','',{border:'thin'})
-
-  ws.mergeCells('A6:C6'); sv('A6','Apellido y Nombre',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D6:E6'); sv('D6','Sucursal',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('F6:G6'); sv('F6','Localidad',{bold:true,align:'center',border:'thin'})
-
-  ws.mergeCells('A7:C7'); sv('A7',ef.nombre,{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D7:E7'); sv('D7',LUGAR,{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('F7:G7'); sv('F7','Mar del Plata',{bold:true,align:'center',border:'thin'})
-
-  sv('A8','Categoria',{bold:true,align:'center',border:'thin'})
-  sv('B8','Mes/Ano',{bold:true,align:'center',border:'thin'})
-  sv('C8','Jerarquia',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D8:E8'); sv('D8','Legajo',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('F8:G8'); sv('F8','N Documento',{bold:true,align:'center',border:'thin'})
-
-  sv('A9','1',{bold:true,align:'center',border:'thin'})
-  sv('B9',NOMBRE_MES_SOLO.toUpperCase()+' '+ANIO,{bold:true,align:'center',border:'thin'})
-  sv('C9',ef.jerarquia||'',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D9:E9'); sv('D9',ef.legajo,{bold:true,size:12,align:'center',border:'thin'})
-  ws.mergeCells('F9:G9'); sv('F9',ef.dni||'',{bold:true,size:12,align:'center',border:'thin'})
-
-  ;['DIA','HORARIO','HORAS','DIA','HORARIO','HORAS'].forEach((h,i)=>{
-    const coord = String.fromCharCode(65+i)+'10'
-    if (i===4) { ws.mergeCells('E10:F10'); sv('E10','HORARIO',{bold:true,align:'center',border:'thin',fill:'FFDDDDDD'}); return }
-    if (i===5) { sv('G10','HORAS',{bold:true,align:'center',border:'thin',fill:'FFDDDDDD'}); return }
-    sv(coord,h,{bold:true,align:'center',border:'thin',fill:'FFDDDDDD'})
-  })
-
-  for (let i=0;i<16;i++) {
-    const dia=i+1; const fila=11+i
-    const gs=gdsMap[dia]||[]
-    sv('A'+fila,dia,{bold:true,align:'center',border:'thin'})
-    sv('B'+fila,gs[0]?gs[0].horario:'',{align:'center',border:'thin'})
-    sv('C'+fila,gs[0]&&gs[0].horas?gs[0].horas:'',{align:'center',border:'thin'})
-    const dia2=17+i; const gs2=gdsMap[dia2]||[]
-    sv('D'+fila,dia2<=31?dia2:'',{bold:true,align:'center',border:'thin'})
-    ws.mergeCells('E'+fila+':F'+fila)
-    sv('E'+fila,gs2[0]?gs2[0].horario:'',{align:'center',border:'thin'})
-    sv('G'+fila,gs2[0]&&gs2[0].horas?gs2[0].horas:'',{align:'center',border:'thin'})
-  }
-
-  ws.mergeCells('D26:F26')
-  sv('D26','TOTAL DE HORAS CUMPLIDAS EN EL MES',{bold:true,align:'center',border:'thin',wrap:true})
-  sv('G26',totalHoras||'',{bold:true,align:'center',border:'thin'})
-  ws.mergeCells('D27:F27')
-  sv('D27','TOTAL 90 %',{bold:true,align:'center',border:'thin'})
-  sv('G27',total90||'',{bold:true,align:'center',border:'thin'})
-
-  ws.mergeCells('A29:G30')
-  sv('A29','Declaro de conformidad, haber prestado '+totalHoras+' horas de servicio de Policia Adicional, en el destino que figura la presente planilla.',
-    {align:'left',wrap:true})
-
-  return await wb.xlsx.writeBuffer()
-}
-
 export default async function handler(req, res) {
-  if (req.method !== 'GET') return res.status(405).end()
   const { mes, anio, lugar } = req.query
-  if (!mes || !anio) return res.status(400).json({ error: 'Faltan parametros' })
+  const MES = parseInt(mes), ANIO = parseInt(anio)
+  const LUGAR = lugar || 'HIGA'
+  const NOMBRE_MES_SOLO = MESES[MES-1]
+  const NOMBRE_MES = NOMBRE_MES_SOLO + ' ' + ANIO
 
-  const MES=parseInt(mes), ANIO=parseInt(anio)
-  const LUGAR=lugar||'HIGA'
-  const NOMBRE_MES_SOLO=MESES[MES-1]
-  const NOMBRE_MES=NOMBRE_MES_SOLO+' '+ANIO
+  // Traer asistencias del lugar indicado
+  const { data: asistencias } = await supabase
+    .from('asistencia')
+    .select('*')
+    .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
 
-  const [ef_r,t_r,a_r,m_r] = await Promise.all([
-    supabase.from('efectivos').select('*').eq('es_admin',false).order('nombre'),
-    supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO),
-    supabase.from('asistencia').select('*').eq('mes',MES).eq('anio',ANIO).eq('lugar',LUGAR),
-    supabase.from('planilla_manual').select('*').eq('mes',MES).eq('anio',ANIO).eq('lugar',LUGAR)
-  ])
+  if (!asistencias || asistencias.length === 0) {
+    return res.status(200).json({ error: 'No hay asistencias confirmadas para ' + LUGAR + ' en ' + NOMBRE_MES })
+  }
 
-  const efectivos=ef_r.data||[], turnos=t_r.data||[], asistencia=a_r.data||[], manual=m_r.data||[]
-  // Filtrar por efectivos con asistencia confirmada (no solo turnos designados)
-  const legajosConAsistencia=new Set(asistencia.map(a=>a.legajo))
-  const efConTurnos=efectivos.filter(e=>legajosConAsistencia.has(e.legajo))
+  // Legajos únicos con asistencia
+  const legajos = [...new Set(asistencias.map(a => a.legajo))]
 
-  const zip=new JSZip()
-  const carpeta=zip.folder('Planillas_'+NOMBRE_MES.replace(' ','_'))
+  // Traer efectivos
+  const { data: efectivos } = await supabase
+    .from('efectivos')
+    .select('*')
+    .in('legajo', legajos)
 
-  const errores = []
-  for (const ef of efConTurnos) {
+  // Traer planilla manual del lugar
+  const { data: manual } = await supabase
+    .from('planilla_manual')
+    .select('*')
+    .eq('mes', MES).eq('anio', ANIO).eq('lugar', LUGAR)
+
+  const zip = new JSZip()
+  const carpeta = zip.folder('Planillas_' + NOMBRE_MES.replace(' ', '_'))
+
+  for (const ef of (efectivos || [])) {
     try {
-      const buffer=await generarPlanilla(ef,MES,ANIO,NOMBRE_MES_SOLO,LUGAR,turnos,asistencia,manual)
-      if (buffer && buffer.byteLength > 0) {
-        const nombre=ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0,25)
-        carpeta.file(nombre+'_'+ef.legajo+'.xlsx', Buffer.from(buffer))
-        console.log('OK planilla:', ef.legajo, 'bytes:', buffer.byteLength)
-      } else {
-        errores.push(ef.legajo + ' - buffer vacio')
-        console.error('Buffer vacio para:', ef.legajo)
+      // Asistencias de este efectivo
+      const asistEf = asistencias.filter(a => a.legajo === ef.legajo)
+      const manualEf = (manual || []).filter(m => m.legajo === ef.legajo)
+
+      // Construir mapa de guardias por día
+      const gdsMap = {}
+      asistEf.forEach(a => {
+        const horario = a.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+        const manualEntry = manualEf.find(m => parseInt(m.dia) === a.dia && m.horario === horario)
+        const horas = manualEntry ? parseInt(manualEntry.horas) : 12
+        if (!gdsMap[a.dia]) gdsMap[a.dia] = []
+        if (!gdsMap[a.dia].find(g => g.horario === horario)) {
+          gdsMap[a.dia].push({ horario, horas })
+        }
+      })
+
+      const totalHoras = Object.values(gdsMap).flat().reduce((s, g) => s + g.horas, 0)
+      const total90 = Math.round(totalHoras * 0.9)
+
+      // Generar Excel simple
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('PLANILLA')
+
+      ws.getColumn(1).width = 12
+      ws.getColumn(2).width = 22
+      ws.getColumn(3).width = 14
+      ws.getColumn(4).width = 11
+      ws.getColumn(5).width = 22
+      ws.getColumn(6).width = 12
+      ws.getColumn(7).width = 13
+
+      const navy = 'FF1a3a6b'
+      const white = 'FFFFFFFF'
+      const black = 'FF111111'
+      const gray = 'FFf0f0f0'
+
+      const setCell = (coord, val, bold, fill, color) => {
+        const c = ws.getCell(coord)
+        c.value = val
+        c.font = { name: 'Arial', size: 9, bold: !!bold, color: { argb: color || black } }
+        if (fill) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
+        c.alignment = { horizontal: 'center', vertical: 'middle' }
+        c.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} }
       }
-    } catch(err) {
-      errores.push(ef.legajo + ' - ' + err.message)
-      console.error('Error planilla',ef.legajo, err.message, err.stack)
+
+      // Encabezado
+      ws.mergeCells('A1:G1')
+      setCell('A1', 'POLICIA ADICIONAL — MINISTERIO DE SEGURIDAD', true, navy, white)
+      ws.getRow(1).height = 22
+
+      ws.mergeCells('A2:G2')
+      setCell('A2', 'PLANILLA DE CUMPLIMIENTO SERVICIO DE POLICIA ADICIONAL', true, navy, white)
+      ws.getRow(2).height = 18
+
+      // Datos del efectivo
+      ws.getRow(3).height = 16
+      setCell('A3', 'Nombre:', true, gray)
+      ws.mergeCells('B3:D3'); setCell('B3', ef.nombre, true)
+      setCell('E3', 'Sucursal:', true, gray)
+      ws.mergeCells('F3:G3'); setCell('F3', LUGAR, true)
+
+      ws.getRow(4).height = 16
+      setCell('A4', 'Legajo:', true, gray)
+      ws.mergeCells('B4:D4'); setCell('B4', ef.legajo)
+      setCell('E4', 'Mes/Año:', true, gray)
+      ws.mergeCells('F4:G4'); setCell('F4', NOMBRE_MES_SOLO.toUpperCase() + ' ' + ANIO)
+
+      ws.getRow(5).height = 16
+      setCell('A5', 'Jerarquía:', true, gray)
+      ws.mergeCells('B5:D5'); setCell('B5', ef.jerarquia || '')
+      setCell('E5', 'DNI:', true, gray)
+      ws.mergeCells('F5:G5'); setCell('F5', ef.dni || '')
+
+      // Headers tabla
+      ws.getRow(6).height = 18
+      ;['DÍA','HORARIO','HORAS','DÍA','HORARIO','HORAS'].forEach((h, i) => {
+        if (i === 3) ws.mergeCells('D6:D6')
+        const cols = ['A','B','C','D','E','F']
+        // G queda para posibles extras
+        setCell(cols[i] + '6', h, true, navy, white)
+      })
+      setCell('G6', '', true, navy, white)
+
+      // Filas de datos — columna izq días 1-16, columna der días 17-31
+      for (let i = 0; i < 16; i++) {
+        const dia1 = i + 1
+        const dia2 = i + 17
+        const fila = 7 + i
+        ws.getRow(fila).height = 16
+
+        const gs1 = gdsMap[dia1] || []
+        const gs2 = gdsMap[dia2] || []
+
+        setCell('A' + fila, dia1, true, 'FFf5f5f5')
+        setCell('B' + fila, gs1[0] ? gs1[0].horario : '')
+        setCell('C' + fila, gs1[0] ? gs1[0].horas : '')
+
+        if (dia2 <= 31) {
+          setCell('D' + fila, dia2, true, 'FFf5f5f5')
+          setCell('E' + fila, gs2[0] ? gs2[0].horario : '')
+          setCell('F' + fila, gs2[0] ? gs2[0].horas : '')
+          setCell('G' + fila, '')
+        } else {
+          ;['D','E','F','G'].forEach(c => setCell(c + fila, ''))
+        }
+      }
+
+      // Totales
+      const filaTotal = 23
+      ws.getRow(filaTotal).height = 20
+      ws.mergeCells('A' + filaTotal + ':E' + filaTotal)
+      setCell('A' + filaTotal, 'TOTAL HORAS CUMPLIDAS EN EL MES', true, navy, white)
+      ws.mergeCells('F' + filaTotal + ':G' + filaTotal)
+      setCell('F' + filaTotal, totalHoras, true, navy, white)
+
+      const filaTot90 = 24
+      ws.getRow(filaTot90).height = 20
+      ws.mergeCells('A' + filaTot90 + ':E' + filaTot90)
+      setCell('A' + filaTot90, 'TOTAL 90%', true, navy, white)
+      ws.mergeCells('F' + filaTot90 + ':G' + filaTot90)
+      setCell('F' + filaTot90, total90, true, navy, white)
+
+      // Declaración
+      ws.getRow(25).height = 30
+      ws.mergeCells('A25:G25')
+      const cDecl = ws.getCell('A25')
+      cDecl.value = 'Declaro de conformidad, haber prestado ' + totalHoras + ' horas de servicio de Policia Adicional, en el destino que figura la presente planilla.'
+      cDecl.font = { name: 'Arial', size: 8 }
+      cDecl.alignment = { wrapText: true, vertical: 'middle' }
+      cDecl.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} }
+
+      const buffer = await wb.xlsx.writeBuffer()
+      const nombre = ef.nombre.replace(/,/g, '').replace(/\s+/g, '_').substring(0, 25)
+      carpeta.file(nombre + '_' + ef.legajo + '.xlsx', Buffer.from(buffer))
+
+    } catch (err) {
+      console.error('Error generando planilla para', ef.legajo, err.message)
     }
   }
-  console.log('Total archivos en ZIP:', efConTurnos.length - errores.length, 'Errores:', errores)
 
-  const zipBuffer=await zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'})
-  res.setHeader('Content-Type','application/zip')
-  res.setHeader('Content-Disposition','attachment; filename="Planillas_'+NOMBRE_MES.replace(' ','_')+'.zip"')
+  const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  res.setHeader('Content-Type', 'application/zip')
+  res.setHeader('Content-Disposition', 'attachment; filename="Planillas_' + LUGAR + '_' + NOMBRE_MES.replace(' ', '_') + '.zip"')
   res.send(zipBuffer)
 }
