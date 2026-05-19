@@ -543,7 +543,8 @@ export default function AdminApp() {
 
   useEffect(() => {
     if (planillaEf) {
-      const turnosEf = (turnos[planillaEf.legajo] || []).sort((a,b) => a.dia - b.dia)
+      const sectoresDelLugar = lugarPlanilla === 'HIGA' ? ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'] : lugarPlanilla === 'UPA' ? ['UPA'] : ['Modular']
+      const turnosEf = (turnos[planillaEf.legajo] || []).filter(t => sectoresDelLugar.includes(t.sector)).sort((a,b) => a.dia - b.dia)
       const asist = planillaEf.asistencia || []
       const asistMap = {}
       asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
@@ -556,8 +557,10 @@ export default function AdminApp() {
         const entradas = []
         const manualDiaEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '08:00 a 20:00')
         const manualNocheEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '20:00 a 08:00')
-        if (pDia || tDia) entradas.push({ horario: '08:00 a 20:00', horas: pDia ? (manualDiaEntry ? parseInt(manualDiaEntry.horas) : 12) : 0, confirmado: !!pDia, manual: false })
-        if (pNoche || tNoche) entradas.push({ horario: '20:00 a 08:00', horas: pNoche ? (manualNocheEntry ? parseInt(manualNocheEntry.horas) : 12) : 0, confirmado: !!pNoche, manual: false })
+        if (pDia) entradas.push({ horario: '08:00 a 20:00', horas: manualDiaEntry ? parseInt(manualDiaEntry.horas) : 12, confirmado: true, manual: false })
+        else if (tDia) entradas.push({ horario: '08:00 a 20:00', horas: 0, confirmado: false, manual: false })
+        if (pNoche) entradas.push({ horario: '20:00 a 08:00', horas: manualNocheEntry ? parseInt(manualNocheEntry.horas) : 12, confirmado: true, manual: false })
+        else if (tNoche) entradas.push({ horario: '20:00 a 08:00', horas: 0, confirmado: false, manual: false })
         Object.values(planillaManual).forEach(m => {
           if (parseInt(m.dia) === dia) {
             const yaExiste = entradas.find(e => e.horario === m.horario)
@@ -576,7 +579,7 @@ export default function AdminApp() {
       })
       setFilasCache(filas)
     }
-  }, [planillaEf, planillaManual, turnos])
+  }, [planillaEf, planillaManual, turnos, lugarPlanilla])
 
 
   async function guardarHoraManual(legajo, dia, horario, horas, sector, lugar) {
@@ -807,7 +810,7 @@ ${Array.from({length: Math.max(col1.length, col2.length)}, (_,i) => {
                   {(() => {
                     const dispEf = disponibilidad[modalAsignar.legajo] || {}
                     const turno = modalAsignar.tipoTurno || 'd'
-                    const lugarFiltroM = modalAsignar.lugar === 'MODULAR' ? 'MODULAR' : 'HIGA'
+                    const lugarFiltroM = modalAsignar.lugar || 'HIGA'
                     const diasDisp = Object.entries(dispEf).filter(([dia, entry]) => {
                       const v = typeof entry === 'object' ? (entry.turno || '') : (entry || '')
                       const lg = typeof entry === 'object' ? (entry.lugar || 'HIGA') : 'HIGA'
