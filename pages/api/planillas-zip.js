@@ -18,14 +18,14 @@ async function generarPlanilla(ef, MES, ANIO, NOMBRE_MES_SOLO, LUGAR, turnos, as
   ;(asistencia||[]).filter(a=>a.legajo===ef.legajo).forEach(a=>{ asistMap[a.dia+'-'+a.turno]=a })
 
   const gdsMap = {}
-  ;(turnos||[]).filter(t=>t.legajo===ef.legajo).forEach(t=>{
-    const presente = asistMap[t.dia+'-'+t.turno]
-    if (!presente) return // Solo guardias confirmadas
-    if (!gdsMap[t.dia]) gdsMap[t.dia]=[]
-    const horario = t.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'
-    const manualEntry = (manual||[]).find(m=>m.legajo===ef.legajo&&parseInt(m.dia)===t.dia&&m.horario===horario)
+  // Procesar todas las asistencias confirmadas directamente
+  ;(asistencia||[]).filter(a=>a.legajo===ef.legajo).forEach(a=>{
+    if (!gdsMap[a.dia]) gdsMap[a.dia]=[]
+    const horario = a.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'
+    const manualEntry = (manual||[]).find(m=>m.legajo===ef.legajo&&parseInt(m.dia)===a.dia&&m.horario===horario)
     const horas = manualEntry?parseInt(manualEntry.horas):12
-    gdsMap[t.dia].push({horario,horas,confirmado:true})
+    const yaExiste = gdsMap[a.dia].find(g=>g.horario===horario)
+    if (!yaExiste) gdsMap[a.dia].push({horario,horas,confirmado:true})
   })
 
   // Solo entradas manuales que coincidan con una asistencia confirmada
@@ -144,8 +144,8 @@ export default async function handler(req, res) {
   const [ef_r,t_r,a_r,m_r] = await Promise.all([
     supabase.from('efectivos').select('*').eq('es_admin',false).order('nombre'),
     supabase.from('turnos').select('*').eq('mes',MES).eq('anio',ANIO),
-    supabase.from('asistencia').select('*').eq('mes',MES).eq('anio',ANIO),
-    supabase.from('planilla_manual').select('*').eq('mes',MES).eq('anio',ANIO)
+    supabase.from('asistencia').select('*').eq('mes',MES).eq('anio',ANIO).eq('lugar',LUGAR),
+    supabase.from('planilla_manual').select('*').eq('mes',MES).eq('anio',ANIO).eq('lugar',LUGAR)
   ])
 
   const efectivos=ef_r.data||[], turnos=t_r.data||[], asistencia=a_r.data||[], manual=m_r.data||[]
@@ -156,15 +156,24 @@ export default async function handler(req, res) {
   const zip=new JSZip()
   const carpeta=zip.folder('Planillas_'+NOMBRE_MES.replace(' ','_'))
 
+  const errores = []
   for (const ef of efConTurnos) {
     try {
       const buffer=await generarPlanilla(ef,MES,ANIO,NOMBRE_MES_SOLO,LUGAR,turnos,asistencia,manual)
-      const nombre=ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0,25)
-      carpeta.file(nombre+'_'+ef.legajo+'.xlsx', buffer)
+      if (buffer && buffer.byteLength > 0) {
+        const nombre=ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0,25)
+        carpeta.file(nombre+'_'+ef.legajo+'.xlsx', Buffer.from(buffer))
+        console.log('OK planilla:', ef.legajo, 'bytes:', buffer.byteLength)
+      } else {
+        errores.push(ef.legajo + ' - buffer vacio')
+        console.error('Buffer vacio para:', ef.legajo)
+      }
     } catch(err) {
-      console.error('Error planilla',ef.legajo,err.message)
+      errores.push(ef.legajo + ' - ' + err.message)
+      console.error('Error planilla',ef.legajo, err.message, err.stack)
     }
   }
+  console.log('Total archivos en ZIP:', efConTurnos.length - errores.length, 'Errores:', errores)
 
   const zipBuffer=await zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'})
   res.setHeader('Content-Type','application/zip')
