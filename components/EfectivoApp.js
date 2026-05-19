@@ -39,7 +39,6 @@ export default function EfectivoApp() {
     const parsed = JSON.parse(u)
     if (parsed.es_admin) { router.push('/admin'); return }
     setUser(parsed)
-    // Cargar ventana de inscripción
     const v = localStorage.getItem('polad_ventanas')
     if (v) {
       try {
@@ -89,8 +88,9 @@ export default function EfectivoApp() {
   async function guardar() {
     if (!user) return
     setGuardando(true)
+    // FIX: solo borra la disponibilidad del lugar actual, no de todos los lugares
     await supabase.from('disponibilidad').delete()
-      .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO)
+      .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarSeleccionado)
     const rows = Object.entries(disponibilidad).map(([dia, turno]) => ({
       legajo: user.legajo, mes: MES, anio: ANIO, dia: parseInt(dia), turno, lugar: lugarSeleccionado
     }))
@@ -130,7 +130,6 @@ export default function EfectivoApp() {
   const pctHoras = Math.round(horasAsig / 180 * 100)
   const colorHoras = pctHoras >= 100 ? '#A32D2D' : pctHoras >= 80 ? '#BA7517' : '#1D9E75'
 
-  // Color del tag según tipo
   const tipoTag = user.tipo === 'Uniformado'
     ? { bg: '#EEEDFE', color: '#3C3489' }
     : user.tipo === 'Destacamento'
