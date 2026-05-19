@@ -375,7 +375,8 @@ export default function AdminApp() {
       supabase.from('disponibilidad').select('dia, turno')
         .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugar),
       supabase.from('turnos').select('dia, turno, sector')
-        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO),
+        .eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO)
+        .in('sector', SECTORES_POR_LUGAR[lugar] || SECTORES),
       supabase.from('turnos').select('dia, turno, sector')
         .eq('mes', MES).eq('anio', ANIO)
     ])
