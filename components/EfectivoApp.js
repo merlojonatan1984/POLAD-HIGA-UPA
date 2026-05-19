@@ -31,6 +31,7 @@ export default function EfectivoApp() {
   const [mounted, setMounted] = useState(false)
   const [ventana, setVentana] = useState(null)
   const [bloqueado, setBloqueado] = useState(false)
+  const [cargadoDesdeDB, setCargadoDesdeDB] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -53,6 +54,7 @@ export default function EfectivoApp() {
   useEffect(() => {
     if (user) {
       setDisponibilidad({})
+      setCargadoDesdeDB(false)
       cargarDatos(user.legajo, lugarSeleccionado)
       if (ventana) verificarVentana(ventana, lugarSeleccionado)
     }
@@ -70,10 +72,12 @@ export default function EfectivoApp() {
     setDisponibilidad(dispMap)
     setTurnos(turns || [])
     setHorasAsig((turns || []).length * 12)
+    setCargadoDesdeDB(true)
     setLoading(false)
   }
 
   function toggleDia(dia) {
+    if (bloqueado) return
     const ciclo = { '': 'd', 'd': 'n', 'n': 'dn', 'dn': '' }
     const cur = disponibilidad[dia] || ''
     const next = ciclo[cur]
@@ -87,8 +91,14 @@ export default function EfectivoApp() {
 
   async function guardar() {
     if (!user) return
+    if (!cargadoDesdeDB) return
+    // FIX: si no hay días marcados, pedir confirmación antes de borrar
+    if (Object.keys(disponibilidad).length === 0) {
+      const ok = confirm('No tenés días marcados. ¿Querés borrar toda la disponibilidad de ' + lugarSeleccionado + '?')
+      if (!ok) return
+    }
     setGuardando(true)
-    // FIX: solo borra la disponibilidad del lugar actual, no de todos los lugares
+    // FIX: solo borra el lugar actual, no todos los lugares
     await supabase.from('disponibilidad').delete()
       .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarSeleccionado)
     const rows = Object.entries(disponibilidad).map(([dia, turno]) => ({
@@ -111,8 +121,6 @@ export default function EfectivoApp() {
     if (!v || !v.dia) { setBloqueado(true); return }
     const ahora = new Date()
     const diaHoy = ahora.getDate()
-    const mesHoy = ahora.getMonth() + 1
-    const anioHoy = ahora.getFullYear()
     const horaActual = ahora.getHours() * 60 + ahora.getMinutes()
     const [hIni, mIni] = (v.horaInicio || '08:00').split(':').map(Number)
     const [hFin, mFin] = (v.horaFin || '20:00').split(':').map(Number)
@@ -249,7 +257,7 @@ export default function EfectivoApp() {
                 </div>
                 <div style={{ padding: '10px 14px', borderTop: '0.5px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                   <button className="btn btn-sm" onClick={() => setDisponibilidad({})}>Limpiar todo</button>
-                  <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+                  <button className="btn btn-primary" onClick={guardar} disabled={guardando || !cargadoDesdeDB}>
                     {guardando ? 'Guardando...' : 'Guardar disponibilidad'}
                   </button>
                 </div>
