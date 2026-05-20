@@ -466,8 +466,9 @@ export default function AdminApp() {
     if (planillaEf) {
       const sectoresDelLugar = lugarPlanilla === 'HIGA' ? SECTORES_HIGA : lugarPlanilla === 'UPA' ? SECTORES_UPA : SECTORES_MODULAR
       const turnosEf = (turnos[planillaEf.legajo] || []).filter(t => sectoresDelLugar.includes(t.sector)).sort((a,b) => a.dia - b.dia)
-      const asist = planillaEf.asistencia || []; const asistMap = {}
-      asist.forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
+      const asistMap = {}
+asist.filter(a => turnosEf.some(t => t.dia === a.dia && t.turno === a.turno))
+     .forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
       const filas = Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
         const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
         const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
@@ -476,9 +477,9 @@ export default function AdminApp() {
         const manualDiaEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '08:00 a 20:00')
         const manualNocheEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '20:00 a 08:00')
         if (pDia) entradas.push({ horario: '08:00 a 20:00', horas: manualDiaEntry ? parseInt(manualDiaEntry.horas) : 12, confirmado: true, manual: false })
-        else if (tDia) entradas.push({ horario: '08:00 a 20:00', horas: 0, confirmado: false, manual: false })
+        else if (tDia) entradas.push({ horario: '08:00 a 20:00', horas: 12, confirmado: false, manual: false, sector: tDia?.sector })
         if (pNoche) entradas.push({ horario: '20:00 a 08:00', horas: manualNocheEntry ? parseInt(manualNocheEntry.horas) : 12, confirmado: true, manual: false })
-        else if (tNoche) entradas.push({ horario: '20:00 a 08:00', horas: 0, confirmado: false, manual: false })
+        else if (tNoche) entradas.push({ horario: '20:00 a 08:00', horas: 12, confirmado: false, manual: false, sector: tNoche?.sector })
         Object.values(planillaManual).forEach(m => {
           if (parseInt(m.dia) === dia) {
             const yaExiste = entradas.find(e => e.horario === m.horario)
