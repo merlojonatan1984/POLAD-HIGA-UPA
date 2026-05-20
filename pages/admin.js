@@ -466,6 +466,7 @@ export default function AdminApp() {
     if (planillaEf) {
       const sectoresDelLugar = lugarPlanilla === 'HIGA' ? SECTORES_HIGA : lugarPlanilla === 'UPA' ? SECTORES_UPA : SECTORES_MODULAR
       const turnosEf = (turnos[planillaEf.legajo] || []).filter(t => sectoresDelLugar.includes(t.sector)).sort((a,b) => a.dia - b.dia)
+      const asist = planillaEf.asistencia || []
       const asistMap = {}
 asist.filter(a => turnosEf.some(t => t.dia === a.dia && t.turno === a.turno))
      .forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
