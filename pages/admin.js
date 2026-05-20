@@ -679,8 +679,7 @@ export default function AdminApp() {
                     <div style={{ fontSize:9,color:coloresLugar[lugarPerfil]||'var(--text-hint)' }}>{lugarPerfil}</div>
                   </div>
                 </div>
-                {/* Solo badge del lugar del perfil */}
-                {(() => { const hsL = (horasAsigPorLugar[e.legajo] || {})[lugarPerfil] || 0; const col = coloresLugar[lugarPerfil]; return hsL > 0 ? <div style={{ display:'flex',gap:4,flexWrap:'wrap',marginTop:3 }}><span style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:`${col}22`,color:col,border:`0.5px solid ${col}44` }}>{lugarPerfil} {hsL}hs</span></div> : null })()
+                {(() => { const hsL = (horasAsigPorLugar[e.legajo] || {})[lugarPerfil] || 0; const col = coloresLugar[lugarPerfil]; return hsL > 0 ? <div style={{ display:'flex',gap:4,flexWrap:'wrap',marginTop:3 }}><span style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:`${col}22`,color:col,border:`0.5px solid ${col}44` }}>{lugarPerfil} {hsL}hs</span></div> : null })()}
                 <div style={{ marginTop:6,fontSize:11,color:dias>0?'#1D9E75':'#EF9F27' }}>{dias>0?`${dias} días cargados`:'Sin disponibilidad'}</div>
                 <div className="hbar" style={{ width:'100%',marginTop:4 }}><div className="hfill" style={{ width:`${Math.min(pct,100)}%`,background:color }}></div></div>
               </div>
