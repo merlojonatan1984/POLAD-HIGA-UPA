@@ -658,9 +658,12 @@ export default function AdminApp() {
           const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
           const renderGrupo = lista => lista.map(e => {
             const dias = Object.keys(disponibilidad[e.legajo] || {}).length
-            const hs = horasAsig[e.legajo] || 0
+            // FIX: mostrar horas solo del lugar del perfil
+            const lugarPerfil = e.lugar || 'HIGA'
+            const hs = (horasAsigPorLugar[e.legajo] || {})[lugarPerfil] || 0
             const pct = Math.round(hs / 180 * 100)
             const color = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
+            const coloresLugar = { HIGA: '#AFA9EC', UPA: '#D85A30', MODULAR: '#20A0B0' }
             return (
               <div key={e.legajo} style={{ border:'0.5px solid var(--border)',borderRadius:8,padding:'10px 12px',background:'var(--surface2)' }}>
                 <div style={{ display:'flex',justifyContent:'space-between' }}>
@@ -673,10 +676,11 @@ export default function AdminApp() {
                   </div>
                   <div style={{ textAlign:'right' }}>
                     <div style={{ fontSize:16,fontWeight:500,color }}>{hs}</div>
-                    <div style={{ fontSize:9,color:'var(--text-hint)' }}>hs total</div>
+                    <div style={{ fontSize:9,color:coloresLugar[lugarPerfil]||'var(--text-hint)' }}>{lugarPerfil}</div>
                   </div>
                 </div>
-                <BadgesLugar legajo={e.legajo} />
+                {/* Solo badge del lugar del perfil */}
+                {(() => { const hsL = (horasAsigPorLugar[e.legajo] || {})[lugarPerfil] || 0; const col = coloresLugar[lugarPerfil]; return hsL > 0 ? <div style={{ display:'flex',gap:4,flexWrap:'wrap',marginTop:3 }}><span style={{ fontSize:9,padding:'1px 5px',borderRadius:3,background:`${col}22`,color:col,border:`0.5px solid ${col}44` }}>{lugarPerfil} {hsL}hs</span></div> : null })()
                 <div style={{ marginTop:6,fontSize:11,color:dias>0?'#1D9E75':'#EF9F27' }}>{dias>0?`${dias} días cargados`:'Sin disponibilidad'}</div>
                 <div className="hbar" style={{ width:'100%',marginTop:4 }}><div className="hfill" style={{ width:`${Math.min(pct,100)}%`,background:color }}></div></div>
               </div>
@@ -707,13 +711,17 @@ export default function AdminApp() {
           const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
           const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
           const renderFichas = lista => lista.map(e => {
-            const hs = horasAsig[e.legajo] || 0
+            const lugarPerfil = e.lugar || 'HIGA'
+            const hs = (horasAsigPorLugar[e.legajo] || {})[lugarPerfil] || 0
             const pct = Math.round(hs / 180 * 100)
             const color = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
+            const coloresLugar = { HIGA: '#AFA9EC', UPA: '#D85A30', MODULAR: '#20A0B0' }
+            const colorLugar = coloresLugar[lugarPerfil] || '#AFA9EC'
             const turnosEf = turnos[e.legajo] || []
-            const turnosHIGA = turnosEf.filter(t => SECTORES_HIGA.includes(t.sector))
-            const turnosUPA = turnosEf.filter(t => SECTORES_UPA.includes(t.sector))
-            const turnosMODULAR = turnosEf.filter(t => SECTORES_MODULAR.includes(t.sector))
+            const sectoresLugarPerfil = SECTORES_POR_LUGAR[lugarPerfil] || SECTORES_HIGA
+            const turnosPerfil = turnosEf.filter(t => sectoresLugarPerfil.includes(t.sector))
+            const turnosDia = turnosPerfil.filter(t => t.turno === 'd').length
+            const turnosNoche = turnosPerfil.filter(t => t.turno === 'n').length
             const iniciales = e.nombre.split(',').map(p => p.trim()[0]).join('').toUpperCase().slice(0, 2)
             return (
               <div key={e.legajo} className="card" style={{ padding:0,overflow:'hidden',cursor:'pointer' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
@@ -727,37 +735,26 @@ export default function AdminApp() {
                   </div>
                   <div style={{ textAlign:'right',flexShrink:0 }}>
                     <div style={{ fontSize:18,fontWeight:500,color,lineHeight:1 }}>{hs}</div>
-                    <div style={{ fontSize:9,color:'var(--text-hint)' }}>hs total</div>
+                    <div style={{ fontSize:9,color:colorLugar }}>{lugarPerfil}</div>
                   </div>
                 </div>
                 <div style={{ height:4,background:'rgba(255,255,255,0.05)',overflow:'hidden' }}>
                   <div style={{ height:'100%',width:`${Math.min(pct,100)}%`,background:color }}></div>
                 </div>
                 <div style={{ padding:'10px 14px' }}>
-                  <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(70px,1fr))',gap:6,marginBottom:10 }}>
-                    {turnosHIGA.length > 0 && (
-                      <div style={{ background:'rgba(42,37,96,0.3)',borderRadius:6,padding:'5px 7px',border:'0.5px solid rgba(175,169,236,0.2)' }}>
-                        <div style={{ fontSize:8,color:'#AFA9EC',marginBottom:1 }}>HIGA</div>
-                        <div style={{ fontSize:13,fontWeight:500,color:'#AFA9EC' }}>{turnosHIGA.length * 12} hs</div>
-                        <div style={{ fontSize:8,color:'#4a4780' }}>{turnosHIGA.length} guard.</div>
-                      </div>
-                    )}
-                    {turnosUPA.length > 0 && (
-                      <div style={{ background:'rgba(80,30,10,0.3)',borderRadius:6,padding:'5px 7px',border:'0.5px solid rgba(216,90,48,0.2)' }}>
-                        <div style={{ fontSize:8,color:'#D85A30',marginBottom:1 }}>UPA</div>
-                        <div style={{ fontSize:13,fontWeight:500,color:'#D85A30' }}>{turnosUPA.length * 12} hs</div>
-                        <div style={{ fontSize:8,color:'#7a3015' }}>{turnosUPA.length} guard.</div>
-                      </div>
-                    )}
-                    {turnosMODULAR.length > 0 && (
-                      <div style={{ background:'rgba(10,50,60,0.3)',borderRadius:6,padding:'5px 7px',border:'0.5px solid rgba(32,160,176,0.2)' }}>
-                        <div style={{ fontSize:8,color:'#20A0B0',marginBottom:1 }}>MOD.</div>
-                        <div style={{ fontSize:13,fontWeight:500,color:'#20A0B0' }}>{turnosMODULAR.length * 12} hs</div>
-                        <div style={{ fontSize:8,color:'#0d5060' }}>{turnosMODULAR.length} guard.</div>
-                      </div>
-                    )}
-                    {turnosHIGA.length === 0 && turnosUPA.length === 0 && turnosMODULAR.length === 0 && (
-                      <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin guardias</div>
+                  <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10 }}>
+                    <div style={{ background:`${colorLugar}18`,borderRadius:6,padding:'6px 8px',border:`0.5px solid ${colorLugar}33` }}>
+                      <div style={{ fontSize:8,color:colorLugar,marginBottom:1 }}>{lugarPerfil} — Día</div>
+                      <div style={{ fontSize:16,fontWeight:500,color:colorLugar }}>{turnosDia}</div>
+                      <div style={{ fontSize:9,color:'var(--text-muted)' }}>{turnosDia * 12} hs</div>
+                    </div>
+                    <div style={{ background:'rgba(13,32,64,0.5)',borderRadius:6,padding:'6px 8px',border:'0.5px solid rgba(133,183,235,0.2)' }}>
+                      <div style={{ fontSize:8,color:'#85B7EB',marginBottom:1 }}>{lugarPerfil} — Noche</div>
+                      <div style={{ fontSize:16,fontWeight:500,color:'#85B7EB' }}>{turnosNoche}</div>
+                      <div style={{ fontSize:9,color:'var(--text-muted)' }}>{turnosNoche * 12} hs</div>
+                    </div>
+                    {turnosPerfil.length === 0 && (
+                      <div style={{ gridColumn:'1/-1',fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin guardias asignadas</div>
                     )}
                   </div>
                   {e.telefono && turnosEf.length > 0 && (
