@@ -2,302 +2,200 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-
-const SECTORES_COLORS = {
-  'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27',
-  'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30'
+const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
+const SECTORES_POR_LUGAR = {
+  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
+  'UPA': ['UPA'],
+  'MODULAR': ['Modular']
 }
+const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
+const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
+
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default function EfectivoApp() {
   const router = useRouter()
-  const [user, setUser] = useState(null)
+  const [usuario, setUsuario] = useState(null)
+  const [mes, setMes] = useState(MES_ACTUAL)
+  const [anio, setAnio] = useState(ANIO_ACTUAL)
   const [disponibilidad, setDisponibilidad] = useState({})
-  const [turnos, setTurnos] = useState([])
-  const [horasAsig, setHorasAsig] = useState(0)
   const [guardando, setGuardando] = useState(false)
-  const [guardado, setGuardado] = useState(false)
-  const [vistaActual, setVistaActual] = useState('disponibilidad')
-  const [loading, setLoading] = useState(true)
-  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1)
-  const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear())
-  const [lugarSeleccionado, setLugarSeleccionado] = useState('HIGA')
-  const MES = mesSeleccionado
-  const ANIO = anioSeleccionado
-  const DIAS_MES = new Date(ANIO, MES, 0).getDate()
-  const NOMBRE_MES = MESES_NOMBRES[MES - 1]
-  const [mounted, setMounted] = useState(false)
+  const [msg, setMsg] = useState(null)
   const [ventana, setVentana] = useState(null)
-  const [bloqueado, setBloqueado] = useState(false)
-  const [cargadoDesdeDB, setCargadoDesdeDB] = useState(false)
+  const [turnos, setTurnos] = useState([])
+  const [loading, setLoading] = useState(true)
+  const diasMes = new Date(anio, mes, 0).getDate()
+  const nombreMes = MESES_NOMBRES[mes - 1] + ' ' + anio
+  const primerDia = (new Date(anio, mes - 1, 1).getDay() + 6) % 7
 
   useEffect(() => {
-    setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
     if (parsed.es_admin) { router.push('/admin'); return }
-    setUser(parsed)
-    const v = localStorage.getItem('polad_ventanas')
-    if (v) {
-      try {
-        const ventanas = JSON.parse(v)
-        setVentana(ventanas)
-        verificarVentana(ventanas, lugarSeleccionado)
-      } catch(e) {}
-    }
-    cargarDatos(parsed.legajo)
+    setUsuario(parsed)
+    cargarDatos(parsed.legajo, mes, anio)
   }, [])
 
-  useEffect(() => {
-    if (user) {
-      setDisponibilidad({})
-      setCargadoDesdeDB(false)
-      cargarDatos(user.legajo, lugarSeleccionado)
-      if (ventana) verificarVentana(ventana, lugarSeleccionado)
-    }
-  }, [mesSeleccionado, anioSeleccionado, lugarSeleccionado])
-
-  async function cargarDatos(legajo, lugar) {
+  async function cargarDatos(legajo, m, a) {
     setLoading(true)
-    const lg = lugar || lugarSeleccionado
+    const ventanasStr = localStorage.getItem(`polad_ventanas_${APP_LUGAR}`)
+    if (ventanasStr) {
+      try { setVentana(JSON.parse(ventanasStr)) } catch(e) {}
+    }
     const [{ data: disp }, { data: turns }] = await Promise.all([
-      supabase.from('disponibilidad').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lg),
-      supabase.from('turnos').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).order('dia')
+      supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', m).eq('anio', a).eq('lugar', APP_LUGAR),
+      supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', m).eq('anio', a).in('sector', SECTORES_APP)
     ])
     const dispMap = {}
     ;(disp || []).forEach(d => { dispMap[d.dia] = d.turno })
     setDisponibilidad(dispMap)
     setTurnos(turns || [])
-    setHorasAsig((turns || []).length * 12)
-    setCargadoDesdeDB(true)
     setLoading(false)
   }
 
-  function toggleDia(dia) {
-    if (bloqueado) return
-    const ciclo = { '': 'd', 'd': 'n', 'n': 'dn', 'dn': '' }
-    const cur = disponibilidad[dia] || ''
-    const next = ciclo[cur]
+  function toggleDia(dia, tipo) {
     setDisponibilidad(prev => {
-      const nuevo = { ...prev }
-      if (next === '') delete nuevo[dia]
-      else nuevo[dia] = next
-      return nuevo
+      const actual = prev[dia] || ''
+      let nuevo
+      if (tipo === 'd') {
+        if (actual === 'd') nuevo = ''
+        else if (actual === 'n') nuevo = 'dn'
+        else if (actual === 'dn') nuevo = 'n'
+        else nuevo = 'd'
+      } else {
+        if (actual === 'n') nuevo = ''
+        else if (actual === 'd') nuevo = 'dn'
+        else if (actual === 'dn') nuevo = 'd'
+        else nuevo = 'n'
+      }
+      if (nuevo === '') { const next = { ...prev }; delete next[dia]; return next }
+      return { ...prev, [dia]: nuevo }
     })
   }
 
   async function guardar() {
-    if (!user) return
-    if (!cargadoDesdeDB) return
-    // FIX: si no hay días marcados, pedir confirmación antes de borrar
-    if (Object.keys(disponibilidad).length === 0) {
-      const ok = confirm('No tenés días marcados. ¿Querés borrar toda la disponibilidad de ' + lugarSeleccionado + '?')
-      if (!ok) return
+    if (!usuario) return
+    const diasSeleccionados = Object.keys(disponibilidad).length
+    if (diasSeleccionados === 0) {
+      if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    // FIX: solo borra el lugar actual, no todos los lugares
-    await supabase.from('disponibilidad').delete()
-      .eq('legajo', user.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarSeleccionado)
-    const rows = Object.entries(disponibilidad).map(([dia, turno]) => ({
-      legajo: user.legajo, mes: MES, anio: ANIO, dia: parseInt(dia), turno, lugar: lugarSeleccionado
+    // Solo borra disponibilidad de este lugar
+    await supabase.from('disponibilidad').delete().eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', APP_LUGAR)
+    const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
+      legajo: usuario.legajo, mes, anio, dia: parseInt(dia), turno, lugar: APP_LUGAR
     }))
-    if (rows.length > 0) {
-      await supabase.from('disponibilidad').insert(rows)
-    }
+    if (inserts.length > 0) await supabase.from('disponibilidad').insert(inserts)
+    setMsg('✓ Disponibilidad guardada para ' + APP_LUGAR)
+    setTimeout(() => setMsg(null), 3000)
     setGuardando(false)
-    setGuardado(true)
-    setTimeout(() => setGuardado(false), 3000)
   }
 
-  function primerDiaOffset() {
-    return (new Date(ANIO, MES - 1, 1).getDay() + 6) % 7
-  }
-
-  function verificarVentana(ventanas, lugar) {
-    const v = ventanas?.[lugar]
-    if (!v || !v.dia) { setBloqueado(true); return }
+  function esVentanaAbierta() {
+    if (!ventana || !ventana.dia) return true // sin configurar = siempre abierta
     const ahora = new Date()
-    const diaHoy = ahora.getDate()
-    const horaActual = ahora.getHours() * 60 + ahora.getMinutes()
-    const [hIni, mIni] = (v.horaInicio || '08:00').split(':').map(Number)
-    const [hFin, mFin] = (v.horaFin || '20:00').split(':').map(Number)
-    const inicioMin = hIni * 60 + mIni
-    const finMin = hFin * 60 + mFin
-    const diaOk = parseInt(v.dia) === diaHoy
-    const horaOk = horaActual >= inicioMin && horaActual < finMin
-    setBloqueado(!(diaOk && horaOk))
+    const diaV = parseInt(ventana.dia)
+    const [hIni, mIni] = (ventana.horaInicio || '00:00').split(':').map(Number)
+    const [hFin, mFin] = (ventana.horaFin || '23:59').split(':').map(Number)
+    const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), diaV, hIni, mIni)
+    const fin = new Date(ahora.getFullYear(), ahora.getMonth(), diaV, hFin, mFin)
+    return ahora >= inicio && ahora <= fin
   }
 
-  if (!mounted || loading) return <div className="loading">Cargando...</div>
-  if (!user) return null
+  const abierta = esVentanaAbierta()
 
-  const diasDisp = Object.keys(disponibilidad).length
-  const pctHoras = Math.round(horasAsig / 180 * 100)
-  const colorHoras = pctHoras >= 100 ? '#A32D2D' : pctHoras >= 80 ? '#BA7517' : '#1D9E75'
-
-  const tipoTag = user.tipo === 'Uniformado'
-    ? { bg: '#EEEDFE', color: '#3C3489' }
-    : user.tipo === 'Destacamento'
-    ? { bg: 'rgba(245,197,24,0.2)', color: '#7A6000' }
-    : { bg: '#E1F5EE', color: '#085041' }
+  if (loading) return <div className="loading">Cargando...</div>
 
   return (
     <div>
       <div className="topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#E6F1FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: '#185FA5' }}>
-            {user.nombre.split(',')[0][0]}
-          </div>
-          <div>
-            <span style={{ fontWeight: 500, fontSize: 15 }}>{user.nombre}</span>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>Leg. {user.legajo}</span>
-          </div>
+        <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+          <span style={{ fontSize:14,fontWeight:500 }}>{usuario?.nombre?.split(',')[0]}</span>
+          <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {usuario?.legajo}</span>
+          <span style={{ background:`${COLOR_APP}22`,color:COLOR_APP,fontSize:11,padding:'2px 8px',borderRadius:3,fontWeight:600,border:`0.5px solid ${COLOR_APP}66` }}>{APP_LUGAR}</span>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ background: tipoTag.bg, color: tipoTag.color, fontSize: 11, padding: '2px 8px', borderRadius: 3, fontWeight: 500 }}>{user.tipo}</span>
+        <div style={{ display:'flex',gap:6,alignItems:'center' }}>
           <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
-            <select value={lugarSeleccionado} onChange={e => { setLugarSeleccionado(e.target.value); setDisponibilidad({}) }}
-              style={{ background:'transparent',border:'none',color:'#20A0B0',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
-              {['HIGA','UPA','MODULAR'].map(lg => <option key={lg} value={lg} style={{ background:'#1a1d27' }}>{lg}</option>)}
-            </select>
-            <span style={{ color:'#555b6e',fontSize:11 }}>|</span>
-            <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
-              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+            <select value={mes} onChange={e => { const m=parseInt(e.target.value); setMes(m); cargarDatos(usuario.legajo,m,anio) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
               {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
             </select>
-            <select value={anioSeleccionado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setDisponibilidad({}) }}
-              style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+            <select value={anio} onChange={e => { const a=parseInt(e.target.value); setAnio(a); cargarDatos(usuario.legajo,mes,a) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
               {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
             </select>
           </div>
-          <button className="btn btn-sm" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
+          <button className="btn btn-sm" style={{ color:'#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
       </div>
 
-      <div className="app-layout">
-        <div className="sidebar">
-          <div className="nav-sec">Mi panel</div>
-          <a className={`nav-item ${vistaActual === 'disponibilidad' ? 'active' : ''}`} onClick={() => setVistaActual('disponibilidad')} style={{ cursor: 'pointer' }}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2"/><path d="M5 1v3M11 1v3M2 7h12" stroke="currentColor" strokeWidth="1.2"/></svg>
-            Mi disponibilidad
-          </a>
-          <a className={`nav-item ${vistaActual === 'turnos' ? 'active' : ''}`} onClick={() => setVistaActual('turnos')} style={{ cursor: 'pointer' }}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2"/><path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.2"/></svg>
-            Mis turnos
-          </a>
-          <div className="nav-sec">Resumen</div>
-          <div style={{ padding: '8px 14px' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Horas asignadas</div>
-            <div style={{ fontSize: 18, fontWeight: 500, color: colorHoras }}>{horasAsig} / 180</div>
-            <div className="hbar" style={{ width: '100%', marginTop: 4 }}>
-              <div className="hfill" style={{ width: `${pctHoras}%`, background: colorHoras }}></div>
-            </div>
+      <div className="content">
+        {msg && <div className="alert alert-ok" style={{ marginBottom:14 }}>{msg}</div>}
+
+        {!abierta && ventana?.dia && (
+          <div className="alert alert-warn" style={{ marginBottom:14 }}>
+            La inscripción para {APP_LUGAR} está habilitada el día {ventana.dia} de {MESES_NOMBRES[mes-1]} de {ventana.horaInicio} a {ventana.horaFin}.
           </div>
-          <div style={{ padding: '8px 14px' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Sector</div>
-            <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span className="dot" style={{ background: SECTORES_COLORS[user.sector] }}></span>
-              {user.sector}
-            </div>
+        )}
+
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:13,fontWeight:500,marginBottom:4 }}>Disponibilidad — {APP_LUGAR} · {nombreMes}</div>
+          <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:12 }}>
+            Tocá los días en que podés hacer guardia en {APP_LUGAR}. D = día (08-20) · N = noche (20-08) · A = ambos
           </div>
-        </div>
-
-        <div className="main-area">
-          <div className="content">
-            {horasAsig >= 150 && <div className="alert alert-warn">Atención: estás cerca del tope de 180 hs mensuales.</div>}
-            {guardado && <div className="alert alert-ok">Disponibilidad guardada correctamente.</div>}
-
-            {vistaActual === 'disponibilidad' && (
-              <div className="panel">
-                <div className="panel-header">
-                  <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-                    <h3>Disponibilidad — {lugarSeleccionado} · {NOMBRE_MES} {ANIO}</h3>
-                    {bloqueado
-                      ? <span style={{ fontSize:11,color:'#F09595',background:'rgba(240,149,149,0.1)',padding:'2px 8px',borderRadius:4,border:'0.5px solid rgba(240,149,149,0.3)' }}>🔒 Inscripción cerrada</span>
-                      : <span style={{ fontSize:11,color:'#1D9E75',background:'rgba(29,158,117,0.1)',padding:'2px 8px',borderRadius:4,border:'0.5px solid rgba(29,158,117,0.3)' }}>✓ Inscripción abierta</span>
-                    }
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4 }}>
+            {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => <div key={d} style={{ textAlign:'center',fontSize:10,color:'var(--text-hint)',padding:'4px 0' }}>{d}</div>)}
+          </div>
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3 }}>
+            {Array.from({ length: primerDia }).map((_,i) => <div key={`e-${i}`}></div>)}
+            {Array.from({ length: diasMes }, (_, i) => i + 1).map(dia => {
+              const v = disponibilidad[dia] || ''
+              const turno = turnos.find(t => t.dia === dia)
+              const bg = v === 'dn' ? '#0d2b1a' : v === 'd' ? '#3a2a0a' : v === 'n' ? '#0d2040' : 'var(--surface2)'
+              const bc = v === 'dn' ? '#1D9E75' : v === 'd' ? '#BA7517' : v === 'n' ? '#378ADD' : 'var(--border)'
+              return (
+                <div key={dia} style={{ border:`0.5px solid ${bc}`,borderRadius:6,padding:'4px 3px',minHeight:48,background:bg,cursor:abierta?'pointer':'not-allowed',opacity:abierta?1:0.6 }}>
+                  <div style={{ fontSize:10,fontWeight:500,color:'var(--text-muted)',marginBottom:1 }}>{dia}</div>
+                  <div style={{ display:'flex',gap:2,marginBottom:2 }}>
+                    <button disabled={!abierta} onClick={() => abierta && toggleDia(dia, 'd')} style={{ flex:1,padding:'2px 0',borderRadius:3,border:'none',cursor:abierta?'pointer':'default',fontSize:9,fontWeight:500,background:(v==='d'||v==='dn')?'#BA7517':'rgba(255,255,255,0.06)',color:(v==='d'||v==='dn')?'#FFC94B':'#666' }}>D</button>
+                    <button disabled={!abierta} onClick={() => abierta && toggleDia(dia, 'n')} style={{ flex:1,padding:'2px 0',borderRadius:3,border:'none',cursor:abierta?'pointer':'default',fontSize:9,fontWeight:500,background:(v==='n'||v==='dn')?'#1A4A8A':'rgba(255,255,255,0.06)',color:(v==='n'||v==='dn')?'#85B7EB':'#666' }}>N</button>
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{diasDisp} días marcados</span>
+                  {turno && <div style={{ fontSize:7,color:turno.turno==='d'?'#EF9F27':'#85B7EB',textAlign:'center',marginTop:1 }}>✓ {turno.turno==='d'?'Día':'Noche'}</div>}
                 </div>
-                <div style={{ padding: 14 }}>
-                  <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
-                    <span style={{ fontWeight: 500, color: 'var(--text)' }}>Clic para cambiar:</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#f5f5f3', border: '0.5px solid #ccc', borderRadius: 2, display: 'inline-block' }}></span> Sin marcar</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#FAEEDA', borderRadius: 2, display: 'inline-block' }}></span> Solo día (08-20)</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#E6F1FB', borderRadius: 2, display: 'inline-block' }}></span> Solo noche (20-08)</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#EAF3DE', borderRadius: 2, display: 'inline-block' }}></span> Ambos turnos</span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 6 }}>
-                    {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => (
-                      <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>{d}</div>
-                    ))}
-                  </div>
-
-                  <div className="cal-grid">
-                    {Array.from({ length: primerDiaOffset() }).map((_, i) => (
-                      <div key={`empty-${i}`} className="day-cell empty"></div>
-                    ))}
-                    {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
-                      const v = disponibilidad[dia] || ''
-                      const cls = v === 'd' ? 'sel-d' : v === 'n' ? 'sel-n' : v === 'dn' ? 'sel-dn' : ''
-                      const label = v === 'd' ? 'Día' : v === 'n' ? 'Noche' : v === 'dn' ? 'Ambos' : ''
-                      const labelColor = v === 'd' ? '#633806' : v === 'n' ? '#042C53' : v === 'dn' ? '#27500A' : ''
-                      return (
-                        <div key={dia} className={`day-cell ${cls}`} onClick={() => toggleDia(dia)}>
-                          <div className="day-num">{dia}</div>
-                          <div className="day-label" style={{ color: labelColor }}>{label}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div style={{ padding: '10px 14px', borderTop: '0.5px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                  <button className="btn btn-sm" onClick={() => setDisponibilidad({})}>Limpiar todo</button>
-                  <button className="btn btn-primary" onClick={guardar} disabled={guardando || !cargadoDesdeDB}>
-                    {guardando ? 'Guardando...' : 'Guardar disponibilidad'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {vistaActual === 'turnos' && (
-              <div className="panel">
-                <div className="panel-header">
-                  <h3>Turnos asignados — {NOMBRE_MES} {ANIO}</h3>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{turnos.length} turnos · {turnos.length * 12} hs</span>
-                </div>
-                <div style={{ padding: 14 }}>
-                  {turnos.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No hay turnos asignados aún. El administrador generará el cronograma.</p>
-                  ) : (
-                    <div>
-                      {turnos.map(t => (
-                        <div key={t.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '0.5px solid var(--border)' }}>
-                          <div style={{ width: 36, height: 36, borderRadius: 8, background: t.turno === 'd' ? '#FAEEDA' : '#E6F1FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500, color: t.turno === 'd' ? '#633806' : '#042C53', flexShrink: 0 }}>
-                            {t.dia}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, fontWeight: 500 }}>{t.sector}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                              {t.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'}
-                            </div>
-                          </div>
-                          <span className={`chip ${t.turno === 'd' ? 'chip-d' : 'chip-n'}`}>
-                            {t.turno === 'd' ? 'Día' : 'Noche'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+              )
+            })}
           </div>
         </div>
+
+        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20 }}>
+          <div style={{ fontSize:12,color:'var(--text-muted)' }}>
+            {Object.keys(disponibilidad).length} días seleccionados
+          </div>
+          <button className="btn btn-success" disabled={guardando || !abierta} onClick={guardar}>
+            {guardando ? 'Guardando...' : `Guardar disponibilidad — ${APP_LUGAR}`}
+          </button>
+        </div>
+
+        {turnos.length > 0 && (
+          <div className="panel">
+            <div className="panel-header" style={{ background:`${COLOR_APP}22` }}><h3 style={{ color:COLOR_APP }}>Mis guardias asignadas — {APP_LUGAR} · {nombreMes}</h3></div>
+            <div style={{ padding:12 }}>
+              {turnos.sort((a,b) => a.dia - b.dia).map(t => (
+                <div key={t.id || `${t.dia}-${t.turno}`} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'var(--surface2)',borderRadius:7,marginBottom:6,border:'0.5px solid var(--border)' }}>
+                  <div>
+                    <span style={{ fontSize:13,fontWeight:500 }}>Día {t.dia}</span>
+                    <span style={{ fontSize:11,color:'var(--text-muted)',marginLeft:8 }}>{t.sector}</span>
+                  </div>
+                  <span style={{ fontSize:11,fontWeight:500,padding:'2px 10px',borderRadius:4,background:t.turno==='d'?'#3a2a0a':'#0d2040',color:t.turno==='d'?'#EF9F27':'#85B7EB' }}>
+                    {t.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'}
+                  </span>
+                </div>
+              ))}
+              <div style={{ marginTop:8,fontSize:12,color:COLOR_APP,fontWeight:500 }}>Total: {turnos.length * 12} hs en {APP_LUGAR}</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
