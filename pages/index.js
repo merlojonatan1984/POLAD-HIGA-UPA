@@ -7,18 +7,9 @@ const LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwoAAAQLCAIAAACkocld
 const lugar = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
 
 const LUGAR_CONFIG = {
-  HIGA: {
-    label: 'HIGA',
-    imagen: '/higa foto.webp',
-  },
-  UPA: {
-    label: 'UPA',
-    imagen: '/upa.jpg',
-  },
-  MODULAR: {
-    label: 'MODULAR',
-    imagen: '/modular.jpeg',
-  },
+  HIGA: { label: 'HIGA', imagen: '/higa foto.webp' },
+  UPA: { label: 'UPA', imagen: '/upa.jpg' },
+  MODULAR: { label: 'MODULAR', imagen: '/modular.jpeg' },
 }
 
 const config = LUGAR_CONFIG[lugar] || LUGAR_CONFIG.HIGA
@@ -57,38 +48,50 @@ export default function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', background: '#0a0a0a' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', position: 'relative', overflow: 'hidden' }}>
 
-      <img src={LOGO} alt="Logo PDS" style={{ width: 180, height: 200, objectFit: 'contain', marginBottom: 16 }} />
+      {/* Imagen de fondo full screen en blanco y negro */}
+      <div style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        backgroundImage: `url('${config.imagen}')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        filter: 'grayscale(100%) brightness(0.25) contrast(1.1)',
+        imageRendering: 'pixelated',
+        zIndex: 0,
+      }} />
 
-      <h1 style={{ fontSize: 22, fontWeight: 600, color: '#e8eaf0', marginBottom: 4, letterSpacing: '0.04em', textAlign: 'center' }}>
-        POLAD · {config.label}
-      </h1>
-      <p style={{ fontSize: 11, color: '#c8a84b', marginBottom: 28, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
-        Sistema de Gestión de Turnos — {config.label}
-      </p>
+      {/* Overlay oscuro */}
+      <div style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.5)',
+        zIndex: 1,
+      }} />
 
-      {/* Formulario con imagen de fondo */}
-      <div style={{ position: 'relative', width: '100%', maxWidth: '360px', borderRadius: 12, overflow: 'hidden', border: '0.5px solid rgba(200,168,75,0.2)' }}>
+      {/* Contenido */}
+      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
 
-        {/* Imagen de fondo en blanco y negro pixelada */}
+        <img src={LOGO} alt="Logo PDS" style={{ width: 180, height: 200, objectFit: 'contain', marginBottom: 16 }} />
+
+        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#e8eaf0', marginBottom: 4, letterSpacing: '0.04em', textAlign: 'center' }}>
+          POLAD · {config.label}
+        </h1>
+        <p style={{ fontSize: 11, color: '#c8a84b', marginBottom: 28, letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
+          Sistema de Gestión de Turnos — {config.label}
+        </p>
+
+        {/* Formulario */}
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundImage: `url('${config.imagen}')`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          filter: 'grayscale(100%) contrast(0.6) brightness(0.35)',
-          imageRendering: 'pixelated',
-        }} />
-
-        {/* Overlay oscuro encima de la imagen */}
-        <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.55)',
-        }} />
-
-        {/* Contenido del formulario */}
-        <div style={{ position: 'relative', zIndex: 1, padding: '28px 24px', background: 'rgba(10,10,10,0.5)' }}>
+          width: '100%',
+          maxWidth: '360px',
+          background: 'rgba(10,10,10,0.75)',
+          border: '0.5px solid rgba(200,168,75,0.2)',
+          borderRadius: 12,
+          padding: '28px 24px',
+          backdropFilter: 'blur(6px)',
+        }}>
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', fontSize: 12, color: '#8b90a0', marginBottom: 5 }}>Legajo</label>
@@ -99,7 +102,7 @@ export default function Login() {
                 onChange={(e) => setLegajo(e.target.value)}
                 required
                 autoFocus
-                style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.2)', borderRadius: 8, fontSize: 14, background: 'rgba(26,26,26,0.85)', color: '#e8eaf0', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.2)', borderRadius: 8, fontSize: 14, background: 'rgba(26,26,26,0.9)', color: '#e8eaf0', boxSizing: 'border-box' }}
               />
             </div>
             <div style={{ marginBottom: 18 }}>
@@ -110,7 +113,7 @@ export default function Login() {
                 value={pass}
                 onChange={(e) => setPass(e.target.value)}
                 required
-                style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.2)', borderRadius: 8, fontSize: 14, background: 'rgba(26,26,26,0.85)', color: '#e8eaf0', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(200,168,75,0.2)', borderRadius: 8, fontSize: 14, background: 'rgba(26,26,26,0.9)', color: '#e8eaf0', boxSizing: 'border-box' }}
               />
               <p style={{ fontSize: 11, color: '#444a5e', marginTop: 5 }}>Clave inicial: tu número de legajo</p>
             </div>
@@ -130,11 +133,11 @@ export default function Login() {
             </button>
           </form>
         </div>
-      </div>
 
-      <p style={{ textAlign: 'center', fontSize: 10, color: '#333333', marginTop: 20, letterSpacing: '0.06em' }}>
-        SISTEMA DE GESTIÓN DE TURNOS POLAD
-      </p>
+        <p style={{ textAlign: 'center', fontSize: 10, color: '#555', marginTop: 20, letterSpacing: '0.06em' }}>
+          SISTEMA DE GESTIÓN DE TURNOS POLAD
+        </p>
+      </div>
     </div>
   )
 }
