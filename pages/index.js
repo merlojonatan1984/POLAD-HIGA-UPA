@@ -2,8 +2,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-const LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwoAAAQLCAIAAACkocldAAABCG1DQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDL15JUVB7k4KEUmVyQWpRSmpOakp+UmpFSmZyRmpQGpBSkZqXmpuam5eampuXmpRXmpuXkpqCpBbkpFalJyRWpSSmZcKZCenFCWmZ6QmA2WS8kuKMvNKUovykxNLijKLU0tKoSoSk1OLkvNKUlMy81KLgUqKoSoKSlILilNLMvJLU4uKU1OLilNTi1OLS8oLSotTi1MLi1OTU0tAAGRjYGBgZmBgBGIpIGZiYGDQZWBgYGdhYGDwZWBgYGZkYGBmZGBgZmBgYGJgYGBhYGBgYWBgYAAA//8DAHRlDeM="
-
 const lugar = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
 
 const LUGAR_CONFIG = {
@@ -57,8 +55,7 @@ export default function Login() {
         backgroundImage: `url('${config.imagen}')`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-        filter: 'grayscale(100%) brightness(0.25) contrast(1.1)',
-        imageRendering: 'pixelated',
+        filter: 'grayscale(100%) brightness(0.3) contrast(1.1)',
         zIndex: 0,
       }} />
 
@@ -66,14 +63,18 @@ export default function Login() {
       <div style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0,0,0,0.5)',
+        background: 'rgba(0,0,0,0.45)',
         zIndex: 1,
       }} />
 
       {/* Contenido */}
       <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
 
-        <img src={LOGO} alt="Logo PDS" style={{ width: 180, height: 200, objectFit: 'contain', marginBottom: 16 }} />
+        <img
+          src="/logo.png"
+          alt="Logo PDS"
+          style={{ width: 180, height: 200, objectFit: 'contain', marginBottom: 16 }}
+        />
 
         <h1 style={{ fontSize: 22, fontWeight: 600, color: '#e8eaf0', marginBottom: 4, letterSpacing: '0.04em', textAlign: 'center' }}>
           POLAD · {config.label}
