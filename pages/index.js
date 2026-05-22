@@ -6,7 +6,7 @@ const lugar = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
 
 const LUGAR_CONFIG = {
   HIGA: { label: 'HIGA', imagen: '/higa foto.webp' },
-  UPA: { label: 'UPA', imagen: '/upa.jpg' },
+  UPA: { label: 'UPA', imagen: '/upa2.webp' },
   MODULAR: { label: 'MODULAR', imagen: '/modular.jpeg' },
 }
 
