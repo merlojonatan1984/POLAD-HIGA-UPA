@@ -1132,8 +1132,7 @@ export default function AdminApp() {
                                   </tr>
                                 )
                                 return f.entradas.map((e,i) => {
-                                  const horColor = e.horario.startsWith('08') ? '#EF9F27' : e.horario.startsWith('16') ? '#AFA9EC' : '#85B7EB'
-                                  return (
+const horColor = e.horario.startsWith('08') ? '#EF9F27' : '#85B7EB'                                  return (
                                     <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
                                       <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
                                       <td style={{ color:horColor,fontWeight:500 }}>{e.horario}</td>
