@@ -401,7 +401,17 @@ export default function AdminApp() {
       await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
+     const { data: yaExisteEnEste } = await supabase
+        .from('efectivos')
+        .select('id')
+        .eq('legajo', datos.legajo)
+        .eq('lugar', APP_LUGAR)
+        .maybeSingle()
+      if (yaExisteEnEste) {
+        setMsgPersonal('Error: ese legajo ya existe en ' + APP_LUGAR + '.')
+        setGuardandoPersonal(false)
+        return
+      } const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
       if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
       setMsgPersonal('Efectivo dado de alta. Clave inicial: ' + datos.legajo)
     }
