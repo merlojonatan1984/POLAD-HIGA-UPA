@@ -37,7 +37,7 @@ function turnoNombre(t) {
 }
 
 function turnoStyle(t) {
-  if (t === 'm') return { color: '#EF9F27', bg: '#3a2a0a', border: '#BA7517' }
+  if (t === 'm' || t === 'd') return { color: '#EF9F27', bg: '#3a2a0a', border: '#BA7517' }
   if (t === 't') return { color: '#AFA9EC', bg: '#2a1a4a', border: '#7F77DD' }
   return { color: '#85B7EB', bg: '#0d2040', border: '#378ADD' }
 }
@@ -1132,7 +1132,7 @@ export default function AdminApp() {
                                   </tr>
                                 )
                                 return f.entradas.map((e,i) => {
-                                  const horColor = e.horario.startsWith('08') ? '#EF9F27' : e.horario.startsWith('16') ? '#AFA9EC' : '#85B7EB'
+                                  const horColor = e.horario.startsWith('08') ? '#EF9F27' : (ES_MODULAR && e.horario.startsWith('16')) ? '#AFA9EC' : '#85B7EB'
                                   return (
                                     <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
                                       <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
