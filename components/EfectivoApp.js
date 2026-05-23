@@ -11,6 +11,73 @@ const SECTORES_POR_LUGAR = {
 const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 
+// ── Configuración de turnos según lugar ──────────────────────────────
+const ES_MODULAR = APP_LUGAR === 'MODULAR'
+
+const TURNOS_CONFIG = ES_MODULAR
+  ? [
+      { key: 'm', label: 'M', fullLabel: 'Mañana 08-16',   color: '#EF9F27', bg: '#3a2a0a', bgDark: '#0d2040' },
+      { key: 't', label: 'T', fullLabel: 'Tarde 16-00',    color: '#AFA9EC', bg: '#2a1a4a', bgDark: '#1a0d3a' },
+      { key: 'n', label: 'N', fullLabel: 'Noche 00-08',    color: '#85B7EB', bg: '#0d2040', bgDark: '#071428' },
+    ]
+  : [
+      { key: 'd', label: 'D', fullLabel: 'Día 08-20',      color: '#EF9F27', bg: '#3a2a0a', bgDark: '#0d2040' },
+      { key: 'n', label: 'N', fullLabel: 'Noche 20-08',    color: '#85B7EB', bg: '#0d2040', bgDark: '#071428' },
+    ]
+
+function turnoLabel(t) {
+  if (ES_MODULAR) {
+    if (t === 'm') return '08:00 a 16:00'
+    if (t === 't') return '16:00 a 23:59'
+    if (t === 'n') return '23:59 a 08:00'
+  }
+  return t === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+}
+
+function turnoColor(t) {
+  if (ES_MODULAR) {
+    if (t === 'm') return { bg: '#3a2a0a', color: '#EF9F27' }
+    if (t === 't') return { bg: '#2a1a4a', color: '#AFA9EC' }
+  }
+  return t === 'd' ? { bg: '#3a2a0a', color: '#EF9F27' } : { bg: '#0d2040', color: '#85B7EB' }
+}
+
+// Calcula el color de fondo del día en el calendario según los turnos seleccionados
+function bgDia(v) {
+  if (!v) return 'var(--surface2)'
+  if (ES_MODULAR) {
+    if (v.includes('m') && v.includes('t') && v.includes('n')) return '#0d1a2a'
+    if (v.includes('m') && v.includes('t')) return '#2a1a0a'
+    if (v.includes('m') && v.includes('n')) return '#0d1a2a'
+    if (v.includes('t') && v.includes('n')) return '#1a0d3a'
+    if (v === 'm') return '#3a2a0a'
+    if (v === 't') return '#2a1a4a'
+    if (v === 'n') return '#0d2040'
+  } else {
+    if (v === 'dn') return '#0d2b1a'
+    if (v === 'd') return '#3a2a0a'
+    if (v === 'n') return '#0d2040'
+  }
+  return 'var(--surface2)'
+}
+
+function bcDia(v) {
+  if (!v) return 'var(--border)'
+  if (ES_MODULAR) {
+    if (v.includes('m') && v.includes('n')) return '#378ADD'
+    if (v.includes('m')) return '#BA7517'
+    if (v.includes('t')) return '#7F77DD'
+    if (v === 'n') return '#378ADD'
+  } else {
+    if (v === 'dn') return '#1D9E75'
+    if (v === 'd') return '#BA7517'
+    if (v === 'n') return '#378ADD'
+  }
+  return 'var(--border)'
+}
+
+// ────────────────────────────────────────────────────────────────────
+
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
@@ -56,7 +123,8 @@ export default function EfectivoApp() {
     setLoading(false)
   }
 
-  function toggleDia(dia, tipo) {
+  // Toggle para HIGA/UPA (2 turnos: d, n)
+  function toggleDiaStandard(dia, tipo) {
     setDisponibilidad(prev => {
       const actual = prev[dia] || ''
       let nuevo
@@ -76,6 +144,29 @@ export default function EfectivoApp() {
     })
   }
 
+  // Toggle para MODULAR (3 turnos independientes: m, t, n)
+  function toggleDiaModular(dia, tipo) {
+    setDisponibilidad(prev => {
+      const actual = prev[dia] || ''
+      const keys = actual.split('').filter(Boolean)
+      const idx = keys.indexOf(tipo)
+      let nuevasKeys
+      if (idx >= 0) {
+        nuevasKeys = keys.filter(k => k !== tipo)
+      } else {
+        nuevasKeys = [...keys, tipo].sort((a, b) => 'mtn'.indexOf(a) - 'mtn'.indexOf(b))
+      }
+      const nuevo = nuevasKeys.join('')
+      if (!nuevo) { const next = { ...prev }; delete next[dia]; return next }
+      return { ...prev, [dia]: nuevo }
+    })
+  }
+
+  function toggleDia(dia, tipo) {
+    if (ES_MODULAR) toggleDiaModular(dia, tipo)
+    else toggleDiaStandard(dia, tipo)
+  }
+
   async function guardar() {
     if (!usuario) return
     const diasSeleccionados = Object.keys(disponibilidad).length
@@ -83,7 +174,6 @@ export default function EfectivoApp() {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    // Solo borra disponibilidad de este lugar
     await supabase.from('disponibilidad').delete().eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', APP_LUGAR)
     const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
       legajo: usuario.legajo, mes, anio, dia: parseInt(dia), turno, lugar: APP_LUGAR
@@ -95,7 +185,7 @@ export default function EfectivoApp() {
   }
 
   function esVentanaAbierta() {
-    if (!ventana || !ventana.dia) return true // sin configurar = siempre abierta
+    if (!ventana || !ventana.dia) return true
     const ahora = new Date()
     const diaV = parseInt(ventana.dia)
     const [hIni, mIni] = (ventana.horaInicio || '00:00').split(':').map(Number)
@@ -106,6 +196,10 @@ export default function EfectivoApp() {
   }
 
   const abierta = esVentanaAbierta()
+
+  // Calcula horas por turno (MODULAR = 8hs, HIGA/UPA = 12hs)
+  const horasPorTurno = ES_MODULAR ? 8 : 12
+  const totalHoras = turnos.length * horasPorTurno
 
   if (loading) return <div className="loading">Cargando...</div>
 
@@ -142,7 +236,10 @@ export default function EfectivoApp() {
         <div style={{ marginBottom:16 }}>
           <div style={{ fontSize:13,fontWeight:500,marginBottom:4 }}>Disponibilidad — {APP_LUGAR} · {nombreMes}</div>
           <div style={{ fontSize:11,color:'var(--text-muted)',marginBottom:12 }}>
-            Tocá los días en que podés hacer guardia en {APP_LUGAR}. D = día (08-20) · N = noche (20-08) · A = ambos
+            {ES_MODULAR
+              ? 'Tocá los turnos en que podés hacer guardia. M = Mañana (08-16) · T = Tarde (16-00) · N = Noche (00-08)'
+              : 'Tocá los días en que podés hacer guardia en ' + APP_LUGAR + '. D = día (08-20) · N = noche (20-08) · A = ambos'
+            }
           </div>
           <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4 }}>
             {['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(d => <div key={d} style={{ textAlign:'center',fontSize:10,color:'var(--text-hint)',padding:'4px 0' }}>{d}</div>)}
@@ -151,17 +248,26 @@ export default function EfectivoApp() {
             {Array.from({ length: primerDia }).map((_,i) => <div key={`e-${i}`}></div>)}
             {Array.from({ length: diasMes }, (_, i) => i + 1).map(dia => {
               const v = disponibilidad[dia] || ''
-              const turno = turnos.find(t => t.dia === dia)
-              const bg = v === 'dn' ? '#0d2b1a' : v === 'd' ? '#3a2a0a' : v === 'n' ? '#0d2040' : 'var(--surface2)'
-              const bc = v === 'dn' ? '#1D9E75' : v === 'd' ? '#BA7517' : v === 'n' ? '#378ADD' : 'var(--border)'
+              const turnosDia = turnos.filter(t => t.dia === dia)
               return (
-                <div key={dia} style={{ border:`0.5px solid ${bc}`,borderRadius:6,padding:'4px 3px',minHeight:48,background:bg,cursor:abierta?'pointer':'not-allowed',opacity:abierta?1:0.6 }}>
+                <div key={dia} style={{ border:`0.5px solid ${bcDia(v)}`,borderRadius:6,padding:'4px 3px',minHeight: ES_MODULAR ? 58 : 48,background:bgDia(v),cursor:abierta?'pointer':'not-allowed',opacity:abierta?1:0.6 }}>
                   <div style={{ fontSize:10,fontWeight:500,color:'var(--text-muted)',marginBottom:1 }}>{dia}</div>
                   <div style={{ display:'flex',gap:2,marginBottom:2 }}>
-                    <button disabled={!abierta} onClick={() => abierta && toggleDia(dia, 'd')} style={{ flex:1,padding:'2px 0',borderRadius:3,border:'none',cursor:abierta?'pointer':'default',fontSize:9,fontWeight:500,background:(v==='d'||v==='dn')?'#BA7517':'rgba(255,255,255,0.06)',color:(v==='d'||v==='dn')?'#FFC94B':'#666' }}>D</button>
-                    <button disabled={!abierta} onClick={() => abierta && toggleDia(dia, 'n')} style={{ flex:1,padding:'2px 0',borderRadius:3,border:'none',cursor:abierta?'pointer':'default',fontSize:9,fontWeight:500,background:(v==='n'||v==='dn')?'#1A4A8A':'rgba(255,255,255,0.06)',color:(v==='n'||v==='dn')?'#85B7EB':'#666' }}>N</button>
+                    {TURNOS_CONFIG.map(tc => (
+                      <button key={tc.key} disabled={!abierta} onClick={() => abierta && toggleDia(dia, tc.key)}
+                        style={{ flex:1,padding:'2px 0',borderRadius:3,border:'none',cursor:abierta?'pointer':'default',fontSize:9,fontWeight:500,
+                          background: v.includes(tc.key) ? tc.bg : 'rgba(255,255,255,0.06)',
+                          color: v.includes(tc.key) ? tc.color : '#666'
+                        }}>
+                        {tc.label}
+                      </button>
+                    ))}
                   </div>
-                  {turno && <div style={{ fontSize:7,color:turno.turno==='d'?'#EF9F27':'#85B7EB',textAlign:'center',marginTop:1 }}>✓ {turno.turno==='d'?'Día':'Noche'}</div>}
+                  {turnosDia.length > 0 && turnosDia.map(t => (
+                    <div key={t.turno} style={{ fontSize:7,color:turnoColor(t.turno).color,textAlign:'center',marginTop:1 }}>
+                      ✓ {ES_MODULAR ? (t.turno === 'm' ? 'Mañ' : t.turno === 't' ? 'Tarde' : 'Noche') : (t.turno === 'd' ? 'Día' : 'Noche')}
+                    </div>
+                  ))}
                 </div>
               )
             })}
@@ -181,18 +287,21 @@ export default function EfectivoApp() {
           <div className="panel">
             <div className="panel-header" style={{ background:`${COLOR_APP}22` }}><h3 style={{ color:COLOR_APP }}>Mis guardias asignadas — {APP_LUGAR} · {nombreMes}</h3></div>
             <div style={{ padding:12 }}>
-              {turnos.sort((a,b) => a.dia - b.dia).map(t => (
-                <div key={t.id || `${t.dia}-${t.turno}`} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'var(--surface2)',borderRadius:7,marginBottom:6,border:'0.5px solid var(--border)' }}>
-                  <div>
-                    <span style={{ fontSize:13,fontWeight:500 }}>Día {t.dia}</span>
-                    <span style={{ fontSize:11,color:'var(--text-muted)',marginLeft:8 }}>{t.sector}</span>
+              {turnos.sort((a,b) => a.dia - b.dia || 'mtn'.indexOf(a.turno) - 'mtn'.indexOf(b.turno)).map(t => {
+                const tc = turnoColor(t.turno)
+                return (
+                  <div key={t.id || `${t.dia}-${t.turno}`} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'var(--surface2)',borderRadius:7,marginBottom:6,border:'0.5px solid var(--border)' }}>
+                    <div>
+                      <span style={{ fontSize:13,fontWeight:500 }}>Día {t.dia}</span>
+                      <span style={{ fontSize:11,color:'var(--text-muted)',marginLeft:8 }}>{t.sector}</span>
+                    </div>
+                    <span style={{ fontSize:11,fontWeight:500,padding:'2px 10px',borderRadius:4,background:tc.bg,color:tc.color }}>
+                      {turnoLabel(t.turno)}
+                    </span>
                   </div>
-                  <span style={{ fontSize:11,fontWeight:500,padding:'2px 10px',borderRadius:4,background:t.turno==='d'?'#3a2a0a':'#0d2040',color:t.turno==='d'?'#EF9F27':'#85B7EB' }}>
-                    {t.turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'}
-                  </span>
-                </div>
-              ))}
-              <div style={{ marginTop:8,fontSize:12,color:COLOR_APP,fontWeight:500 }}>Total: {turnos.length * 12} hs en {APP_LUGAR}</div>
+                )
+              })}
+              <div style={{ marginTop:8,fontSize:12,color:COLOR_APP,fontWeight:500 }}>Total: {totalHoras} hs en {APP_LUGAR}</div>
             </div>
           </div>
         )}
