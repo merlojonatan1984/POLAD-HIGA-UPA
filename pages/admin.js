@@ -1132,8 +1132,8 @@ export default function AdminApp() {
                                   </tr>
                                 )
                                 return f.entradas.map((e,i) => {
-const horColor = e.horario.startsWith('08') ? '#EF9F27' : '#85B7EB'                                  return (
-                                    <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
+const horColor = e.horario.startsWith('08') ? '#EF9F27' : '#85B7EB'
+                  return (                                    <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
                                       <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
                                       <td style={{ color:horColor,fontWeight:500 }}>{e.horario}</td>
                                       <td><input type="number" min="0" max={HORAS_POR_TURNO} defaultValue={e.horas||''} style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }} onBlur={ev => guardarHoraManual(ef.legajo,f.dia,e.horario,ev.target.value,e.sector)} /></td>
