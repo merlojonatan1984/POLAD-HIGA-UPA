@@ -25,14 +25,25 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const { data, error: err } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', legajo.trim())
-       .single()
+      const lugar = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
+let { data, error: err } = await supabase
+  .from('efectivos')
+  .select('*')
+  .eq('legajo', legajo.trim())
+  .eq('es_admin', true)
+  .maybeSingle()
+if (!data) {
+  const res = await supabase
+    .from('efectivos')
+    .select('*')
+    .eq('legajo', legajo.trim())
+    .eq('lugar', lugar)
+    .maybeSingle()
+  data = res.data
+  err = res.error
+}
 
       if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
-      if (!data.es_admin && data.lugar !== (process.env.NEXT_PUBLIC_LUGAR || 'HIGA')) { setError('Legajo no encontrado.'); setLoading(false); return }
 
       const claveCorrecta = data.es_admin ? pass === 'admin2025' : pass === legajo.trim()
       if (!claveCorrecta) { setError('Contraseña incorrecta.'); setLoading(false); return }
