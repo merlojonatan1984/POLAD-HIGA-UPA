@@ -42,8 +42,6 @@ function turnoStyle(t) {
   return { color: '#85B7EB', bg: '#0d2040', border: '#378ADD' }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-
 const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30', 'Modular': '#20A0B0' }
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
@@ -315,7 +313,7 @@ export default function AdminApp() {
     const dispMap = {}
     ;(disp || []).forEach(d => {
       if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-      dispMap[d.legajo][d.dia] = { turno: d.turno }
+      dispMap[d.legajo][String(d.dia)] = { turno: d.turno }
     })
     setDisponibilidad(dispMap)
     const turnosMap = {}; const hsMap = {}
@@ -331,28 +329,52 @@ export default function AdminApp() {
 
   async function generarTurnos() {
     setGenerando(true); setMsgGen(null)
+
+    // ── FIX: cargar disponibilidad FRESCA desde Supabase ─────────────
+    // Garantiza que usa la disponibilidad real aunque la página esté
+    // abierta desde antes de que los efectivos cargaran su disponibilidad
+    const [{ data: efsFresh }, { data: dispFresh }] = await Promise.all([
+      supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', APP_LUGAR).order('nombre'),
+      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR)
+    ])
+    const dispMapFresh = {}
+    ;(dispFresh || []).forEach(d => {
+      if (!dispMapFresh[d.legajo]) dispMapFresh[d.legajo] = {}
+      dispMapFresh[d.legajo][String(d.dia)] = { turno: d.turno }
+    })
+    // ─────────────────────────────────────────────────────────────────
+
     await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
-    const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
-    const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
+
+    const efectivosActuales = efsFresh || []
+    const uniformados = efectivosActuales.filter(e => e.tipo === 'Uniformado')
+    const servGeneral = efectivosActuales.filter(e => e.tipo === 'Serv. General')
     const hsU = Math.round(config.totalHoras * config.pctUniformados / 100)
     const hsG = Math.round(config.totalHoras * config.pctGeneral / 100)
     const maxU = uniformados.length ? Math.min(ES_MODULAR ? 192 : 180, Math.round(hsU / uniformados.length)) : (ES_MODULAR ? 192 : 180)
     const maxG = servGeneral.length ? Math.min(ES_MODULAR ? 192 : 180, Math.round(hsG / servGeneral.length)) : (ES_MODULAR ? 192 : 180)
-    const pool = efectivos.map(e => ({ ...e, hs: 0, maxHs: e.tipo === 'Uniformado' ? maxU : maxG }))
+    const pool = efectivosActuales.map(e => ({ ...e, hs: 0, maxHs: e.tipo === 'Uniformado' ? maxU : maxG }))
     const nuevos = []
+
     for (let dia = 1; dia <= DIAS_MES; dia++) {
       for (const turno of TURNOS_LISTA) {
         for (const sector of SECTORES_APP) {
           const candidatos = pool.filter(e => {
-            const diaEntry = (disponibilidad[e.legajo] || {})[dia]
+            const diaEntry = (dispMapFresh[e.legajo] || {})[String(dia)]
             const avail = diaEntry ? (diaEntry.turno || '') : ''
             if (ES_MODULAR) return avail.includes(turno) && e.hs < e.maxHs
-            return ((turno === 'd' && (avail === 'd' || avail === 'dn')) || (turno === 'n' && (avail === 'n' || avail === 'dn'))) && e.hs < e.maxHs
+            if (turno === 'd') return (avail === 'd' || avail === 'dn') && e.hs < e.maxHs
+            if (turno === 'n') return (avail === 'n' || avail === 'dn') && e.hs < e.maxHs
+            return false
           }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, MAX_POR_SLOT).forEach(e => { e.hs += HORAS_POR_TURNO; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
+          candidatos.slice(0, MAX_POR_SLOT).forEach(e => {
+            e.hs += HORAS_POR_TURNO
+            nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
+          })
         }
       }
     }
+
     for (let i = 0; i < nuevos.length; i += 500) await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
     setMsgGen(`Se generaron ${nuevos.length} asignaciones. Uniformados: hasta ${maxU} hs · Serv. General: hasta ${maxG} hs.`)
     await cargarTodo(); setGenerando(false)
@@ -370,12 +392,10 @@ export default function AdminApp() {
       const k = t.dia + '-' + t.turno + '-' + t.sector
       ocupacion[k] = (ocupacion[k] || 0) + 1
     })
-    // Para MODULAR, tipoTurno puede ser 'm', 't', 'n'
     const yaAsignados = {}
     TURNOS_LISTA.forEach(t => {
       yaAsignados[t] = new Set((turnosEfData || []).filter(x => x.turno === t).map(x => parseInt(x.dia)))
     })
-    // Para HIGA/UPA mantenemos compatibilidad
     const yaAsignadosDia = yaAsignados['d'] || new Set()
     const yaAsignadosNoche = yaAsignados['n'] || new Set()
 
@@ -806,7 +826,7 @@ export default function AdminApp() {
                       <tr key={e.legajo} style={{ cursor:'pointer' }} onClick={() => setEfectivoDetalle(efDetalle===e.legajo?null:e.legajo)}>
                         <td style={{ fontSize:11,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',color:efDetalle===e.legajo?'#c8a84b':'var(--text)',fontWeight:efDetalle===e.legajo?500:400 }}>{e.nombre}</td>
                         {Array.from({ length:DIAS_MES },(_,i) => {
-                          const diaEntry = (disponibilidad[e.legajo] || {})[i+1]
+                          const diaEntry = (disponibilidad[e.legajo] || {})[String(i+1)]
                           const v = diaEntry ? (diaEntry.turno || '') : ''
                           if (!diaEntry) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
                           let bg, label, color
