@@ -29,7 +29,7 @@ export default function Login() {
         .from('efectivos')
         .select('*')
         .eq('legajo', legajo.trim())
-        .single()
+       .eq('lugar', process.env.NEXT_PUBLIC_LUGAR || 'HIGA') .single()
 
       if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
 
