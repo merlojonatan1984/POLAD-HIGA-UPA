@@ -29,9 +29,10 @@ export default function Login() {
         .from('efectivos')
         .select('*')
         .eq('legajo', legajo.trim())
-       .eq('lugar', process.env.NEXT_PUBLIC_LUGAR || 'HIGA') .single()
+       .single()
 
       if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
+      if (!data.es_admin && data.lugar !== (process.env.NEXT_PUBLIC_LUGAR || 'HIGA')) { setError('Legajo no encontrado.'); setLoading(false); return }
 
       const claveCorrecta = data.es_admin ? pass === 'admin2025' : pass === legajo.trim()
       if (!claveCorrecta) { setError('Contraseña incorrecta.'); setLoading(false); return }
