@@ -15,7 +15,9 @@ function getHorario(turno, lugar) {
     if (turno === 't') return '16:00 a 23:59'
     return '23:59 a 08:00' // n
   }
-  return turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+  return lugar === 'MODULAR'
+  ? (turno === 'm' ? '08:00 a 16:00' : turno === 't' ? '16:00 a 23:59' : '23:59 a 08:00')
+  : (turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00')
 }
 
 // Helper: horas por turno
