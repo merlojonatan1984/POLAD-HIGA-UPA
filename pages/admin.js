@@ -809,47 +809,133 @@ export default function AdminApp() {
           )
         })()}
 
-        {vista === 'disponibilidad' && (
-          <div>
-            <div className="panel" style={{ marginBottom:14 }}>
-              <div className="panel-header"><h3>Disponibilidad cargada — {APP_LUGAR} · {NOMBRE_MES}</h3></div>
-              <div style={{ padding:14,overflowX:'auto' }}>
-                <table style={{ tableLayout:'fixed',width:'max-content',minWidth:'100%' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width:130 }}>Efectivo</th>
-                      {Array.from({ length:DIAS_MES },(_,i) => <th key={i} style={{ width:26,textAlign:'center',padding:'8px 1px' }}>{i+1}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {efectivos.map(e => (
-                      <tr key={e.legajo} style={{ cursor:'pointer' }} onClick={() => setEfectivoDetalle(efDetalle===e.legajo?null:e.legajo)}>
-                        <td style={{ fontSize:11,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',color:efDetalle===e.legajo?'#c8a84b':'var(--text)',fontWeight:efDetalle===e.legajo?500:400 }}>{e.nombre}</td>
-                        {Array.from({ length:DIAS_MES },(_,i) => {
-                          const diaEntry = (disponibilidad[e.legajo] || {})[String(i+1)]
-                          const v = diaEntry ? (diaEntry.turno || '') : ''
-                          if (!diaEntry) return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,borderRadius:3,fontSize:9 }}></span></td>
-                          let bg, label, color
-                          if (ES_MODULAR) {
-                            const cnt = v.length
-                            bg = cnt >= 3 ? '#0d1a2a' : v.includes('m') ? '#3a2a0a' : v.includes('t') ? '#2a1a4a' : '#0d2040'
-                            label = cnt >= 3 ? 'T' : v.includes('m') && v.includes('t') ? 'MT' : v.includes('m') && v.includes('n') ? 'MN' : v.includes('t') && v.includes('n') ? 'TN' : v.toUpperCase()
-                            color = cnt >= 3 ? '#5DCAA5' : v.includes('m') ? '#EF9F27' : v.includes('t') ? '#AFA9EC' : '#85B7EB'
-                          } else {
-                            bg = v==='dn'?'#0d2b1a':v==='d'?'#3a2a0a':v==='n'?'#0d2040':'var(--surface2)'
-                            label = v==='dn'?'A':v==='d'?'D':v==='n'?'N':'·'
-                            color = v==='dn'?'#5DCAA5':v==='d'?'#EF9F27':v==='n'?'#85B7EB':'#444'
-                          }
-                          return <td key={i} style={{ textAlign:'center',padding:'3px 1px' }}><span style={{ display:'inline-block',width:20,height:16,background:bg,borderRadius:3,fontSize:8,fontWeight:500,lineHeight:'16px',color }}>{label}</span></td>
-                        })}
-                      </tr>
+        {vista === 'disponibilidad' && (() => {
+          const sinDisp = efectivos.filter(e => !disponibilidad[e.legajo] || Object.keys(disponibilidad[e.legajo]).length === 0)
+          const conDisp = efectivos.filter(e => disponibilidad[e.legajo] && Object.keys(disponibilidad[e.legajo]).length > 0)
+          const DIAS_SEMANA_LABELS = ['Lu','Ma','Mi','Ju','Vi','Sá','Do']
+
+          function getBadge(v) {
+            if (!v) return null
+            if (ES_MODULAR) {
+              const cnt = ['m','t','n'].filter(k => v.includes(k)).length
+              if (cnt >= 3) return { label:'MTN', color:'#5DCAA5', bg:'#0d1a2a', border:'#1D9E75' }
+              if (v.includes('m') && v.includes('t')) return { label:'MT', color:'#EF9F27', bg:'#2a1a0a', border:'#BA7517' }
+              if (v.includes('m') && v.includes('n')) return { label:'MN', color:'#AFA9EC', bg:'#1a1a2a', border:'#7F77DD' }
+              if (v.includes('t') && v.includes('n')) return { label:'TN', color:'#AFA9EC', bg:'#1a0d3a', border:'#7F77DD' }
+              if (v==='m') return { label:'M', color:'#EF9F27', bg:'#3a2a0a', border:'#BA7517' }
+              if (v==='t') return { label:'T', color:'#AFA9EC', bg:'#2a1a4a', border:'#7F77DD' }
+              return { label:'N', color:'#85B7EB', bg:'#0d2040', border:'#378ADD' }
+            } else {
+              if (v==='dn') return { label:'A', color:'#5DCAA5', bg:'#0d2b1a', border:'#1D9E75' }
+              if (v==='d') return { label:'D', color:'#EF9F27', bg:'#3a2a0a', border:'#BA7517' }
+              return { label:'N', color:'#85B7EB', bg:'#0d2040', border:'#378ADD' }
+            }
+          }
+
+          return (
+            <div>
+              {/* Resumen */}
+              <div style={{ display:'flex',gap:10,marginBottom:16,flexWrap:'wrap',alignItems:'center' }}>
+                <div style={{ background:'rgba(29,158,117,0.12)',border:'0.5px solid rgba(29,158,117,0.3)',borderRadius:8,padding:'8px 14px',fontSize:13 }}>
+                  <span style={{ color:'#1D9E75',fontWeight:600 }}>{conDisp.length}</span>
+                  <span style={{ color:'var(--text-muted)',marginLeft:4 }}>cargaron disponibilidad</span>
+                </div>
+                <div style={{ background:'rgba(239,159,39,0.12)',border:'0.5px solid rgba(239,159,39,0.3)',borderRadius:8,padding:'8px 14px',fontSize:13 }}>
+                  <span style={{ color:'#EF9F27',fontWeight:600 }}>{sinDisp.length}</span>
+                  <span style={{ color:'var(--text-muted)',marginLeft:4 }}>sin cargar</span>
+                </div>
+                <div style={{ display:'flex',gap:8,alignItems:'center',marginLeft:'auto' }}>
+                  {ES_MODULAR ? <>
+                    {[{l:'M',c:'#EF9F27',b:'#3a2a0a',bd:'#BA7517',n:'Mañana'},{l:'T',c:'#AFA9EC',b:'#2a1a4a',bd:'#7F77DD',n:'Tarde'},{l:'N',c:'#85B7EB',b:'#0d2040',bd:'#378ADD',n:'Noche'}].map(x => (
+                      <span key={x.l} style={{ display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--text-muted)' }}>
+                        <span style={{ width:24,height:18,background:x.b,border:`1.5px solid ${x.bd}`,borderRadius:4,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:x.c }}>{x.l}</span>{x.n}
+                      </span>
                     ))}
-                  </tbody>
-                </table>
+                  </> : <>
+                    {[{l:'D',c:'#EF9F27',b:'#3a2a0a',bd:'#BA7517',n:'Día'},{l:'N',c:'#85B7EB',b:'#0d2040',bd:'#378ADD',n:'Noche'},{l:'A',c:'#5DCAA5',b:'#0d2b1a',bd:'#1D9E75',n:'Ambos'}].map(x => (
+                      <span key={x.l} style={{ display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--text-muted)' }}>
+                        <span style={{ width:24,height:18,background:x.b,border:`1.5px solid ${x.bd}`,borderRadius:4,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:x.c }}>{x.l}</span>{x.n}
+                      </span>
+                    ))}
+                  </>}
+                </div>
               </div>
+
+              {/* Calendario por efectivo */}
+              {efectivos.map(e => {
+                const dispEf = disponibilidad[e.legajo] || {}
+                const totalDias = Object.keys(dispEf).length
+                const primerDia = (new Date(ANIO, MES-1, 1).getDay() + 6) % 7
+                if (totalDias === 0) return null
+
+                return (
+                  <div key={e.legajo} className="panel" style={{ marginBottom:10 }}>
+                    <div style={{ padding:'8px 14px',borderBottom:'0.5px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--surface2)' }}>
+                      <div>
+                        <span style={{ fontSize:13,fontWeight:500 }}>{e.nombre}</span>
+                        <span style={{ fontSize:11,color:'var(--text-muted)',marginLeft:8 }}>Leg. {e.legajo}</span>
+                      </div>
+                      <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>{totalDias} días cargados</span>
+                    </div>
+                    <div style={{ padding:'10px 14px' }}>
+                      {/* Cabecera días semana */}
+                      <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:3 }}>
+                        {DIAS_SEMANA_LABELS.map(d => (
+                          <div key={d} style={{ textAlign:'center',fontSize:10,fontWeight:500,color:'var(--text-muted)',padding:'3px 0' }}>{d}</div>
+                        ))}
+                      </div>
+                      {/* Grilla días */}
+                      <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3 }}>
+                        {Array.from({ length: primerDia }).map((_,i) => <div key={`e-${i}`}></div>)}
+                        {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+                          const diaEntry = dispEf[String(dia)]
+                          const v = diaEntry ? (diaEntry.turno || '') : ''
+                          const badge = getBadge(v)
+                          const fecha = new Date(ANIO, MES-1, dia)
+                          const esFinde = fecha.getDay() === 0 || fecha.getDay() === 6
+                          return (
+                            <div key={dia} style={{
+                              borderRadius:6,
+                              border: badge ? `1.5px solid ${badge.border}` : `0.5px solid ${esFinde?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.06)'}`,
+                              background: badge ? badge.bg : esFinde?'rgba(255,255,255,0.03)':'transparent',
+                              padding:'4px 2px',
+                              minHeight:40,
+                              display:'flex',
+                              flexDirection:'column',
+                              alignItems:'center',
+                              justifyContent:'space-between'
+                            }}>
+                              <span style={{ fontSize:11,fontWeight:badge?600:400,color:badge?'#ffffff':'var(--text-hint)',lineHeight:1 }}>{dia}</span>
+                              {badge && (
+                                <span style={{ fontSize:11,fontWeight:700,color:badge.color,lineHeight:1,marginTop:2 }}>{badge.label}</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Sin disponibilidad */}
+              {sinDisp.length > 0 && (
+                <div className="panel" style={{ marginTop:8 }}>
+                  <div className="panel-header" style={{ background:'rgba(80,40,0,0.3)' }}>
+                    <h3 style={{ color:'#EF9F27' }}>Sin disponibilidad — {sinDisp.length} efectivos</h3>
+                  </div>
+                  <div style={{ padding:12,display:'flex',flexWrap:'wrap',gap:6 }}>
+                    {sinDisp.map(e => (
+                      <span key={e.legajo} style={{ fontSize:11,padding:'5px 12px',background:'rgba(239,159,39,0.07)',border:'0.5px solid rgba(239,159,39,0.2)',borderRadius:6,color:'var(--text-muted)' }}>
+                        {e.nombre.split(',')[0]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {vista === 'turnos' && (
           <div>
