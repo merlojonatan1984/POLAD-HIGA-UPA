@@ -38,6 +38,7 @@ export default async function handler(req, res) {
     .from('efectivos')
     .select('*')
     .eq('legajo', legajo)
+    .eq('lugar', lugar)
     .maybeSingle()
 
   if (!ef) return res.status(404).json({ error: 'Efectivo no encontrado' })
