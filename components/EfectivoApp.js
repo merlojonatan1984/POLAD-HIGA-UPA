@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
+const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR ||
+  (typeof window !== 'undefined' && window.location.hostname.includes('modular') ? 'MODULAR' :
+   typeof window !== 'undefined' && window.location.hostname.includes('upa') ? 'UPA' : 'HIGA')
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
   'UPA': ['UPA'],
