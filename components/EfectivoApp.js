@@ -23,12 +23,16 @@ const TURNOS_CONFIG_MAP = {
 const COLOR_MAP = { HIGA: '#AFA9EC', UPA: '#D85A30', MODULAR: '#20A0B0' }
 
 function detectLugar() {
-  const env = process.env.NEXT_PUBLIC_LUGAR
-  if (env && (env === 'MODULAR' || env === 'UPA' || env === 'HIGA')) return env
+  // Next.js inlina NEXT_PUBLIC_* en build time — acceso directo seguro
+  // eslint-disable-next-line no-undef
+  try {
+    const env = process.env.NEXT_PUBLIC_LUGAR
+    if (env === 'MODULAR' || env === 'UPA' || env === 'HIGA') return env
+  } catch(e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h.includes('modular')) return 'MODULAR'
-  if (h === 'polad-higa-upa.vercel.app') return 'UPA'
+  if (h === 'polad-upa.vercel.app') return 'UPA'
   return 'HIGA'
 }
 
