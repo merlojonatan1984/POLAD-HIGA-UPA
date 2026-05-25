@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 
 const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR ||
   (typeof window !== 'undefined' && window.location.hostname.includes('modular') ? 'MODULAR' :
-   typeof window !== 'undefined' && window.location.hostname.includes('upa') ? 'UPA' : 'HIGA')
+   typeof window !== 'undefined' && window.location.hostname === 'polad-higa-upa.vercel.app' ? 'UPA' : 'HIGA')
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
   'UPA': ['UPA'],
@@ -126,7 +126,7 @@ export default function EfectivoApp() {
     setGuardando(true)
 
     const lugar = window.location.hostname.includes('modular') ? 'MODULAR'
-      : window.location.hostname.includes('upa') ? 'UPA' : 'HIGA'
+      : window.location.hostname === 'polad-higa-upa.vercel.app' ? 'UPA' : 'HIGA'
 
     await supabase.from('disponibilidad').delete()
       .eq('legajo', usuario.legajo)
