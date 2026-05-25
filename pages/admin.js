@@ -17,18 +17,20 @@ const SECTORES_POR_LUGAR = {
 }
 const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
 const ES_MODULAR = APP_LUGAR === 'MODULAR'
-const TURNOS_LUGAR = ES_MODULAR ? ['m','t','n'] : ['d','n']
+const TURNOS_LUGAR = ES_MODULAR ? ['m', 't', 'n'] : ['d', 'n']
 const HORAS_TURNO = ES_MODULAR ? 8 : 12
+const MAX_POR_SLOT = ES_MODULAR ? 3 : 2
 const TURNOS_INFO = ES_MODULAR
   ? [
-      {key:'m',label:'Mañana 08-16',color:'#EF9F27',bg:'rgba(239,159,39,0.15)'},
-      {key:'t',label:'Tarde 16-24', color:'#AFA9EC',bg:'rgba(127,119,221,0.15)'},
-      {key:'n',label:'Noche 00-08', color:'#85B7EB',bg:'rgba(55,138,221,0.15)'},
+      { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
+      { key: 't', label: 'Tarde 16-24',  color: '#AFA9EC', bg: 'rgba(127,119,221,0.15)', horario: '16:00 a 24:00' },
+      { key: 'n', label: 'Noche 00-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '00:00 a 08:00' },
     ]
   : [
-      {key:'d',label:'Día 08-20',   color:'#EF9F27',bg:'rgba(239,159,39,0.15)'},
-      {key:'n',label:'Noche 20-08', color:'#85B7EB',bg:'rgba(55,138,221,0.15)'},
+      { key: 'd', label: 'Día 08-20',    color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 20:00' },
+      { key: 'n', label: 'Noche 20-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '20:00 a 08:00' },
     ]
+
 const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30', 'Modular': '#20A0B0' }
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
@@ -42,7 +44,7 @@ const BG_APP   = APP_LUGAR === 'HIGA' ? 'rgba(42,37,96,0.5)' : APP_LUGAR === 'UP
 function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, diasMes, mes, anio, turnosDelDia }) {
   const esNuevo = !turno.id
   const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
-  const [turnoSel, setTurnoSel] = useState(turno.turno || 'd')
+  const [turnoSel, setTurnoSel] = useState(turno.turno || TURNOS_LUGAR[0])
   const [sectorSel, setSectorSel] = useState(turno.sector || SECTORES_APP[0])
   const [diaSel, setDiaSel] = useState(turno.dia || 1)
   const [guardando, setGuardando] = useState(false)
@@ -91,9 +93,10 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
           )}
           <div style={{ marginBottom:14 }}>
             <label>Turno</label>
-            <div style={{ display:'flex',gap:8 }}>
-              <button className="btn" style={{ flex:1,justifyContent:'center',background:turnoSel==='d'?'#3a2a0a':'transparent',color:turnoSel==='d'?'#EF9F27':'#8b90a0',borderColor:turnoSel==='d'?'#BA7517':'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('d')}>Día 08-20</button>
-              <button className="btn" style={{ flex:1,justifyContent:'center',background:turnoSel==='n'?'#0d2040':'transparent',color:turnoSel==='n'?'#85B7EB':'#8b90a0',borderColor:turnoSel==='n'?'#378ADD':'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel('n')}>Noche 20-08</button>
+            <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
+              {TURNOS_INFO.map(ti => (
+                <button key={ti.key} className="btn" style={{ flex:1,justifyContent:'center',background:turnoSel===ti.key?ti.bg:'transparent',color:turnoSel===ti.key?ti.color:'#8b90a0',borderColor:turnoSel===ti.key?ti.color:'rgba(255,255,255,0.1)' }} onClick={() => setTurnoSel(ti.key)}>{ti.label}</button>
+              ))}
             </div>
           </div>
           <div style={{ marginBottom:14 }}>
@@ -326,12 +329,12 @@ export default function AdminApp() {
             const avail = diaEntry ? (diaEntry.turno || '') : ''
             return avail && avail.includes(turno) && e.hs < e.maxHs
           }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, 2).forEach(e => { e.hs += HORAS_TURNO; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
+          candidatos.slice(0, MAX_POR_SLOT).forEach(e => { e.hs += HORAS_TURNO; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
         }
       }
     }
     for (let i = 0; i < nuevos.length; i += 500) await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
-    setMsgGen(`Se generaron ${nuevos.length} asignaciones. Uniformados: hasta ${maxU} hs · Serv. General: hasta ${maxG} hs.`)
+    setMsgGen(`Se generaron ${nuevos.length} asignaciones.`)
     await cargarTodo(); setGenerando(false)
   }
 
@@ -344,40 +347,55 @@ export default function AdminApp() {
     ])
     const ocupacion = {}
     ;(turnosTodos || []).forEach(t => { const k = t.dia + '-' + t.turno + '-' + t.sector; ocupacion[k] = (ocupacion[k] || 0) + 1 })
-    const yaAsignadosDia = new Set((turnosEfData || []).filter(t => t.turno === 'd').map(t => parseInt(t.dia)))
-    const yaAsignadosNoche = new Set((turnosEfData || []).filter(t => t.turno === 'n').map(t => parseInt(t.dia)))
+
+    // Construir sets de ya asignados por turno
+    const yaAsignadosPorTurno = {}
+    TURNOS_LUGAR.forEach(tk => { yaAsignadosPorTurno[tk] = new Set((turnosEfData || []).filter(t => t.turno === tk).map(t => parseInt(t.dia))) })
+
     const diasDisp = [...new Set((dispData || []).filter(d => {
       const diaNum = parseInt(d.dia)
-      if (tipoTurno === 'd') return (d.turno === 'd' || d.turno === 'dn') && !yaAsignadosDia.has(diaNum)
-      if (tipoTurno === 'n') return (d.turno === 'n' || d.turno === 'dn') && !yaAsignadosNoche.has(diaNum)
-      if (tipoTurno === 'dn') return d.turno !== '' && (!yaAsignadosDia.has(parseInt(d.dia)) || !yaAsignadosNoche.has(parseInt(d.dia)))
-      if (tipoTurno === 'doble') return d.turno === 'dn' && !yaAsignadosDia.has(diaNum) && !yaAsignadosNoche.has(diaNum)
+      if (TURNOS_LUGAR.includes(tipoTurno)) return d.turno && d.turno.includes(tipoTurno) && !(yaAsignadosPorTurno[tipoTurno]||new Set()).has(diaNum)
+      if (tipoTurno === 'mixto' || tipoTurno === 'dn') return d.turno !== '' && TURNOS_LUGAR.some(tk => !(yaAsignadosPorTurno[tk]||new Set()).has(diaNum))
+      if (tipoTurno === 'doble') return d.turno && TURNOS_LUGAR.every(tk => d.turno.includes(tk) && !(yaAsignadosPorTurno[tk]||new Set()).has(diaNum))
       return false
     }).map(d => parseInt(d.dia)))]
+
     if (diasDisp.length === 0) { alert('Sin días disponibles para asignar.'); setAsignando(false); return }
     const diasSeleccionados = [...diasDisp].sort(() => Math.random() - 0.5).slice(0, Math.min(cantidad, diasDisp.length))
     const nuevos = []
+
     for (const dia of diasSeleccionados) {
-      if (tipoTurno === 'doble') {
-        if (!yaAsignadosDia.has(dia)) { const s = SECTORES_APP.find(s => (ocupacion[dia+'-d-'+s] || 0) < 2); if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'd', sector: s }); ocupacion[dia+'-d-'+s]=(ocupacion[dia+'-d-'+s]||0)+1; yaAsignadosDia.add(dia) } }
-        if (!yaAsignadosNoche.has(dia)) { const s = SECTORES_APP.find(s => (ocupacion[dia+'-n-'+s] || 0) < 2); if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: 'n', sector: s }); ocupacion[dia+'-n-'+s]=(ocupacion[dia+'-n-'+s]||0)+1; yaAsignadosNoche.add(dia) } }
+      if (tipoTurno === 'doble' || tipoTurno === 'mixto') {
+        TURNOS_LUGAR.forEach(tk => {
+          const ya = yaAsignadosPorTurno[tk] || new Set()
+          if (!ya.has(dia)) {
+            const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tk+'-'+s] || 0) < MAX_POR_SLOT)
+            if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s }); ocupacion[dia+'-'+tk+'-'+s]=(ocupacion[dia+'-'+tk+'-'+s]||0)+1; ya.add(dia) }
+          }
+        })
       } else if (tipoTurno === 'dn') {
-        const dC = nuevos.filter(n=>n.turno==='d').length; const nC = nuevos.filter(n=>n.turno==='n').length
-        const t = dC <= nC ? 'd' : 'n'; const ya = t === 'd' ? yaAsignadosDia : yaAsignadosNoche
-        if (!ya.has(dia)) { const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+t+'-'+s] || 0) < 2); if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: t, sector: s }); ocupacion[dia+'-'+t+'-'+s]=(ocupacion[dia+'-'+t+'-'+s]||0)+1; ya.add(dia) } }
+        const counts = TURNOS_LUGAR.map(tk => nuevos.filter(n=>n.turno===tk).length)
+        const t = TURNOS_LUGAR[counts.indexOf(Math.min(...counts))]
+        const ya = yaAsignadosPorTurno[t] || new Set()
+        if (!ya.has(dia)) {
+          const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+t+'-'+s] || 0) < MAX_POR_SLOT)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: t, sector: s }); ocupacion[dia+'-'+t+'-'+s]=(ocupacion[dia+'-'+t+'-'+s]||0)+1; ya.add(dia) }
+        }
       } else {
-        const ya = tipoTurno === 'd' ? yaAsignadosDia : yaAsignadosNoche
-        if (!ya.has(dia)) { const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tipoTurno+'-'+s] || 0) < 2); if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector: s }); ocupacion[dia+'-'+tipoTurno+'-'+s]=(ocupacion[dia+'-'+tipoTurno+'-'+s]||0)+1; ya.add(dia) } }
+        const ya = yaAsignadosPorTurno[tipoTurno] || new Set()
+        if (!ya.has(dia)) {
+          const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tipoTurno+'-'+s] || 0) < MAX_POR_SLOT)
+          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector: s }); ocupacion[dia+'-'+tipoTurno+'-'+s]=(ocupacion[dia+'-'+tipoTurno+'-'+s]||0)+1; ya.add(dia) }
+        }
       }
     }
+
     if (nuevos.length === 0) { alert('No hay sectores disponibles.'); setAsignando(false); return }
     for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
     setModalAsignar(null); setAsignando(false)
     await cargarTodo()
     const nombre = efectivos.find(e=>e.legajo===legajo)?.nombre?.split(',')[0] || legajo
-    const asignadas = nuevos.length; const pedidas = tipoTurno === 'doble' ? cantidad * 2 : cantidad
-    if (asignadas < pedidas) alert(`✓ Se asignaron ${asignadas} de ${pedidas} guardias a ${nombre}.`)
-    else alert(`✓ Se asignaron ${asignadas} guardias a ${nombre}.`)
+    alert(`✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`)
   }
 
   async function descargarPlanilla(turno) {
@@ -386,7 +404,7 @@ export default function AdminApp() {
       const res = await fetch(url)
       if (!res.ok) throw new Error('Error al generar')
       const blob = await res.blob(); const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob); a.download = `${APP_LUGAR}_${turno==='d'?'DIA':'NOCHE'}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
+      a.href = URL.createObjectURL(blob); a.download = `${APP_LUGAR}_${turno}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
     } catch(e) { alert('Error: ' + e.message) }
   }
 
@@ -446,16 +464,14 @@ export default function AdminApp() {
       asist.filter(a => turnosEf.some(t => t.dia === a.dia && t.turno === a.turno))
            .forEach(a => { asistMap[`${a.dia}-${a.turno}`] = a })
       const filas = Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
-        const tDia = turnosEf.find(t => t.dia === dia && t.turno === 'd')
-        const tNoche = turnosEf.find(t => t.dia === dia && t.turno === 'n')
-        const pDia = asistMap[`${dia}-d`]; const pNoche = asistMap[`${dia}-n`]
         const entradas = []
-        const manualDiaEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '08:00 a 20:00')
-        const manualNocheEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === '20:00 a 08:00')
-        if (pDia) entradas.push({ horario: '08:00 a 20:00', horas: manualDiaEntry ? parseInt(manualDiaEntry.horas) : 12, confirmado: true, manual: false, sector: tDia?.sector })
-        else if (tDia) entradas.push({ horario: '08:00 a 20:00', horas: 12, confirmado: false, manual: false, sector: tDia?.sector })
-        if (pNoche) entradas.push({ horario: '20:00 a 08:00', horas: manualNocheEntry ? parseInt(manualNocheEntry.horas) : 12, confirmado: true, manual: false, sector: tNoche?.sector })
-        else if (tNoche) entradas.push({ horario: '20:00 a 08:00', horas: 12, confirmado: false, manual: false, sector: tNoche?.sector })
+        TURNOS_INFO.forEach(ti => {
+          const tEf = turnosEf.find(t => t.dia === dia && t.turno === ti.key)
+          const pres = asistMap[`${dia}-${ti.key}`]
+          const manualEntry = Object.values(planillaManual).find(m => parseInt(m.dia) === dia && m.horario === ti.horario)
+          if (pres) entradas.push({ horario: ti.horario, horas: manualEntry ? parseInt(manualEntry.horas) : HORAS_TURNO, confirmado: true, manual: false, sector: tEf?.sector })
+          else if (tEf) entradas.push({ horario: ti.horario, horas: HORAS_TURNO, confirmado: false, manual: false, sector: tEf?.sector })
+        })
         Object.values(planillaManual).forEach(m => {
           if (parseInt(m.dia) === dia) {
             const yaExiste = entradas.find(e => e.horario === m.horario)
@@ -538,15 +554,17 @@ export default function AdminApp() {
                 </div>
                 <div>
                   <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>Tipo de turno</label>
-                  <select value={modalAsignar.tipoTurno||'d'} onChange={e => setModalAsignar(prev => ({...prev,tipoTurno:e.target.value}))} style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
-                    <option value="d">Solo día (08-20)</option><option value="n">Solo noche (20-08)</option><option value="dn">Mixto alternado</option><option value="doble">Doble (día + noche)</option>
+                  <select value={modalAsignar.tipoTurno||TURNOS_LUGAR[0]} onChange={e => setModalAsignar(prev => ({...prev,tipoTurno:e.target.value}))} style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+                    {TURNOS_INFO.map(ti => <option key={ti.key} value={ti.key}>{ti.label}</option>)}
+                    <option value="mixto">Mixto alternado</option>
+                    <option value="doble">Todos los turnos del día</option>
                   </select>
                 </div>
               </div>
             </div>
             <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'flex-end',gap:8 }}>
               <button className="btn btn-sm" onClick={() => setModalAsignar(null)}>Cancelar</button>
-              <button className="btn btn-sm" disabled={!modalAsignar.legajo || !modalAsignar.cantidad || asignando} style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => asignarGuardiasAuto(modalAsignar.legajo, modalAsignar.cantidad, modalAsignar.tipoTurno || 'd')}>
+              <button className="btn btn-sm" disabled={!modalAsignar.legajo || !modalAsignar.cantidad || asignando} style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => asignarGuardiasAuto(modalAsignar.legajo, modalAsignar.cantidad, modalAsignar.tipoTurno || TURNOS_LUGAR[0])}>
                 {asignando ? 'Asignando...' : `⚡ Asignar ${modalAsignar.cantidad||0} guardias`}
               </button>
             </div>
@@ -652,8 +670,6 @@ export default function AdminApp() {
             const pct = Math.round(hs / 180 * 100)
             const color = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
             const turnosEf = turnos[e.legajo] || []
-            const turnosDia = turnosEf.filter(t => t.turno === 'd').length
-            const turnosNoche = turnosEf.filter(t => t.turno === 'n').length
             const iniciales = e.nombre.split(',').map(p => p.trim()[0]).join('').toUpperCase().slice(0, 2)
             return (
               <div key={e.legajo} className="card" style={{ padding:0,overflow:'hidden',cursor:'pointer' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
@@ -674,17 +690,17 @@ export default function AdminApp() {
                   <div style={{ height:'100%',width:`${Math.min(pct,100)}%`,background:color }}></div>
                 </div>
                 <div style={{ padding:'10px 14px' }}>
-                  <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10 }}>
-                    <div style={{ background:`${COLOR_APP}18`,borderRadius:6,padding:'6px 8px',border:`0.5px solid ${COLOR_APP}33` }}>
-                      <div style={{ fontSize:8,color:COLOR_APP,marginBottom:1 }}>{APP_LUGAR} — Día</div>
-                      <div style={{ fontSize:16,fontWeight:500,color:COLOR_APP }}>{turnosDia}</div>
-                      <div style={{ fontSize:9,color:'var(--text-muted)' }}>{turnosDia * 12} hs</div>
-                    </div>
-                    <div style={{ background:'rgba(13,32,64,0.5)',borderRadius:6,padding:'6px 8px',border:'0.5px solid rgba(133,183,235,0.2)' }}>
-                      <div style={{ fontSize:8,color:'#85B7EB',marginBottom:1 }}>{APP_LUGAR} — Noche</div>
-                      <div style={{ fontSize:16,fontWeight:500,color:'#85B7EB' }}>{turnosNoche}</div>
-                      <div style={{ fontSize:9,color:'var(--text-muted)' }}>{turnosNoche * 12} hs</div>
-                    </div>
+                  <div style={{ display:'grid',gridTemplateColumns:`repeat(${TURNOS_INFO.length},1fr)`,gap:6,marginBottom:10 }}>
+                    {TURNOS_INFO.map(ti => {
+                      const count = turnosEf.filter(t => t.turno === ti.key).length
+                      return (
+                        <div key={ti.key} style={{ background:`${ti.color}18`,borderRadius:6,padding:'6px 8px',border:`0.5px solid ${ti.color}33` }}>
+                          <div style={{ fontSize:8,color:ti.color,marginBottom:1 }}>{ti.label.split(' ')[0]}</div>
+                          <div style={{ fontSize:16,fontWeight:500,color:ti.color }}>{count}</div>
+                          <div style={{ fontSize:9,color:'var(--text-muted)' }}>{count * HORAS_TURNO} hs</div>
+                        </div>
+                      )
+                    })}
                     {turnosEf.length === 0 && <div style={{ gridColumn:'1/-1',fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin guardias asignadas</div>}
                   </div>
                   {e.telefono && turnosEf.length > 0 && (
@@ -693,8 +709,8 @@ export default function AdminApp() {
                       const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
                       const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
                       const ts = [...turnosEf].sort((a,b) => a.dia - b.dia)
-                      const subtotal = ts.length * 12
-                      const lineas = ts.map(t => `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${t.turno==='d'?'08:00 a 20:00':'20:00 a 08:00'} hs %E2%80%94 ${encodeURIComponent(t.sector)}`).join('%0A')
+                      const subtotal = ts.length * HORAS_TURNO
+                      const lineas = ts.map(t => { const ti = TURNOS_INFO.find(x=>x.key===t.turno); return `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${encodeURIComponent(ti?.horario||t.turno)} hs %E2%80%94 ${encodeURIComponent(t.sector)}` }).join('%0A')
                       const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A%0A${lineas}%0A%0A%E2%9C%85 *Total: ${subtotal} hs*%0A%0A_Crio. Paulo Corbela_%0A_POLAD %C2%B7 ${APP_LUGAR} %C2%B7 Mar del Plata_`
                       return `https://wa.me/${tel}?text=${msg}`
                     })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()}
@@ -744,10 +760,10 @@ export default function AdminApp() {
                     const dias = disponibilidad[e.legajo] || {}
                     const cantDias = Object.keys(dias).length
                     const cargo = cantDias > 0
-                    const diasD = Object.values(dias).filter(d => d.turno==='d').length
-                    const diasN = Object.values(dias).filter(d => d.turno==='n').length
-                    const diasA = Object.values(dias).filter(d => d.turno==='dn').length
                     const seleccionado = efDetalle === e.legajo
+                    // Contar por turno
+                    const conteosTurno = {}
+                    TURNOS_LUGAR.forEach(tk => { conteosTurno[tk] = Object.values(dias).filter(d => d.turno && d.turno.includes(tk)).length })
                     return (
                       <div key={e.legajo}>
                         <div
@@ -767,10 +783,10 @@ export default function AdminApp() {
                           </div>
                           <div style={{ textAlign:'right', flexShrink:0, marginLeft:8 }}>
                             {cargo ? (
-                              <div style={{ display:'flex', gap:4, alignItems:'center' }}>
-                                {diasD > 0 && <span style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background:'rgba(239,159,39,0.15)', color:'#EF9F27', border:'0.5px solid rgba(239,159,39,0.3)' }}>D:{diasD}</span>}
-                                {diasN > 0 && <span style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background:'rgba(133,183,235,0.15)', color:'#85B7EB', border:'0.5px solid rgba(133,183,235,0.3)' }}>N:{diasN}</span>}
-                                {diasA > 0 && <span style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background:'rgba(93,202,165,0.15)', color:'#5DCAA5', border:'0.5px solid rgba(93,202,165,0.3)' }}>A:{diasA}</span>}
+                              <div style={{ display:'flex', gap:4, alignItems:'center', flexWrap:'wrap' }}>
+                                {TURNOS_INFO.map(ti => conteosTurno[ti.key] > 0 && (
+                                  <span key={ti.key} style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background:`${ti.bg}`, color:ti.color, border:`0.5px solid ${ti.color}44` }}>{ti.key.toUpperCase()}:{conteosTurno[ti.key]}</span>
+                                ))}
                               </div>
                             ) : (
                               <span style={{ fontSize:10, color:'#E24B4A' }}>Sin cargar</span>
@@ -787,9 +803,10 @@ export default function AdminApp() {
                                   <span key={dia} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:4, background:'var(--surface2)', fontSize:10, color:'var(--text-hint)', border:'0.5px solid rgba(255,255,255,0.05)' }}>{dia}</span>
                                 )
                                 const v = entry.turno
-                                const bg = v==='dn'?'rgba(29,158,117,0.2)':v==='d'?'rgba(239,159,39,0.2)':'rgba(133,183,235,0.2)'
-                                const color = v==='dn'?'#5DCAA5':v==='d'?'#EF9F27':'#85B7EB'
-                                const label = v==='dn'?'A':v==='d'?'D':'N'
+                                const allTurnos = v && v.length >= TURNOS_LUGAR.length
+                                const bg = allTurnos ? 'rgba(29,158,117,0.2)' : (() => { const ti = TURNOS_INFO.find(x => v && v.includes(x.key)); return ti ? ti.bg : 'rgba(133,183,235,0.2)' })()
+                                const color = allTurnos ? '#5DCAA5' : (() => { const ti = TURNOS_INFO.find(x => v && v.includes(x.key)); return ti ? ti.color : '#85B7EB' })()
+                                const label = allTurnos ? 'A' : v ? v.toUpperCase() : '?'
                                 return (
                                   <span key={dia} style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background:bg, fontSize:9, color, border:`0.5px solid ${color}55`, fontWeight:600 }}>
                                     <span style={{ fontSize:8, fontWeight:400, opacity:0.8 }}>{dia}</span>
@@ -798,10 +815,8 @@ export default function AdminApp() {
                                 )
                               })}
                             </div>
-                            <div style={{ marginTop:8, fontSize:10, color:'var(--text-muted)', display:'flex', gap:12 }}>
-                              <span style={{ color:'#EF9F27' }}>D = Día</span>
-                              <span style={{ color:'#85B7EB' }}>N = Noche</span>
-                              <span style={{ color:'#5DCAA5' }}>A = Ambos</span>
+                            <div style={{ marginTop:8, fontSize:10, color:'var(--text-muted)', display:'flex', gap:12, flexWrap:'wrap' }}>
+                              {TURNOS_INFO.map(ti => <span key={ti.key} style={{ color:ti.color }}>{ti.key.toUpperCase()} = {ti.label.split(' ')[0]}</span>)}
                             </div>
                           </div>
                         )}
@@ -839,11 +854,11 @@ export default function AdminApp() {
                           <td><span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:11 }}><span className="dot" style={{ background:SEC_COLORS[sector] }}></span>{sector}</span></td>
                           {Array.from({ length:DIAS_MES },(_,i) => {
                             const dia = i+1
-                            const tD = todosLosTurnos.filter(t=>t.dia===dia&&t.turno==='d'&&t.sector===sector)
-                            const tN = todosLosTurnos.filter(t=>t.dia===dia&&t.turno==='n'&&t.sector===sector)
                             return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top' }}>
-                              <div style={{ color:'#EF9F27',marginBottom:1 }}>{tD.map(t=>nombreCorto(t.legajo)).join(', ')||'—'}</div>
-                              <div style={{ color:'#85B7EB' }}>{tN.map(t=>nombreCorto(t.legajo)).join(', ')||'—'}</div>
+                              {TURNOS_INFO.map(ti => {
+                                const list = todosLosTurnos.filter(t=>t.dia===dia&&t.turno===ti.key&&t.sector===sector)
+                                return <div key={ti.key} style={{ color:ti.color,marginBottom:1 }}>{list.map(t=>nombreCorto(t.legajo)).join(', ')||'—'}</div>
+                              })}
                             </td>
                           })}
                         </tr>
@@ -869,14 +884,12 @@ export default function AdminApp() {
             <div style={{ marginBottom:12,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
               <h3 style={{ fontSize:14,fontWeight:500 }}>Día {filtroDia} — {NOMBRE_MES} — {APP_LUGAR}</h3>
               <div style={{ display:'flex',gap:8 }}>
-                <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES_APP[0],turno:'d',legajo:'' })}>+ Agregar turno</button>
+                <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES_APP[0],turno:TURNOS_LUGAR[0],legajo:'' })}>+ Agregar turno</button>
               </div>
             </div>
             <div style={{ display:'grid',gridTemplateColumns:'1fr 240px',gap:12 }}>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignContent:'start' }}>
                 {SECTORES_APP.map(sector => {
-                  const tDia = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='d'&&t.sector===sector)
-                  const tNoche = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno==='n'&&t.sector===sector)
                   return (
                     <div key={sector} style={{ background:'var(--surface)',border:'0.5px solid var(--border)',borderRadius:10,overflow:'hidden' }}>
                       <div style={{ padding:'8px 12px',background:'var(--surface2)',borderBottom:'0.5px solid var(--border)',display:'flex',alignItems:'center',gap:6 }}>
@@ -884,22 +897,25 @@ export default function AdminApp() {
                         <span style={{ fontSize:12,fontWeight:500 }}>{sector}</span>
                       </div>
                       <div style={{ padding:10 }}>
-                        {[['d','TURNO DÍA 08-20','#EF9F27','#3a2a0a',tDia],['n','TURNO NOCHE 20-08','#85B7EB','#0d2040',tNoche]].map(([t,label,color,bg,list]) => (
-                          <div key={t} style={{ marginBottom:t==='d'?8:0,paddingBottom:t==='d'?8:0,borderBottom:t==='d'?'0.5px solid var(--border)':'' }}>
-                            <div style={{ fontSize:10,color,fontWeight:500,marginBottom:5 }}>{label}</div>
-                            {list.length===0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color,borderColor:`${color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:t,legajo:'' })}>+ Asignar</button></div>}
-                            {list.map(item => (
-                              <div key={item.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:`${bg}66`,borderRadius:6,marginBottom:3 }}>
-                                <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
-                                <div style={{ display:'flex',gap:4 }}>
-                                  <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px' }} onClick={() => setModalTurno(item)}>Cambiar</button>
-                                  <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px',color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => handleEliminarTurno(item)}>✕</button>
+                        {TURNOS_INFO.map((ti, idx) => {
+                          const list = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno===ti.key&&t.sector===sector)
+                          return (
+                            <div key={ti.key} style={{ marginBottom:idx<TURNOS_INFO.length-1?8:0,paddingBottom:idx<TURNOS_INFO.length-1?8:0,borderBottom:idx<TURNOS_INFO.length-1?'0.5px solid var(--border)':'' }}>
+                              <div style={{ fontSize:10,color:ti.color,fontWeight:500,marginBottom:5 }}>{ti.label.toUpperCase()}</div>
+                              {list.length===0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
+                              {list.map(item => (
+                                <div key={item.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3 }}>
+                                  <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
+                                  <div style={{ display:'flex',gap:4 }}>
+                                    <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px' }} onClick={() => setModalTurno(item)}>Cambiar</button>
+                                    <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px',color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => handleEliminarTurno(item)}>✕</button>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                            {list.length>0&&list.length<2 && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color,borderColor:`${color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:t,legajo:'' })}>+ Agregar segundo</button>}
-                          </div>
-                        ))}
+                              ))}
+                              {list.length>0&&list.length<MAX_POR_SLOT && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color:ti.color,borderColor:`${ti.color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Agregar</button>}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )
@@ -911,48 +927,42 @@ export default function AdminApp() {
                 </div>
                 {(() => {
                   const dispDatos = dispDelDia.dia === filtroDia ? dispDelDia.data : []
-                  const yaAsignadosDia = new Set(todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno==='d').map(t => t.legajo))
-                  const yaAsignadosNoche = new Set(todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno==='n').map(t => t.legajo))
-                  const ocupDia = {}; const ocupNoche = {}
-                  todosLosTurnos.filter(t => t.dia===filtroDia).forEach(t => { if (t.turno==='d') ocupDia[t.sector]=(ocupDia[t.sector]||0)+1; else ocupNoche[t.sector]=(ocupNoche[t.sector]||0)+1 })
-                  const hayLugarDia = SECTORES_APP.some(s => (ocupDia[s]||0) < 2)
-                  const hayLugarNoche = SECTORES_APP.some(s => (ocupNoche[s]||0) < 2)
                   const dispDia = dispDatos.map(d => { const ef = efectivos.find(e => e.legajo===d.legajo); if (!ef) return null; return { ...ef, disp:d.turno, hs:horasAsig[ef.legajo]||0 } }).filter(Boolean)
-                  const dispTurnoDia = dispDia.filter(e => (e.disp==='d'||e.disp==='dn') && !yaAsignadosDia.has(e.legajo) && e.hs<180 && hayLugarDia)
-                  const dispTurnoNoche = dispDia.filter(e => (e.disp==='n'||e.disp==='dn') && !yaAsignadosNoche.has(e.legajo) && e.hs<180 && hayLugarNoche)
-                  const renderEf = (e, turno) => {
-                    const pct = Math.round(e.hs/180*100)
-                    const colorHs = pct>=100?'#E24B4A':pct>=80?'#EF9F27':'#1D9E75'
-                    const badgeColor = e.disp==='dn'?{bg:'rgba(93,202,165,0.15)',color:'#1D9E75',label:'Ambos'}:e.disp==='d'?{bg:'rgba(239,159,39,0.15)',color:'#EF9F27',label:'Día'}:{bg:'rgba(133,183,235,0.15)',color:'#85B7EB',label:'Noche'}
-                    return (
-                      <div key={e.legajo} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0',borderBottom:'0.5px solid var(--border)',cursor:'pointer' }} onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES_APP[0],turno,legajo:e.legajo })}>
-                        <div style={{ flex:1,minWidth:0 }}>
-                          <div style={{ fontSize:11,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.nombre.split(',')[0]}</div>
-                          <div style={{ display:'flex',alignItems:'center',gap:4,marginTop:2 }}>
-                            <span style={{ fontSize:9,color:colorHs }}>{e.hs} hs</span>
-                          </div>
-                        </div>
-                        <span style={{ fontSize:10,padding:'1px 6px',borderRadius:3,background:badgeColor.bg,color:badgeColor.color,flexShrink:0,marginLeft:6 }}>{badgeColor.label}</span>
-                      </div>
-                    )
-                  }
+
                   return (
                     <div>
-                      <div style={{ padding:'8px 12px 4px' }}>
-                        <div style={{ fontSize:10,fontWeight:500,color:'#EF9F27',marginBottom:6,paddingBottom:4,borderBottom:'0.5px solid var(--border)' }}>Turno día — {dispTurnoDia.length}</div>
-                        {dispTurnoDia.length===0?<div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic',paddingBottom:6 }}>Sin disponibilidad</div>:dispTurnoDia.map(e=>renderEf(e,'d'))}
-                      </div>
-                      <div style={{ padding:'8px 12px 8px' }}>
-                        <div style={{ fontSize:10,fontWeight:500,color:'#85B7EB',marginBottom:6,paddingBottom:4,borderBottom:'0.5px solid var(--border)' }}>Turno noche — {dispTurnoNoche.length}</div>
-                        {dispTurnoNoche.length===0?<div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin disponibilidad</div>:dispTurnoNoche.map(e=>renderEf(e,'n'))}
-                      </div>
+                      {TURNOS_INFO.map(ti => {
+                        const yaAsignados = new Set(todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).map(t => t.legajo))
+                        const ocupSlots = {}
+                        todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).forEach(t => { ocupSlots[t.sector]=(ocupSlots[t.sector]||0)+1 })
+                        const hayLugar = SECTORES_APP.some(s => (ocupSlots[s]||0) < MAX_POR_SLOT)
+                        const dispTurno = dispDia.filter(e => e.disp && e.disp.includes(ti.key) && !yaAsignados.has(e.legajo) && e.hs<180 && hayLugar)
+                        return (
+                          <div key={ti.key} style={{ padding:'8px 12px 4px' }}>
+                            <div style={{ fontSize:10,fontWeight:500,color:ti.color,marginBottom:6,paddingBottom:4,borderBottom:'0.5px solid var(--border)' }}>{ti.label} — {dispTurno.length}</div>
+                            {dispTurno.length===0?<div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic',paddingBottom:6 }}>Sin disponibilidad</div>:dispTurno.map(e => {
+                              const pct = Math.round(e.hs/180*100)
+                              const colorHs = pct>=100?'#E24B4A':pct>=80?'#EF9F27':'#1D9E75'
+                              return (
+                                <div key={e.legajo} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0',borderBottom:'0.5px solid var(--border)',cursor:'pointer' }} onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES_APP[0],turno:ti.key,legajo:e.legajo })}>
+                                  <div style={{ flex:1,minWidth:0 }}>
+                                    <div style={{ fontSize:11,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{e.nombre.split(',')[0]}</div>
+                                    <div style={{ fontSize:9,color:colorHs,marginTop:2 }}>{e.hs} hs</div>
+                                  </div>
+                                  <span style={{ fontSize:10,padding:'1px 6px',borderRadius:3,background:ti.bg,color:ti.color,flexShrink:0,marginLeft:6 }}>{ti.key.toUpperCase()}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })}
                       <div style={{ padding:'8px 12px',borderTop:'0.5px solid var(--border)' }}>
                         <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
                           onClick={async () => {
                             const { data } = await supabase.from('disponibilidad').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',APP_LUGAR)
                             const legajos = new Set((data||[]).map(d=>d.legajo))
                             setEfDisponibles(efectivos.filter(e=>legajos.has(e.legajo)))
-                            setModalAsignar({ legajo:'', cantidad:'', tipoTurno:'d' })
+                            setModalAsignar({ legajo:'', cantidad:'', tipoTurno:TURNOS_LUGAR[0] })
                           }}>⚡ Asignar guardias rápido</button>
                       </div>
                     </div>
@@ -1127,7 +1137,7 @@ export default function AdminApp() {
                                 return f.entradas.map((e,i) => (
                                   <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
                                     <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
-                                    <td style={{ color:e.horario.startsWith('08')?'#EF9F27':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
+                                    <td style={{ color:e.horario.startsWith('08')?'#EF9F27':e.horario.startsWith('16')?'#AFA9EC':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
                                     <td><input type="number" min="0" max="12" defaultValue={e.horas||''} style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }} onBlur={ev => guardarHoraManual(ef.legajo,f.dia,e.horario,ev.target.value,e.sector)} /></td>
                                     <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
                                     <td style={{ textAlign:'center' }}>
@@ -1218,13 +1228,13 @@ export default function AdminApp() {
                 <h3 style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Planilla de guardia — {APP_LUGAR}</h3>
                 <p style={{ fontSize:12,color:'var(--text-muted)' }}>Descargá las planillas de {NOMBRE_MES}</p>
               </div>
-              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,maxWidth:600 }}>
-                {[{label:'⬇ Turno DÍA 08:00-20:00',k:'dia',turno:'d'},{label:'⬇ Turno NOCHE 20:00-08:00',k:'noche',turno:'n'}].map(btn => (
-                  <button key={btn.k} disabled={!!descargando} style={{ display:'flex',alignItems:'center',gap:10,padding:'16px',borderRadius:10,border:`0.5px solid ${COLOR_APP}55`,background:descargando===btn.k?`${COLOR_APP}22`:`${COLOR_APP}11`,color:COLOR_APP,cursor:descargando?'wait':'pointer',fontSize:13,fontWeight:500,opacity:descargando&&descargando!==btn.k?0.5:1 }} onClick={()=>handleDescargar(btn.turno,btn.k)}>
-                    <span style={{ fontSize:20 }}>{descargando===btn.k?'⏳':'⬇'}</span>
+              <div style={{ display:'grid',gridTemplateColumns:`repeat(${TURNOS_INFO.length},1fr)`,gap:16,maxWidth:600 }}>
+                {TURNOS_INFO.map(ti => (
+                  <button key={ti.key} disabled={!!descargando} style={{ display:'flex',alignItems:'center',gap:10,padding:'16px',borderRadius:10,border:`0.5px solid ${ti.color}55`,background:descargando===ti.key?`${ti.color}22`:`${ti.color}11`,color:ti.color,cursor:descargando?'wait':'pointer',fontSize:13,fontWeight:500,opacity:descargando&&descargando!==ti.key?0.5:1 }} onClick={()=>handleDescargar(ti.key,ti.key)}>
+                    <span style={{ fontSize:20 }}>{descargando===ti.key?'⏳':'⬇'}</span>
                     <div style={{ textAlign:'left' }}>
-                      <div>{btn.label}</div>
-                      <div style={{ fontSize:10,opacity:0.7,marginTop:2 }}>{descargando===btn.k?'Generando...':`${APP_LUGAR}_${btn.k.toUpperCase()}_${NOMBRE_MES}.xlsx`}</div>
+                      <div>⬇ {ti.label}</div>
+                      <div style={{ fontSize:10,opacity:0.7,marginTop:2 }}>{descargando===ti.key?'Generando...':`${APP_LUGAR}_${ti.key}_${NOMBRE_MES}.xlsx`}</div>
                     </div>
                   </button>
                 ))}
