@@ -2,17 +2,33 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
-const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR ||
-  (typeof window !== 'undefined' && window.location.hostname.includes('modular') ? 'MODULAR' :
-   typeof window !== 'undefined' && window.location.hostname.includes('upa') ? 'UPA' : 'HIGA')
-
+function _detectLugar() {
+  if (typeof window === 'undefined') return 'HIGA'
+  const h = window.location.hostname
+  if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
+  if (h === 'polad-higa-upa.vercel.app' || h.includes('polad-upa')) return 'UPA'
+  return 'HIGA'
+}
+const APP_LUGAR = _detectLugar()
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento'],
   'UPA': ['UPA'],
   'MODULAR': ['Modular']
 }
 const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
-
+const ES_MODULAR = APP_LUGAR === 'MODULAR'
+const TURNOS_LUGAR = ES_MODULAR ? ['m','t','n'] : ['d','n']
+const HORAS_TURNO = ES_MODULAR ? 8 : 12
+const TURNOS_INFO = ES_MODULAR
+  ? [
+      {key:'m',label:'Mañana 08-16',color:'#EF9F27',bg:'rgba(239,159,39,0.15)'},
+      {key:'t',label:'Tarde 16-24', color:'#AFA9EC',bg:'rgba(127,119,221,0.15)'},
+      {key:'n',label:'Noche 00-08', color:'#85B7EB',bg:'rgba(55,138,221,0.15)'},
+    ]
+  : [
+      {key:'d',label:'Día 08-20',   color:'#EF9F27',bg:'rgba(239,159,39,0.15)'},
+      {key:'n',label:'Noche 20-08', color:'#85B7EB',bg:'rgba(55,138,221,0.15)'},
+    ]
 const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves': '#EF9F27', 'Guardia': '#D4537E', 'Estacionamiento': '#7F77DD', 'UPA': '#D85A30', 'Modular': '#20A0B0' }
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
@@ -284,7 +300,7 @@ export default function AdminApp() {
     ;(turns || []).forEach(t => {
       if (!turnosMap[t.legajo]) turnosMap[t.legajo] = []
       turnosMap[t.legajo].push(t)
-      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + 12
+      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + HORAS_TURNO
     })
     setTurnos(turnosMap)
     setHorasAsig(hsMap)
@@ -303,14 +319,14 @@ export default function AdminApp() {
     const pool = efectivos.map(e => ({ ...e, hs: 0, maxHs: e.tipo === 'Uniformado' ? maxU : maxG }))
     const nuevos = []
     for (let dia = 1; dia <= DIAS_MES; dia++) {
-      for (const turno of ['d', 'n']) {
+      for (const turno of TURNOS_LUGAR) {
         for (const sector of SECTORES_APP) {
           const candidatos = pool.filter(e => {
             const diaEntry = (disponibilidad[e.legajo] || {})[dia]
             const avail = diaEntry ? (diaEntry.turno || '') : ''
-            return ((turno === 'd' && (avail === 'd' || avail === 'dn')) || (turno === 'n' && (avail === 'n' || avail === 'dn'))) && e.hs < e.maxHs
+            return avail && avail.includes(turno) && e.hs < e.maxHs
           }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, 2).forEach(e => { e.hs += 12; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
+          candidatos.slice(0, 2).forEach(e => { e.hs += HORAS_TURNO; nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector }) })
         }
       }
     }
