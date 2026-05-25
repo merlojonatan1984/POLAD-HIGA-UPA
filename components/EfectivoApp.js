@@ -124,12 +124,28 @@ export default function EfectivoApp() {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    (window.location.hostname.includes('modular') ? 'MODULAR' : window.location.hostname.includes('upa') ? 'UPA' : 'HIGA')
+
+    const lugar = window.location.hostname.includes('modular') ? 'MODULAR'
+      : window.location.hostname.includes('upa') ? 'UPA' : 'HIGA'
+
+    await supabase.from('disponibilidad').delete()
+      .eq('legajo', usuario.legajo)
+      .eq('mes', mes)
+      .eq('anio', anio)
+      .eq('lugar', lugar)
+
     const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
-     await supabase.from('disponibilidad').delete().eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', (window.location.hostname.includes('modular') ? 'MODULAR' : window.location.hostname.includes('upa') ? 'UPA' : 'HIGA'))
+      legajo: usuario.legajo,
+      dia: parseInt(dia),
+      turno,
+      mes,
+      anio,
+      lugar
     }))
+
     if (inserts.length > 0) await supabase.from('disponibilidad').insert(inserts)
-    setMsg('✓ Disponibilidad guardada para ' + APP_LUGAR)
+
+    setMsg('✓ Disponibilidad guardada para ' + lugar)
     setTimeout(() => setMsg(null), 3000)
     setGuardando(false)
   }
