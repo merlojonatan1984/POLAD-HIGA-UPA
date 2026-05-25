@@ -143,7 +143,8 @@ export default function EfectivoApp() {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    const lugar = appLugar
+    const h = window.location.hostname
+    const lugar = h.includes('polad-modular') ? 'MODULAR' : h.includes('polad-upa') ? 'UPA' : 'HIGA'
 
     await supabase.from('disponibilidad').delete()
       .eq('legajo', usuario.legajo)
