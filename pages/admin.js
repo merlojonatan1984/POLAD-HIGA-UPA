@@ -3,12 +3,15 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 function _detectLugar() {
+  // Intentar leer variable de entorno (inlineada por Next.js en build time)
+  try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA','UPA','MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch(e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
   if (h === 'polad-higa-upa.vercel.app' || h.includes('polad-upa')) return 'UPA'
   return 'HIGA'
 }
+// APP_LUGAR se recalcula en cliente via useEffect — ver hook useLugar en AdminApp
 const APP_LUGAR = _detectLugar()
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento'],
@@ -262,35 +265,42 @@ export default function AdminApp() {
   const [efDisponibles, setEfDisponibles] = useState([])
   const [asignando, setAsignando] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
 
   useEffect(() => {
+    // Redetectar lugar en el cliente para asegurar valor correcto
+    const lugar = _detectLugar()
+    setLugarDetectado(lugar)
     setMounted(true)
     const u = localStorage.getItem('polad_user')
     if (!u) { router.push('/'); return }
     const parsed = JSON.parse(u)
     if (!parsed.es_admin) { router.push('/efectivo'); return }
-    cargarTodo()
-    const v = localStorage.getItem(`polad_ventanas_${APP_LUGAR}`)
+    const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
+    // Cargar datos con el lugar detectado en cliente
+    setTimeout(() => cargarTodo(lugar), 0)
   }, [])
 
-  useEffect(() => { if (mounted) cargarTodo() }, [mesSeleccionado, anioSeleccionado])
+  useEffect(() => { if (mounted) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
 
   useEffect(() => {
     if (!mounted) return
     async function cargarDispDia() {
-      const { data } = await supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', filtroDia).eq('lugar', APP_LUGAR)
+      const { data } = await supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', filtroDia).eq('lugar', lugarDetectado)
       setDispDelDia({ dia: filtroDia, data: data || [] })
     }
     cargarDispDia()
   }, [filtroDia, mesSeleccionado, anioSeleccionado, mounted])
 
-  async function cargarTodo() {
+  async function cargarTodo(lugar) {
+    const L = lugar || lugarDetectado || APP_LUGAR
+    const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     setLoading(true)
     const [{ data: efs }, { data: disp }, { data: turns }] = await Promise.all([
-      supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', APP_LUGAR).order('nombre'),
-      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR),
-      supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
+      supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', L).order('nombre'),
+      supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
+      supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
     ])
     setEfectivos(efs || [])
     const dispMap = {}
@@ -341,7 +351,7 @@ export default function AdminApp() {
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno) {
     setAsignando(true)
     const [{ data: dispData }, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
-      supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR),
+      supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP),
       supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
     ])
@@ -400,7 +410,7 @@ export default function AdminApp() {
 
   async function descargarPlanilla(turno) {
     try {
-      const url = `/api/generar-planilla?lugar=${APP_LUGAR}&turno=${turno}&mes=${MES}&anio=${ANIO}`
+      const url = `/api/generar-planilla?lugar=${lugarDetectado}&turno=${turno}&mes=${MES}&anio=${ANIO}`
       const res = await fetch(url)
       if (!res.ok) throw new Error('Error al generar')
       const blob = await res.blob(); const a = document.createElement('a')
@@ -439,9 +449,9 @@ export default function AdminApp() {
   async function cargarPlanillaEf(ef) {
     setCargandoPlanilla(true)
     const [{ data: manual }, { data: firmasData }, { data: asist }] = await Promise.all([
-      supabase.from('planilla_manual').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR),
+      supabase.from('planilla_manual').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado),
       supabase.from('firmas').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO),
-      supabase.from('asistencia').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR)
+      supabase.from('asistencia').select('*').eq('legajo', ef.legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado)
     ])
     const manualMap = {}
     ;(manual || []).forEach(m => { manualMap[`${m.dia}-${m.horario}`] = m })
@@ -493,8 +503,8 @@ export default function AdminApp() {
       return
     }
     if (existe) await supabase.from('planilla_manual').update({ horas: parseInt(horas), sector }).eq('id', existe.id)
-    else await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: APP_LUGAR }])
-    const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR)
+    else await supabase.from('planilla_manual').insert([{ legajo, mes: MES, anio: ANIO, dia: parseInt(dia), horario, horas: parseInt(horas), sector: sector || '', lugar: lugarDetectado }])
+    const { data: fresh } = await supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado)
     const newMap = {}; ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m }); setPlanillaManual(newMap)
   }
 
@@ -607,7 +617,7 @@ export default function AdminApp() {
         <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:12 }}>
           <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)',display:'flex',alignItems:'center',gap:6 }}
             onClick={async () => {
-              const url = `/api/resumen-guardias?mes=${MES}&anio=${ANIO}&lugar=${APP_LUGAR}`
+              const url = `/api/resumen-guardias?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
               const res = await fetch(url); if (!res.ok) { alert('Error'); return }
               const blob = await res.blob(); const a = document.createElement('a')
               a.href = URL.createObjectURL(blob); a.download = `Resumen_${APP_LUGAR}_${NOMBRE_MES.replace(' ','_')}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
@@ -959,7 +969,7 @@ export default function AdminApp() {
                       <div style={{ padding:'8px 12px',borderTop:'0.5px solid var(--border)' }}>
                         <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
                           onClick={async () => {
-                            const { data } = await supabase.from('disponibilidad').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',APP_LUGAR)
+                            const { data } = await supabase.from('disponibilidad').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',lugarDetectado)
                             const legajos = new Set((data||[]).map(d=>d.legajo))
                             setEfDisponibles(efectivos.filter(e=>legajos.has(e.legajo)))
                             setModalAsignar({ legajo:'', cantidad:'', tipoTurno:TURNOS_LUGAR[0] })
@@ -1053,15 +1063,15 @@ export default function AdminApp() {
                       onClick={async () => {
                         try {
                           if (!window.JSZip) { await new Promise((res,rej) => { const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
-                          const { data: asist } = await supabase.from('asistencia').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',APP_LUGAR)
-                          if (!asist||asist.length===0) { alert('No hay asistencias confirmadas para ' + APP_LUGAR); return }
+                          const { data: asist } = await supabase.from('asistencia').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',lugarDetectado)
+                          if (!asist||asist.length===0) { alert('No hay asistencias confirmadas para ' + lugarDetectado); return }
                           const legajosConAsist = [...new Set(asist.map(a=>a.legajo))]
                           const efConAsist = efectivos.filter(e=>legajosConAsist.includes(e.legajo))
                           if (efConAsist.length===0) { alert('No hay efectivos con asistencia confirmada'); return }
                           const zip = new window.JSZip(); const carpeta = zip.folder('Planillas_'+NOMBRE_MES.replace(' ','_')); let generadas = 0
                           for (const ef of efConAsist) {
                             try {
-                              const url = '/api/planilla-efectivo?legajo='+ef.legajo+'&mes='+MES+'&anio='+ANIO+'&lugar='+APP_LUGAR
+                              const url = '/api/planilla-efectivo?legajo='+ef.legajo+'&mes='+MES+'&anio='+ANIO+'&lugar='+lugarDetectado
                               const resp = await fetch(url); if (!resp.ok) continue
                               const blob = await resp.blob(); const arrBuf = await blob.arrayBuffer()
                               carpeta.file(ef.nombre.replace(/,/g,'').replace(/\s+/g,'_').substring(0,25)+'_'+ef.legajo+'.xlsx', arrBuf); generadas++
@@ -1111,7 +1121,7 @@ export default function AdminApp() {
                       </div>
                       <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
                         onClick={async () => {
-                          const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${APP_LUGAR}`
+                          const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
                           const res = await fetch(url); if (!res.ok) { alert('Error'); return }
                           const blob = await res.blob(); const a = document.createElement('a')
                           a.href = URL.createObjectURL(blob); a.download = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
