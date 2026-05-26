@@ -3,12 +3,11 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 function _detectLugar() {
-  // Intentar leer variable de entorno (inlineada por Next.js en build time)
   try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA','UPA','MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch(e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
-  if (h === 'polad-higa-upa.vercel.app' || h.includes('polad-upa')) return 'UPA'
+  if (h === 'polad-higa-upa.vercel.app') return 'UPA'
   return 'HIGA'
 }
 // APP_LUGAR se recalcula en cliente via useEffect — ver hook useLugar en AdminApp
