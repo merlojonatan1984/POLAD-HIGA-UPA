@@ -6,7 +6,7 @@ function _detectLugar() {
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
-  if (h === 'polad-higa-upa.vercel.app' || h.includes('polad-upa')) return 'UPA'
+  if (h === 'polad-higa-upa.vercel.app') return 'UPA'
   return 'HIGA'
 }
 const APP_LUGAR = _detectLugar()
