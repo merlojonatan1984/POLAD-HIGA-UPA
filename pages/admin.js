@@ -354,57 +354,125 @@ export default function AdminApp() {
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP),
       supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
     ])
+
     const ocupacion = {}
     ;(turnosTodos || []).forEach(t => { const k = t.dia + '-' + t.turno + '-' + t.sector; ocupacion[k] = (ocupacion[k] || 0) + 1 })
 
-    // Construir sets de ya asignados por turno
+    // Sets de ya asignados por turno para este efectivo
     const yaAsignadosPorTurno = {}
     TURNOS_LUGAR.forEach(tk => { yaAsignadosPorTurno[tk] = new Set((turnosEfData || []).filter(t => t.turno === tk).map(t => parseInt(t.dia))) })
 
-    const diasDisp = [...new Set((dispData || []).filter(d => {
-      const diaNum = parseInt(d.dia)
-      if (TURNOS_LUGAR.includes(tipoTurno)) return d.turno && d.turno.includes(tipoTurno) && !(yaAsignadosPorTurno[tipoTurno]||new Set()).has(diaNum)
-      if (tipoTurno === 'mixto' || tipoTurno === 'dn') return d.turno !== '' && TURNOS_LUGAR.some(tk => !(yaAsignadosPorTurno[tk]||new Set()).has(diaNum))
-      if (tipoTurno === 'doble') return d.turno && TURNOS_LUGAR.every(tk => d.turno.includes(tk) && !(yaAsignadosPorTurno[tk]||new Set()).has(diaNum))
-      return false
-    }).map(d => parseInt(d.dia)))]
+    // Todos los dias ya asignados (para calcular descanso)
+    const todosLosAsignados = new Set((turnosEfData || []).map(t => parseInt(t.dia)))
 
-    if (diasDisp.length === 0) { alert('Sin días disponibles para asignar.'); setAsignando(false); return }
-    const diasSeleccionados = [...diasDisp].sort(() => Math.random() - 0.5).slice(0, Math.min(cantidad, diasDisp.length))
+    // Disponibilidad del efectivo: solo dias que cargo como disponibles
+    const dispMap = {}
+    ;(dispData || []).forEach(d => { dispMap[parseInt(d.dia)] = d.turno })
+
+    // Filtrar dias disponibles segun tipo de turno solicitado
+    const diasCandidatos = Object.entries(dispMap)
+      .map(([dia, turno]) => ({ dia: parseInt(dia), turno }))
+      .filter(({ dia, turno }) => {
+        // Respetar descanso: no asignar si el dia anterior o siguiente ya tiene guardia
+        if (todosLosAsignados.has(dia - 1) || todosLosAsignados.has(dia + 1)) return false
+        // Filtrar segun tipo de turno
+        if (TURNOS_LUGAR.includes(tipoTurno)) return turno && turno.includes(tipoTurno) && !(yaAsignadosPorTurno[tipoTurno]||new Set()).has(dia)
+        if (tipoTurno === 'mixto' || tipoTurno === 'dn') return turno !== '' && TURNOS_LUGAR.some(tk => !(yaAsignadosPorTurno[tk]||new Set()).has(dia))
+        if (tipoTurno === 'doble') return turno && TURNOS_LUGAR.every(tk => turno.includes(tk)) && TURNOS_LUGAR.every(tk => !(yaAsignadosPorTurno[tk]||new Set()).has(dia))
+        return false
+      })
+
+    // Contar cuantos turnos disponibles tiene cada dia (para priorizar dias con mas cobertura)
+    // y cuantos efectivos totales estan disponibles ese dia (para priorizar dias escasos)
+    const dispTotalesPorDia = {}
+    ;(turnosTodos || []).forEach(t => {
+      if (!dispTotalesPorDia[t.dia]) dispTotalesPorDia[t.dia] = new Set()
+      dispTotalesPorDia[t.dia].add(t.legajo)
+    })
+
+    // Ordenar candidatos: primero los dias con mas turnos disponibles (eficiencia),
+    // luego los dias con menos efectivos ya asignados (cobertura escasa primero)
+    diasCandidatos.sort((a, b) => {
+      const turnosA = a.turno ? a.turno.length : 0
+      const turnosB = b.turno ? b.turno.length : 0
+      if (turnosB !== turnosA) return turnosB - turnosA // mas turnos primero
+      const asigA = dispTotalesPorDia[a.dia]?.size || 0
+      const asigB = dispTotalesPorDia[b.dia]?.size || 0
+      return asigA - asigB // dias con menos asignados primero
+    })
+
+    if (diasCandidatos.length === 0) {
+      alert(`Sin días disponibles para asignar a este efectivo en ${lugarDetectado}.`)
+      setAsignando(false)
+      return
+    }
+
+    // Seleccionar dias hasta cubrir la cantidad pedida
+    const diasSeleccionados = diasCandidatos.slice(0, Math.min(cantidad, diasCandidatos.length))
+
     const nuevos = []
-
-    for (const dia of diasSeleccionados) {
+    for (const { dia, turno: dispTurno } of diasSeleccionados) {
       if (tipoTurno === 'doble' || tipoTurno === 'mixto') {
+        // Asignar todos los turnos disponibles del efectivo ese dia
         TURNOS_LUGAR.forEach(tk => {
+          if (!dispTurno.includes(tk)) return
           const ya = yaAsignadosPorTurno[tk] || new Set()
-          if (!ya.has(dia)) {
-            const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tk+'-'+s] || 0) < MAX_POR_SLOT)
-            if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s }); ocupacion[dia+'-'+tk+'-'+s]=(ocupacion[dia+'-'+tk+'-'+s]||0)+1; ya.add(dia) }
+          if (ya.has(dia)) return
+          const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tk+'-'+s] || 0) < MAX_POR_SLOT)
+          if (s) {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+            ocupacion[dia+'-'+tk+'-'+s] = (ocupacion[dia+'-'+tk+'-'+s] || 0) + 1
+            ya.add(dia)
+            todosLosAsignados.add(dia)
           }
         })
-      } else if (tipoTurno === 'dn') {
-        const counts = TURNOS_LUGAR.map(tk => nuevos.filter(n=>n.turno===tk).length)
+      } else if (tipoTurno === 'dn' || tipoTurno === 'mixto') {
+        const counts = TURNOS_LUGAR.map(tk => nuevos.filter(n => n.turno === tk).length)
         const t = TURNOS_LUGAR[counts.indexOf(Math.min(...counts))]
         const ya = yaAsignadosPorTurno[t] || new Set()
         if (!ya.has(dia)) {
           const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+t+'-'+s] || 0) < MAX_POR_SLOT)
-          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: t, sector: s }); ocupacion[dia+'-'+t+'-'+s]=(ocupacion[dia+'-'+t+'-'+s]||0)+1; ya.add(dia) }
+          if (s) {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: t, sector: s })
+            ocupacion[dia+'-'+t+'-'+s] = (ocupacion[dia+'-'+t+'-'+s] || 0) + 1
+            ya.add(dia)
+            todosLosAsignados.add(dia)
+          }
         }
       } else {
         const ya = yaAsignadosPorTurno[tipoTurno] || new Set()
         if (!ya.has(dia)) {
           const s = SECTORES_APP.find(s => (ocupacion[dia+'-'+tipoTurno+'-'+s] || 0) < MAX_POR_SLOT)
-          if (s) { nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector: s }); ocupacion[dia+'-'+tipoTurno+'-'+s]=(ocupacion[dia+'-'+tipoTurno+'-'+s]||0)+1; ya.add(dia) }
+          if (s) {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tipoTurno, sector: s })
+            ocupacion[dia+'-'+tipoTurno+'-'+s] = (ocupacion[dia+'-'+tipoTurno+'-'+s] || 0) + 1
+            ya.add(dia)
+            todosLosAsignados.add(dia)
+          }
         }
       }
     }
 
-    if (nuevos.length === 0) { alert('No hay sectores disponibles.'); setAsignando(false); return }
-    for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
-    setModalAsignar(null); setAsignando(false)
-    await cargarTodo()
-    const nombre = efectivos.find(e=>e.legajo===legajo)?.nombre?.split(',')[0] || legajo
-    alert(`✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`)
+    // Insertar en Supabase
+    if (nuevos.length > 0) {
+      for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+    }
+
+    setModalAsignar(null)
+    setAsignando(false)
+    await cargarTodo(lugarDetectado)
+
+    const nombre = efectivos.find(e => e.legajo === legajo)?.nombre?.split(',')[0] || legajo
+    const asignadas = nuevos.length
+
+    // Mensaje honesto con el numero real
+    if (asignadas === 0) {
+      alert(`✗ No se pudo asignar ninguna guardia a ${nombre}.\nVerificá que tenga disponibilidad sin guardias adyacentes.`)
+    } else if (asignadas < cantidad) {
+      alert(`⚠ Se asignaron ${asignadas} de ${cantidad} guardias a ${nombre}.\nNo había disponibilidad suficiente para el resto.`)
+    } else {
+      alert(`✓ Se asignaron ${asignadas} guardias a ${nombre}.`)
+    }
   }
 
   async function descargarPlanilla(turno) {
