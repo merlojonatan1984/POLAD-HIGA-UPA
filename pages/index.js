@@ -26,22 +26,22 @@ export default function Login() {
     setLoading(true)
     try {
       const lugar = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
-let { data, error: err } = await supabase
-  .from('efectivos')
-  .select('*')
-  .eq('legajo', legajo.trim())
-  .eq('es_admin', true)
-  .maybeSingle()
-if (!data) {
-  const res = await supabase
-    .from('efectivos')
-    .select('*')
-    .eq('legajo', legajo.trim())
-    .eq('lugar', lugar)
-    .maybeSingle()
-  data = res.data
-  err = res.error
-}
+      let { data, error: err } = await supabase
+        .from('efectivos')
+        .select('*')
+        .eq('legajo', legajo.trim())
+        .eq('es_admin', true)
+        .maybeSingle()
+      if (!data) {
+        const res = await supabase
+          .from('efectivos')
+          .select('*')
+          .eq('legajo', legajo.trim())
+          .eq('lugar', lugar)
+          .maybeSingle()
+        data = res.data
+        err = res.error
+      }
 
       if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
 
@@ -87,12 +87,6 @@ if (!data) {
 
         {/* Contenido */}
         <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-
-          <img
-            src="/logo.png"
-            alt="Logo PDS"
-            style={{ width: 180, height: 200, objectFit: 'contain', marginBottom: 16 }}
-          />
 
           <h1 style={{ fontFamily: "'Cinzel', serif", fontSize: 24, fontWeight: 700, color: '#e8eaf0', marginBottom: 6, letterSpacing: '0.06em', textAlign: 'center' }}>
             POLAD · {config.label}
