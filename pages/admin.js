@@ -26,7 +26,7 @@ const TURNOS_INFO = ES_MODULAR
   ? [
       { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
       { key: 't', label: 'Tarde 16-24',  color: '#AFA9EC', bg: 'rgba(127,119,221,0.15)', horario: '16:00 a 24:00' },
-      { key: 'n', label: 'Noche 23:59-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '23:59 a 08:00' },
+      { key: 'n', label: 'Noche 00-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '00:00 a 08:00' },
     ]
   : [
       { key: 'd', label: 'Día 08-20',    color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 20:00' },
@@ -277,6 +277,14 @@ export default function AdminApp() {
     if (!parsed.es_admin) { router.push('/efectivo'); return }
     const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
+    // Cargar ventana desde Supabase
+    const now = new Date()
+    const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle()
+    if (cfg) {
+      const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' }
+      setVentanas(v2)
+      localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
+    }
     // Cargar datos con el lugar detectado en cliente
     setTimeout(() => cargarTodo(lugar), 0)
   }, [])
@@ -1024,7 +1032,17 @@ export default function AdminApp() {
                     </div>
                     <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>{ventanas.dia?`Inscripción el día ${ventanas.dia} de ${NOMBRE_MES_SOLO} de ${ventanas.horaInicio} a ${ventanas.horaFin}`:'Sin ventana — inscripción bloqueada'}</div>
                   </div>
-                  <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => { localStorage.setItem(`polad_ventanas_${APP_LUGAR}`, JSON.stringify(ventanas)); setVentanasGuardadas(true); setTimeout(()=>setVentanasGuardadas(false),2500) }}>Guardar configuración</button>
+                  <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={async () => {
+                    const L = lugarDetectado
+                    const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).eq('mes', MES).eq('anio', ANIO).maybeSingle()
+                    if (existing) {
+                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }).eq('id', existing.id)
+                    } else {
+                      await supabase.from('configuracion').insert([{ lugar: L, mes: MES, anio: ANIO, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }])
+                    }
+                    localStorage.setItem(`polad_ventanas_${L}`, JSON.stringify(ventanas))
+                    setVentanasGuardadas(true); setTimeout(()=>setVentanasGuardadas(false),2500)
+                  }}>Guardar configuración</button>
                   {ventanasGuardadas && <div className="alert alert-ok" style={{ marginTop:10,textAlign:'center' }}>Configuración guardada.</div>}
                 </div>
               </div>
