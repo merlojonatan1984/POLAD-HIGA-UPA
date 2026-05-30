@@ -279,12 +279,13 @@ export default function AdminApp() {
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
     // Cargar ventana desde Supabase
     const now = new Date()
-    const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle()
-    if (cfg) {
-      const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' }
-      setVentanas(v2)
-      localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
-    }
+    supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle().then(({ data: cfg }) => {
+      if (cfg) {
+        const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' }
+        setVentanas(v2)
+        localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
+      }
+    })
     // Cargar datos con el lugar detectado en cliente
     setTimeout(() => cargarTodo(lugar), 0)
   }, [])
