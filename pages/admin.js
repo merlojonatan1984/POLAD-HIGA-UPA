@@ -330,46 +330,62 @@ export default function AdminApp() {
 
   async function generarTurnos() {
     setGenerando(true); setMsgGen(null)
-    await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
-    // Pool sin tope de horas — el único límite es la disponibilidad cargada por el efectivo
+    const L = lugarDetectado
+    const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+    const esMod = L === 'MODULAR'
+    const turnosLugar = esMod ? ['m','t','n'] : ['d','n']
+    const horasTurno = esMod ? 8 : 12
+    const maxSlot = esMod ? 2 : 2
+
+    // Leer disponibilidad FRESCA desde Supabase
+    const { data: dispFresh } = await supabase.from('disponibilidad')
+      .select('legajo, dia, turno')
+      .eq('mes', MES).eq('anio', ANIO).eq('lugar', L)
+
+    // Construir mapa de disponibilidad
+    const dispMap = {}
+    ;(dispFresh || []).forEach(d => {
+      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
+      dispMap[d.legajo][d.dia] = d.turno
+    })
+
+    await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+
     const pool = efectivos.map(e => ({ ...e, hs: 0 }))
     const nuevos = []
 
     // Ordenar días por cantidad de candidatos disponibles (días difíciles primero)
     const diasOrdenados = Array.from({ length: DIAS_MES }, (_, i) => i + 1).sort((a, b) => {
       const candA = pool.filter(e => {
-        const d = (disponibilidad[e.legajo] || {})[a]
-        const avail = d ? (d.turno || '') : ''
-        return avail && TURNOS_LUGAR.some(t => avail.includes(t))
+        const avail = (dispMap[e.legajo] || {})[a] || ''
+        return turnosLugar.some(t => avail.includes(t))
       }).length
       const candB = pool.filter(e => {
-        const d = (disponibilidad[e.legajo] || {})[b]
-        const avail = d ? (d.turno || '') : ''
-        return avail && TURNOS_LUGAR.some(t => avail.includes(t))
+        const avail = (dispMap[e.legajo] || {})[b] || ''
+        return turnosLugar.some(t => avail.includes(t))
       }).length
-      return candA - candB // días con menos candidatos primero
+      return candA - candB
     })
 
     for (const dia of diasOrdenados) {
-      for (const turno of TURNOS_LUGAR) {
-        for (const sector of SECTORES_APP) {
+      for (const turno of turnosLugar) {
+        for (const sector of sectores) {
           const candidatos = pool.filter(e => {
-            const diaEntry = (disponibilidad[e.legajo] || {})[dia]
-            const avail = diaEntry ? (diaEntry.turno || '') : ''
-            // Solo asignar si el efectivo marcó disponibilidad para este turno
+            const avail = (dispMap[e.legajo] || {})[dia] || ''
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
-            return avail && avail.includes(turno) && !yaAsignado
-          }).sort((a, b) => a.hs - b.hs) // priorizar los que tienen menos horas asignadas
-          candidatos.slice(0, MAX_POR_SLOT).forEach(e => {
-            e.hs += HORAS_TURNO
+            return avail.includes(turno) && !yaAsignado
+          }).sort((a, b) => a.hs - b.hs)
+          candidatos.slice(0, maxSlot).forEach(e => {
+            e.hs += horasTurno
             nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
           })
         }
       }
     }
+
     for (let i = 0; i < nuevos.length; i += 500) await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
     setMsgGen(`Se generaron ${nuevos.length} asignaciones.`)
-    await cargarTodo(); setGenerando(false)
+    await cargarTodo(L); setGenerando(false)
   }
 
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno) {
