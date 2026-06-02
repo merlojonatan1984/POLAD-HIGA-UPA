@@ -56,11 +56,15 @@ export default function EfectivoApp() {
   const [turnos, setTurnos] = useState([])
   const [loading, setLoading] = useState(true)
   const [appLugar, setAppLugar] = useState('HIGA')
+  const [isMobile, setIsMobile] = useState(false)
 
-  // Detectar lugar en el cliente (evita problema SSR)
   useEffect(() => {
     const lugar = detectLugar()
     setAppLugar(lugar)
+    const checkMobile = () => setIsMobile(window.innerWidth < 600)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
   const ES_MODULAR = appLugar === 'MODULAR'
@@ -89,8 +93,15 @@ export default function EfectivoApp() {
 
   async function cargarDatos(legajo, m, a, lugar) {
     setLoading(true)
-    const ventanasStr = localStorage.getItem(`polad_ventanas_${lugar}`)
-    if (ventanasStr) { try { setVentana(JSON.parse(ventanasStr)) } catch(e) {} }
+    // Cargar ventana desde Supabase
+    const now = new Date()
+    const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle()
+    if (cfg) {
+      setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' })
+    } else {
+      const ventanasStr = localStorage.getItem(`polad_ventanas_${lugar}`)
+      if (ventanasStr) { try { setVentana(JSON.parse(ventanasStr)) } catch(e) {} }
+    }
     const sectores = SECTORES_POR_LUGAR[lugar] || SECTORES_POR_LUGAR['HIGA']
     const [{ data: disp }, { data: turns }] = await Promise.all([
       supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', m).eq('anio', a).eq('lugar', lugar),
@@ -147,18 +158,10 @@ export default function EfectivoApp() {
     const lugar = h.includes('polad-modular') ? 'MODULAR' : h === 'polad-higa-upa.vercel.app' ? 'UPA' : 'HIGA'
 
     await supabase.from('disponibilidad').delete()
-      .eq('legajo', usuario.legajo)
-      .eq('mes', mes)
-      .eq('anio', anio)
-      .eq('lugar', lugar)
+      .eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', lugar)
 
     const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
-      legajo: usuario.legajo,
-      dia: parseInt(dia),
-      turno,
-      mes,
-      anio,
-      lugar
+      legajo: usuario.legajo, dia: parseInt(dia), turno, mes, anio, lugar
     }))
 
     if (inserts.length > 0) await supabase.from('disponibilidad').insert(inserts)
@@ -190,21 +193,30 @@ export default function EfectivoApp() {
 
   if (loading) return <div className="loading">Cargando...</div>
 
+  // Tamaños adaptativos
+  const cellPad = isMobile ? '5px 3px 4px' : '8px 10px 4px'
+  const btnPad = isMobile ? '8px 0' : '9px 0'
+  const btnFont = isMobile ? 13 : 14
+  const dayFont = isMobile ? 15 : 18
+  const gapCal = isMobile ? 3 : 5
+
   return (
     <div>
       {/* TOPBAR */}
-      <div className="topbar">
-        <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-          <span style={{ fontSize:14,fontWeight:500 }}>{usuario?.nombre?.split(',')[0]}</span>
-          <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {usuario?.legajo}</span>
-          <span style={{ background:`${COLOR_APP}22`,color:COLOR_APP,fontSize:11,padding:'2px 8px',borderRadius:3,fontWeight:600,border:`0.5px solid ${COLOR_APP}66` }}>{appLugar}</span>
+      <div className="topbar" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 6 : 10, padding: isMobile ? '8px 12px' : undefined }}>
+        <div style={{ display:'flex', alignItems:'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: isMobile ? 13 : 14, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {usuario?.nombre?.split(',')[0]}
+          </span>
+          {!isMobile && <span style={{ fontSize:11, color:'var(--text-muted)' }}>Leg. {usuario?.legajo}</span>}
+          <span style={{ background:`${COLOR_APP}22`, color:COLOR_APP, fontSize:11, padding:'2px 8px', borderRadius:3, fontWeight:600, border:`0.5px solid ${COLOR_APP}66`, flexShrink:0 }}>{appLugar}</span>
         </div>
-        <div style={{ display:'flex',gap:6,alignItems:'center' }}>
-          <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
-            <select value={mes} onChange={e => { const m=parseInt(e.target.value); setMes(m); cargarDatos(usuario.legajo,m,anio,appLugar) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
-              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
+        <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,255,255,0.05)', borderRadius:6, padding:'2px 6px', border:'0.5px solid rgba(255,255,255,0.1)' }}>
+            <select value={mes} onChange={e => { const m=parseInt(e.target.value); setMes(m); cargarDatos(usuario.legajo,m,anio,appLugar) }} style={{ background:'transparent', border:'none', color:'#c8a84b', fontSize:12, fontWeight:500, outline:'none', cursor:'pointer' }}>
+              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{isMobile ? m.substring(0,3) : m}</option>)}
             </select>
-            <select value={anio} onChange={e => { const a=parseInt(e.target.value); setAnio(a); cargarDatos(usuario.legajo,mes,a,appLugar) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+            <select value={anio} onChange={e => { const a=parseInt(e.target.value); setAnio(a); cargarDatos(usuario.legajo,mes,a,appLugar) }} style={{ background:'transparent', border:'none', color:'#c8a84b', fontSize:12, fontWeight:500, outline:'none', cursor:'pointer' }}>
               {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
             </select>
           </div>
@@ -212,45 +224,47 @@ export default function EfectivoApp() {
         </div>
       </div>
 
-      <div className="content">
+      <div className="content" style={{ padding: isMobile ? '10px 8px' : undefined }}>
         {msg && <div className="alert alert-ok" style={{ marginBottom:14 }}>{msg}</div>}
 
         {!abierta && ventana?.dia && (
           <div className="alert alert-warn" style={{ marginBottom:14 }}>
-            La inscripción para {appLugar} está habilitada el día {ventana.dia} de {MESES_NOMBRES[mes-1]} de {ventana.horaInicio} a {ventana.horaFin}.
+            La inscripción está habilitada el día {ventana.dia} de {MESES_NOMBRES[mes-1]} de {ventana.horaInicio} a {ventana.horaFin}.
           </div>
         )}
 
-        <div style={{ marginBottom:16 }}>
-          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16,flexWrap:'wrap',gap:12 }}>
+        {/* Título + leyenda de turnos */}
+        <div style={{ marginBottom: isMobile ? 10 : 16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems: isMobile ? 'flex-start' : 'flex-start', marginBottom: isMobile ? 10 : 16, flexWrap:'wrap', gap:8 }}>
             <div>
-              <div style={{ fontSize:18,fontWeight:500,color:'#ffffff',marginBottom:4 }}>
+              <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:500, color:'#ffffff', marginBottom:2 }}>
                 Disponibilidad — {appLugar} · {nombreMes}
               </div>
-              <div style={{ fontSize:13,color:'var(--text-muted)' }}>
-                Tocá los turnos en los que podés hacer guardia
-              </div>
+              {!isMobile && <div style={{ fontSize:13, color:'var(--text-muted)' }}>Tocá los turnos en los que podés hacer guardia</div>}
             </div>
-            <div style={{ display:'flex',gap:10,flexWrap:'wrap' }}>
+            {/* Leyenda de turnos — horizontal en mobile */}
+            <div style={{ display:'flex', gap: isMobile ? 6 : 10, flexWrap:'wrap' }}>
               {TURNOS_CONFIG.map(tc => (
-                <div key={tc.key} style={{ display:'flex',alignItems:'center',gap:8,padding:'8px 14px',borderRadius:10,border:`1.5px solid ${tc.borderActivo}66`,background:`${tc.bgActivo}11` }}>
-                  <div style={{ width:32,height:32,borderRadius:7,background:tc.bgActivo,border:`2px solid ${tc.borderActivo}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,color:tc.textActivo }}>{tc.label}</div>
+                <div key={tc.key} style={{ display:'flex', alignItems:'center', gap: isMobile ? 5 : 8, padding: isMobile ? '5px 8px' : '8px 14px', borderRadius:10, border:`1.5px solid ${tc.borderActivo}66`, background:`${tc.bgActivo}11` }}>
+                  <div style={{ width: isMobile ? 24 : 32, height: isMobile ? 24 : 32, borderRadius:7, background:tc.bgActivo, border:`2px solid ${tc.borderActivo}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize: isMobile ? 12 : 15, fontWeight:700, color:tc.textActivo }}>{tc.label}</div>
                   <div>
-                    <div style={{ fontSize:13,fontWeight:500,color:tc.colorActivo }}>{tc.nombre}</div>
-                    <div style={{ fontSize:11,color:'var(--text-muted)' }}>{tc.horario}</div>
+                    <div style={{ fontSize: isMobile ? 11 : 13, fontWeight:500, color:tc.colorActivo }}>{tc.nombre}</div>
+                    {!isMobile && <div style={{ fontSize:11, color:'var(--text-muted)' }}>{tc.horario}</div>}
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4 }}>
+          {/* Cabecera días semana */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap: gapCal, marginBottom: gapCal }}>
             {DIAS_SEMANA.map(d => (
-              <div key={d} style={{ textAlign:'center',fontSize:13,fontWeight:500,color:'var(--text-muted)',padding:'8px 0',background:'rgba(255,255,255,0.04)',borderRadius:6 }}>{d}</div>
+              <div key={d} style={{ textAlign:'center', fontSize: isMobile ? 11 : 13, fontWeight:500, color:'var(--text-muted)', padding: isMobile ? '5px 0' : '8px 0', background:'rgba(255,255,255,0.04)', borderRadius:6 }}>{d}</div>
             ))}
           </div>
 
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5 }}>
+          {/* Calendario */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap: gapCal }}>
             {Array.from({ length: primerDia }).map((_,i) => <div key={`e-${i}`}></div>)}
             {Array.from({ length: diasMes }, (_, i) => i + 1).map(dia => {
               const v = disponibilidad[dia] || ''
@@ -258,12 +272,12 @@ export default function EfectivoApp() {
               const celdaStyle = getCeldaStyle(v, TURNOS_CONFIG)
 
               return (
-                <div key={dia} style={{ borderRadius:10,border:celdaStyle.border,background:celdaStyle.background,overflow:'hidden',opacity:abierta?1:0.5 }}>
-                  <div style={{ padding:'8px 10px 4px',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-                    <span style={{ fontSize:18,fontWeight:700,color:'#ffffff',lineHeight:1 }}>{dia}</span>
-                    {turnosDia.length > 0 && <span style={{ fontSize:10,color:'#1D9E75',fontWeight:700 }}>✓</span>}
+                <div key={dia} style={{ borderRadius: isMobile ? 7 : 10, border:celdaStyle.border, background:celdaStyle.background, overflow:'hidden', opacity:abierta?1:0.5 }}>
+                  <div style={{ padding: cellPad, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize: dayFont, fontWeight:700, color:'#ffffff', lineHeight:1 }}>{dia}</span>
+                    {turnosDia.length > 0 && <span style={{ fontSize: isMobile ? 9 : 10, color:'#1D9E75', fontWeight:700 }}>✓</span>}
                   </div>
-                  <div style={{ padding:'0 5px 7px',display:'flex',gap:3 }}>
+                  <div style={{ padding: isMobile ? '0 3px 5px' : '0 5px 7px', display:'flex', gap: isMobile ? 2 : 3 }}>
                     {TURNOS_CONFIG.map(tc => {
                       const activo = v.includes(tc.key)
                       return (
@@ -273,25 +287,26 @@ export default function EfectivoApp() {
                           onClick={() => abierta && toggleDia(dia, tc.key)}
                           title={`${tc.nombre} ${tc.horario}`}
                           style={{
-                            flex:1,padding:'9px 0',borderRadius:7,
+                            flex:1, padding: btnPad, borderRadius: isMobile ? 5 : 7,
                             border: activo ? `1.5px solid ${tc.borderActivo}` : '1.5px solid rgba(255,255,255,0.1)',
                             cursor: abierta ? 'pointer' : 'default',
-                            fontSize:14,fontWeight:700,
+                            fontSize: btnFont, fontWeight:700,
                             background: activo ? tc.bgActivo : 'rgba(255,255,255,0.05)',
                             color: activo ? tc.textActivo : 'rgba(255,255,255,0.2)',
-                            transition:'all 0.15s',lineHeight:1
+                            transition:'all 0.15s', lineHeight:1,
+                            minHeight: isMobile ? 32 : 36, // área táctil mínima
                           }}>
                           {tc.label}
                         </button>
                       )
                     })}
                   </div>
-                  {turnosDia.length > 0 && (
-                    <div style={{ padding:'0 5px 5px',display:'flex',gap:2,flexWrap:'wrap' }}>
+                  {turnosDia.length > 0 && !isMobile && (
+                    <div style={{ padding:'0 5px 5px', display:'flex', gap:2, flexWrap:'wrap' }}>
                       {turnosDia.map(t => {
                         const tc = TURNOS_CONFIG.find(x => x.key === t.turno)
                         return (
-                          <span key={t.turno} style={{ fontSize:9,padding:'2px 5px',borderRadius:4,background:tc?`${tc.bgActivo}33`:'rgba(29,158,117,0.2)',color:tc?tc.colorActivo:'#1D9E75',fontWeight:700 }}>
+                          <span key={t.turno} style={{ fontSize:9, padding:'2px 5px', borderRadius:4, background:tc?`${tc.bgActivo}33`:'rgba(29,158,117,0.2)', color:tc?tc.colorActivo:'#1D9E75', fontWeight:700 }}>
                             ✓ {tc?.label || t.turno}
                           </span>
                         )
@@ -304,41 +319,59 @@ export default function EfectivoApp() {
           </div>
         </div>
 
-        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,padding:'14px 18px',background:'rgba(255,255,255,0.03)',borderRadius:10,border:'0.5px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize:14,color:'var(--text-muted)' }}>
-            <span style={{ color:'#ffffff',fontWeight:700,fontSize:20 }}>{totalSeleccionados}</span>
-            <span style={{ marginLeft:6 }}>días seleccionados</span>
+        {/* Barra guardar — sticky en mobile */}
+        <div style={{
+          display:'flex', justifyContent:'space-between', alignItems:'center',
+          marginBottom: isMobile ? 0 : 24,
+          padding: isMobile ? '12px 14px' : '14px 18px',
+          background: isMobile ? 'rgba(20,22,35,0.97)' : 'rgba(255,255,255,0.03)',
+          borderRadius: isMobile ? 0 : 10,
+          border: isMobile ? 'none' : '0.5px solid rgba(255,255,255,0.08)',
+          borderTop: isMobile ? '0.5px solid rgba(255,255,255,0.1)' : undefined,
+          position: isMobile ? 'sticky' : 'relative',
+          bottom: isMobile ? 0 : undefined,
+          zIndex: isMobile ? 10 : undefined,
+          gap: 10,
+        }}>
+          <div style={{ fontSize: isMobile ? 13 : 14, color:'var(--text-muted)' }}>
+            <span style={{ color:'#ffffff', fontWeight:700, fontSize: isMobile ? 18 : 20 }}>{totalSeleccionados}</span>
+            <span style={{ marginLeft:6 }}>días</span>
           </div>
-          <button className="btn btn-success" disabled={guardando || !abierta} onClick={guardar} style={{ padding:'11px 26px',fontSize:14,fontWeight:500 }}>
-            {guardando ? 'Guardando...' : `Guardar disponibilidad — ${appLugar}`}
+          <button
+            className="btn btn-success"
+            disabled={guardando || !abierta}
+            onClick={guardar}
+            style={{ padding: isMobile ? '12px 20px' : '11px 26px', fontSize: isMobile ? 13 : 14, fontWeight:500, flex: isMobile ? 1 : undefined }}>
+            {guardando ? 'Guardando...' : isMobile ? `Guardar — ${appLugar}` : `Guardar disponibilidad — ${appLugar}`}
           </button>
         </div>
 
+        {/* Guardias asignadas */}
         {turnos.length > 0 && (
-          <div className="panel">
-            <div className="panel-header" style={{ background:`${COLOR_APP}18`,borderBottom:`0.5px solid ${COLOR_APP}33` }}>
-              <h3 style={{ color:COLOR_APP }}>Mis guardias asignadas — {appLugar} · {nombreMes}</h3>
-              <span style={{ fontSize:11,color:'#1D9E75',fontWeight:500 }}>Total: {totalHoras} hs</span>
+          <div className="panel" style={{ marginTop: isMobile ? 8 : 0 }}>
+            <div className="panel-header" style={{ background:`${COLOR_APP}18`, borderBottom:`0.5px solid ${COLOR_APP}33` }}>
+              <h3 style={{ color:COLOR_APP, fontSize: isMobile ? 12 : 14 }}>Mis guardias — {appLugar} · {nombreMes}</h3>
+              <span style={{ fontSize:11, color:'#1D9E75', fontWeight:500 }}>Total: {totalHoras} hs</span>
             </div>
-            <div style={{ padding:12 }}>
-              <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:8 }}>
+            <div style={{ padding: isMobile ? 8 : 12 }}>
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(auto-fill,minmax(150px,1fr))' : 'repeat(auto-fill,minmax(190px,1fr))', gap: isMobile ? 6 : 8 }}>
                 {turnos.sort((a,b) => a.dia - b.dia || 'mtdn'.indexOf(a.turno) - 'mtdn'.indexOf(b.turno)).map(t => {
                   const tc = TURNOS_CONFIG.find(x => x.key === t.turno)
                   return (
-                    <div key={`${t.dia}-${t.turno}`} style={{ display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--surface2)',borderRadius:8,border:`0.5px solid ${tc?.borderActivo || 'var(--border)'}44` }}>
-                      <div style={{ width:38,height:38,borderRadius:7,background:tc?.bgActivo||'#0d2040',border:`2px solid ${tc?.borderActivo||'#378ADD'}`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
-                        <span style={{ fontSize:15,fontWeight:700,color:tc?.textActivo||'#fff',lineHeight:1 }}>{t.dia}</span>
-                        <span style={{ fontSize:9,color:tc?.textActivo||'#fff',opacity:0.8,fontWeight:600 }}>{tc?.label||t.turno}</span>
+                    <div key={`${t.dia}-${t.turno}`} style={{ display:'flex', alignItems:'center', gap:8, padding: isMobile ? '8px 10px' : '10px 12px', background:'var(--surface2)', borderRadius:8, border:`0.5px solid ${tc?.borderActivo || 'var(--border)'}44` }}>
+                      <div style={{ width: isMobile ? 32 : 38, height: isMobile ? 32 : 38, borderRadius:7, background:tc?.bgActivo||'#0d2040', border:`2px solid ${tc?.borderActivo||'#378ADD'}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                        <span style={{ fontSize: isMobile ? 13 : 15, fontWeight:700, color:tc?.textActivo||'#fff', lineHeight:1 }}>{t.dia}</span>
+                        <span style={{ fontSize:9, color:tc?.textActivo||'#fff', opacity:0.8, fontWeight:600 }}>{tc?.label||t.turno}</span>
                       </div>
                       <div>
-                        <div style={{ fontSize:12,fontWeight:500,color:'var(--text)' }}>{turnoLabel(t.turno)}</div>
-                        <div style={{ fontSize:10,color:'var(--text-muted)',marginTop:2 }}>{t.sector} · {HORAS_POR_TURNO} hs</div>
+                        <div style={{ fontSize: isMobile ? 11 : 12, fontWeight:500, color:'var(--text)' }}>{turnoLabel(t.turno)}</div>
+                        <div style={{ fontSize: isMobile ? 9 : 10, color:'var(--text-muted)', marginTop:2 }}>{t.sector} · {HORAS_POR_TURNO} hs</div>
                       </div>
                     </div>
                   )
                 })}
               </div>
-              <div style={{ marginTop:12,paddingTop:10,borderTop:'0.5px solid var(--border)',fontSize:13,color:COLOR_APP,fontWeight:500,textAlign:'right' }}>
+              <div style={{ marginTop:10, paddingTop:8, borderTop:'0.5px solid var(--border)', fontSize: isMobile ? 12 : 13, color:COLOR_APP, fontWeight:500, textAlign:'right' }}>
                 Total: {totalHoras} hs en {appLugar}
               </div>
             </div>
