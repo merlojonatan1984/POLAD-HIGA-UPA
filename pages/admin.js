@@ -26,7 +26,7 @@ const TURNOS_INFO = ES_MODULAR
   ? [
       { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
       { key: 't', label: 'Tarde 16-24',  color: '#AFA9EC', bg: 'rgba(127,119,221,0.15)', horario: '16:00 a 24:00' },
-      { key: 'n', label: 'Noche 00-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '00:00 a 08:00' },
+      { key: 'n', label: 'Noche 23:59-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '23:59 a 08:00' },
     ]
   : [
       { key: 'd', label: 'Día 08-20',    color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 20:00' },
@@ -357,11 +357,8 @@ export default function AdminApp() {
             const diaEntry = (disponibilidad[e.legajo] || {})[dia]
             const avail = diaEntry ? (diaEntry.turno || '') : ''
             // Solo asignar si el efectivo marcó disponibilidad para este turno
-            // y no tiene guardia el día anterior ni el siguiente
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
-            const descansoPrevio = nuevos.some(n => n.legajo === e.legajo && n.dia === dia - 1)
-            const descansoSig = nuevos.some(n => n.legajo === e.legajo && n.dia === dia + 1)
-            return avail && avail.includes(turno) && !yaAsignado && !descansoPrevio && !descansoSig
+            return avail && avail.includes(turno) && !yaAsignado
           }).sort((a, b) => a.hs - b.hs) // priorizar los que tienen menos horas asignadas
           candidatos.slice(0, MAX_POR_SLOT).forEach(e => {
             e.hs += HORAS_TURNO
