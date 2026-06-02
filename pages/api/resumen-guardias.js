@@ -6,8 +6,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-const APP_LUGAR = process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
-
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 const SECTORES_POR_LUGAR = {
@@ -16,14 +14,19 @@ const SECTORES_POR_LUGAR = {
   'MODULAR': ['Modular']
 }
 
+const HORAS_POR_LUGAR = { 'HIGA': 12, 'UPA': 12, 'MODULAR': 8 }
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
-  const { mes, anio } = req.query
+  const { mes, anio, lugar } = req.query
   if (!mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
   const MES = parseInt(mes)
   const ANIO = parseInt(anio)
+  const APP_LUGAR = lugar || process.env.NEXT_PUBLIC_LUGAR || 'HIGA'
   const NOMBRE_MES = MESES[MES - 1] + ' ' + ANIO
   const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
+  const ES_MODULAR = APP_LUGAR === 'MODULAR'
+  const HORAS_TURNO = HORAS_POR_LUGAR[APP_LUGAR] || 12
 
   const [{ data: efectivos }, { data: turnos }] = await Promise.all([
     supabase.from('efectivos').select('legajo, nombre, tipo, jerarquia').eq('es_admin', false).eq('lugar', APP_LUGAR).order('nombre'),
@@ -32,10 +35,16 @@ export default async function handler(req, res) {
 
   const conteo = {}
   ;(turnos || []).forEach(t => {
-    if (!conteo[t.legajo]) conteo[t.legajo] = { total: 0, dia: 0, noche: 0 }
+    if (!conteo[t.legajo]) conteo[t.legajo] = { total: 0, t1: 0, t2: 0, t3: 0 }
     conteo[t.legajo].total++
-    if (t.turno === 'd') conteo[t.legajo].dia++
-    else conteo[t.legajo].noche++
+    if (ES_MODULAR) {
+      if (t.turno === 'm') conteo[t.legajo].t1++
+      else if (t.turno === 't') conteo[t.legajo].t2++
+      else if (t.turno === 'n') conteo[t.legajo].t3++
+    } else {
+      if (t.turno === 'd') conteo[t.legajo].t1++
+      else conteo[t.legajo].t2++
+    }
   })
 
   const conTurnos = (efectivos || []).filter(e => (conteo[e.legajo]?.total || 0) > 0)
@@ -53,37 +62,42 @@ export default async function handler(req, res) {
   const RED = 'FF8b4040'
 
   const wb = new ExcelJS.Workbook()
-
   const b = (s = 'thin') => ({ top: { style: s }, bottom: { style: s }, left: { style: s }, right: { style: s } })
   const a = (h = 'center') => ({ horizontal: h, vertical: 'middle' })
   const f = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
 
   const ws = wb.addWorksheet(`Guardias ${APP_LUGAR}`)
   ws.pageSetup = { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0, footer: 0 } }
-  ws.getColumn(1).width = 6
-  ws.getColumn(2).width = 42
-  ws.getColumn(3).width = 12
-  ws.getColumn(4).width = 20
-  ws.getColumn(5).width = 11
-  ws.getColumn(6).width = 9
-  ws.getColumn(7).width = 9
-  ws.getColumn(8).width = 9
 
-  ws.mergeCells('A1:H1'); ws.getRow(1).height = 22
+  // Columnas según lugar
+  const headers = ES_MODULAR
+    ? ['N°', 'Apellido y Nombre', 'Legajo', 'Jerarquía', 'Guardias', 'Mañana', 'Tarde', 'Noche', 'Horas']
+    : ['N°', 'Apellido y Nombre', 'Legajo', 'Jerarquía', 'Guardias', 'Día', 'Noche', 'Horas']
+
+  const colWidths = ES_MODULAR
+    ? [6, 42, 12, 20, 11, 9, 9, 9, 9]
+    : [6, 42, 12, 20, 11, 9, 9, 9]
+
+  colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w })
+
+  const totalCols = headers.length
+  const lastCol = String.fromCharCode(64 + totalCols)
+
+  ws.mergeCells(`A1:${lastCol}1`); ws.getRow(1).height = 22
   Object.assign(ws.getCell('A1'), {
     value: `POLICIA ADICIONAL · MINISTERIO DE SEGURIDAD · MAR DEL PLATA — ${APP_LUGAR}`,
     font: { name: 'Arial', bold: true, size: 9, color: { argb: WHITE } },
     fill: f(NAVY), alignment: a(), border: b('medium')
   })
 
-  ws.mergeCells('A2:H2'); ws.getRow(2).height = 28
+  ws.mergeCells(`A2:${lastCol}2`); ws.getRow(2).height = 28
   Object.assign(ws.getCell('A2'), {
     value: `RESUMEN DE GUARDIAS DESIGNADAS — ${APP_LUGAR} — ${NOMBRE_MES.toUpperCase()}`,
     font: { name: 'Arial', bold: true, size: 13, color: { argb: NAVY } },
     fill: f('FFf5f8ff'), alignment: a(), border: b()
   })
 
-  ws.mergeCells('A3:H3'); ws.getRow(3).height = 16
+  ws.mergeCells(`A3:${lastCol}3`); ws.getRow(3).height = 16
   Object.assign(ws.getCell('A3'), {
     value: `Efectivos con guardias: ${conTurnos.length}   ·   Sin guardias: ${sinTurnos.length}`,
     font: { name: 'Arial', size: 9, color: { argb: 'FF444444' } },
@@ -91,20 +105,25 @@ export default async function handler(req, res) {
   })
 
   ws.getRow(4).height = 20
-  ;['N°', 'Apellido y Nombre', 'Legajo', 'Jerarquía', 'Guardias', 'Día', 'Noche', 'Horas'].forEach((h, i) => {
+  headers.forEach((h, i) => {
     const c = ws.getCell(4, i + 1)
     c.value = h; c.font = { name: 'Arial', bold: true, size: 9, color: { argb: WHITE } }
     c.fill = f(NAVY); c.alignment = a(i === 1 ? 'left' : 'center'); c.border = b()
   })
 
-  let totalG = 0, totalD = 0, totalN = 0
+  let totalG = 0, totalT1 = 0, totalT2 = 0, totalT3 = 0
   conTurnos.forEach((ef, idx) => {
-    const c = conteo[ef.legajo] || { total: 0, dia: 0, noche: 0 }
-    totalG += c.total; totalD += c.dia; totalN += c.noche
+    const c = conteo[ef.legajo] || { total: 0, t1: 0, t2: 0, t3: 0 }
+    totalG += c.total; totalT1 += c.t1; totalT2 += c.t2; totalT3 += c.t3
     const row = 5 + idx
     const bg = idx % 2 === 0 ? 'FFffffff' : 'FFf0f4f8'
     ws.getRow(row).height = 17
-    ;[idx + 1, ef.nombre, ef.legajo, ef.jerarquia || '—', c.total, c.dia, c.noche, c.total * 12].forEach((v, i) => {
+
+    const valores = ES_MODULAR
+      ? [idx + 1, ef.nombre, ef.legajo, ef.jerarquia || '—', c.total, c.t1, c.t2, c.t3, c.total * HORAS_TURNO]
+      : [idx + 1, ef.nombre, ef.legajo, ef.jerarquia || '—', c.total, c.t1, c.t2, c.total * HORAS_TURNO]
+
+    valores.forEach((v, i) => {
       const cell = ws.getCell(row, i + 1)
       cell.value = v; cell.fill = f(bg)
       cell.alignment = a(i === 1 ? 'left' : 'center'); cell.border = b('thin')
@@ -113,7 +132,11 @@ export default async function handler(req, res) {
   })
 
   const ft = 5 + conTurnos.length; ws.getRow(ft).height = 20
-  ;['', `TOTAL ${APP_LUGAR}`, '', '', totalG, totalD, totalN, totalG * 12].forEach((v, i) => {
+  const totales = ES_MODULAR
+    ? ['', `TOTAL ${APP_LUGAR}`, '', '', totalG, totalT1, totalT2, totalT3, totalG * HORAS_TURNO]
+    : ['', `TOTAL ${APP_LUGAR}`, '', '', totalG, totalT1, totalT2, totalG * HORAS_TURNO]
+
+  totales.forEach((v, i) => {
     const cell = ws.getCell(ft, i + 1)
     cell.value = v; cell.font = { name: 'Arial', bold: true, size: 10, color: { argb: WHITE } }
     cell.fill = f(NAVY); cell.alignment = a(i === 1 ? 'left' : 'center'); cell.border = b('medium')
