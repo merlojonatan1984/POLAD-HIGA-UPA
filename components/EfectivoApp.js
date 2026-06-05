@@ -99,7 +99,7 @@ export default function EfectivoApp() {
     const { data: cfgs } = await supabase.from('configuracion').select('*').eq('lugar', lugar).order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1)
     const cfg = cfgs && cfgs[0] ? cfgs[0] : null
     if (cfg) {
-      setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mes: cfg.mes, anio: cfg.anio })
+      setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mes: cfg.mes, anio: cfg.anio, mesApertura: cfg.mes_apertura, anioApertura: cfg.anio_apertura })
       // Fijar el mes y año al configurado por el admin
       if (cfg.mes) { setMes(cfg.mes); m = cfg.mes }
       if (cfg.anio) { setAnio(cfg.anio); a = cfg.anio }
@@ -180,10 +180,12 @@ export default function EfectivoApp() {
     if (!ventana || !ventana.dia) return true
     const ahora = new Date()
     const diaV = parseInt(ventana.dia)
+    const mesAp = ventana.mesApertura || (ahora.getMonth() + 1)
+    const anioAp = ventana.anioApertura || ahora.getFullYear()
     const [hIni, mIni] = (ventana.horaInicio || '00:00').split(':').map(Number)
     const [hFin, mFin] = (ventana.horaFin || '23:59').split(':').map(Number)
-    const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), diaV, hIni, mIni)
-    const fin = new Date(ahora.getFullYear(), ahora.getMonth(), diaV, hFin, mFin)
+    const inicio = new Date(anioAp, mesAp - 1, diaV, hIni, mIni)
+    const fin = new Date(anioAp, mesAp - 1, diaV, hFin, mFin)
     return ahora >= inicio && ahora <= fin
   }
 
