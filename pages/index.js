@@ -42,13 +42,15 @@ export default function Login() {
       const mes = now.getMonth() + 1
       const anio = now.getFullYear()
 
-      const { data: cfg } = await supabase
+      // Buscar config más reciente para este lugar (sin filtrar por mes)
+      const { data: cfgs } = await supabase
         .from('configuracion')
         .select('*')
         .eq('lugar', l)
-        .eq('mes', mes)
-        .eq('anio', anio)
-        .maybeSingle()
+        .order('anio', { ascending: false })
+        .order('mes', { ascending: false })
+        .limit(1)
+      const cfg = cfgs && cfgs[0] ? cfgs[0] : null
 
       // Si no hay configuración o no hay día seteado → bloqueado
       if (!cfg || !cfg.dia) {
@@ -57,22 +59,21 @@ export default function Login() {
         return
       }
 
-      // Verificar si hoy es el día habilitado y dentro del horario
-      const hoy = now.getDate()
-      const horaActual = now.getHours() * 60 + now.getMinutes()
+      // Verificar fecha completa de apertura: dia + mes_apertura + anio_apertura
+      const mesApertura = cfg.mes_apertura || now.getMonth() + 1
+      const anioApertura = cfg.anio_apertura || now.getFullYear()
+      const diaApertura = parseInt(cfg.dia)
 
       const [hIni, mIni] = (cfg.hora_inicio || '08:00').split(':').map(Number)
       const [hFin, mFin] = (cfg.hora_fin || '20:00').split(':').map(Number)
-      const minInicio = hIni * 60 + mIni
-      const minFin = hFin * 60 + mFin
 
-      const dentroDelDia = hoy === parseInt(cfg.dia)
-      const dentroDelHorario = horaActual >= minInicio && horaActual <= minFin
+      const inicio = new Date(anioApertura, mesApertura - 1, diaApertura, hIni, mIni)
+      const fin = new Date(anioApertura, mesApertura - 1, diaApertura, hFin, mFin)
 
-      if (!dentroDelDia || !dentroDelHorario) {
-        setBloqueado(true)
-      } else {
+      if (now >= inicio && now <= fin) {
         setBloqueado(false)
+      } else {
+        setBloqueado(true)
       }
     } catch (e) {
       // En caso de error de red → bloqueado por seguridad
