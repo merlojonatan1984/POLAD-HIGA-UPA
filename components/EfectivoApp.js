@@ -95,7 +95,9 @@ export default function EfectivoApp() {
     setLoading(true)
     // Cargar ventana desde Supabase
     const now = new Date()
-    const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle()
+    // Buscar la configuración más reciente para este lugar
+    const { data: cfgs } = await supabase.from('configuracion').select('*').eq('lugar', lugar).order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1)
+    const cfg = cfgs && cfgs[0] ? cfgs[0] : null
     if (cfg) {
       setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mes: cfg.mes, anio: cfg.anio })
       // Fijar el mes y año al configurado por el admin
