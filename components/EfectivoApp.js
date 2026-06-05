@@ -97,7 +97,10 @@ export default function EfectivoApp() {
     const now = new Date()
     const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle()
     if (cfg) {
-      setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' })
+      setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mes: cfg.mes, anio: cfg.anio })
+      // Fijar el mes y año al configurado por el admin
+      if (cfg.mes) { setMes(cfg.mes); m = cfg.mes }
+      if (cfg.anio) { setAnio(cfg.anio); a = cfg.anio }
     } else {
       const ventanasStr = localStorage.getItem(`polad_ventanas_${lugar}`)
       if (ventanasStr) { try { setVentana(JSON.parse(ventanasStr)) } catch(e) {} }
@@ -212,13 +215,11 @@ export default function EfectivoApp() {
           <span style={{ background:`${COLOR_APP}22`, color:COLOR_APP, fontSize:11, padding:'2px 8px', borderRadius:3, fontWeight:600, border:`0.5px solid ${COLOR_APP}66`, flexShrink:0 }}>{appLugar}</span>
         </div>
         <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,255,255,0.05)', borderRadius:6, padding:'2px 6px', border:'0.5px solid rgba(255,255,255,0.1)' }}>
-            <select value={mes} onChange={e => { const m=parseInt(e.target.value); setMes(m); cargarDatos(usuario.legajo,m,anio,appLugar) }} style={{ background:'transparent', border:'none', color:'#c8a84b', fontSize:12, fontWeight:500, outline:'none', cursor:'pointer' }}>
-              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{isMobile ? m.substring(0,3) : m}</option>)}
-            </select>
-            <select value={anio} onChange={e => { const a=parseInt(e.target.value); setAnio(a); cargarDatos(usuario.legajo,mes,a,appLugar) }} style={{ background:'transparent', border:'none', color:'#c8a84b', fontSize:12, fontWeight:500, outline:'none', cursor:'pointer' }}>
-              {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
-            </select>
+          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,255,255,0.05)', borderRadius:6, padding:'4px 10px', border:'0.5px solid rgba(200,168,75,0.3)' }}>
+            <span style={{ color:'#c8a84b', fontSize:12, fontWeight:600 }}>
+              {isMobile ? MESES_NOMBRES[mes-1].substring(0,3) : MESES_NOMBRES[mes-1]} {anio}
+            </span>
+            <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:2 }}>🔒</span>
           </div>
           <button className="btn btn-sm" style={{ color:'#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
