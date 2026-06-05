@@ -1068,13 +1068,13 @@ export default function AdminApp() {
                         <input type="time" value={ventanas.horaFin} onChange={e => setVentanas(prev => ({...prev,horaFin:e.target.value}))} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
                       </div>
                     </div>
-                    <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>{ventanas.dia?`Inscripción el día ${ventanas.dia} de ${NOMBRE_MES_SOLO} de ${ventanas.horaInicio} a ${ventanas.horaFin}`:'Sin ventana — inscripción bloqueada'}</div>
+                    <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>{ventanas.dia?`Inscripción el día ${ventanas.dia} de ${NOMBRE_MES_SOLO} ${ANIO} de ${ventanas.horaInicio} a ${ventanas.horaFin} — efectivos verán ${NOMBRE_MES_SOLO} ${ANIO} bloqueado`:'Sin ventana — inscripción bloqueada'}</div>
                   </div>
                   <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={async () => {
                     const L = lugarDetectado
                     const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).eq('mes', MES).eq('anio', ANIO).maybeSingle()
                     if (existing) {
-                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }).eq('id', existing.id)
+                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes: MES, anio: ANIO }).eq('id', existing.id)
                     } else {
                       await supabase.from('configuracion').insert([{ lugar: L, mes: MES, anio: ANIO, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }])
                     }
