@@ -279,7 +279,8 @@ export default function AdminApp() {
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
     // Cargar ventana desde Supabase
     const now = new Date()
-    supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle().then(({ data: cfg }) => {
+    // Buscar config solo por lugar
+    supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
       if (cfg) {
         const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
         setVentanas(v2)
@@ -1108,7 +1109,8 @@ export default function AdminApp() {
                   </div>
                   <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={async () => {
                     const L = lugarDetectado
-                    const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).eq('mes', MES).eq('anio', ANIO).maybeSingle()
+                    // Buscar por lugar únicamente — un registro por lugar
+                    const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).maybeSingle()
                     const mesV = ventanas.mesVentana || MES
                     const anioV = ventanas.anioVentana || ANIO
                     const mesAp = ventanas.mesApertura || MES
