@@ -247,7 +247,7 @@ export default function AdminApp() {
   const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroDia, setFiltroDia] = useState(1)
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
-  const [ventanas, setVentanas] = useState({ dia: '', horaInicio: '08:00', horaFin: '20:00' })
+  const [ventanas, setVentanas] = useState({ dia: '', horaInicio: '08:00', horaFin: '20:00', mesVentana: MES_ACTUAL, anioVentana: ANIO_ACTUAL })
   const [ventanasGuardadas, setVentanasGuardadas] = useState(false)
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
@@ -281,7 +281,7 @@ export default function AdminApp() {
     const now = new Date()
     supabase.from('configuracion').select('*').eq('lugar', lugar).eq('mes', now.getMonth()+1).eq('anio', now.getFullYear()).maybeSingle().then(({ data: cfg }) => {
       if (cfg) {
-        const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00' }
+        const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear() }
         setVentanas(v2)
         localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
       }
@@ -1054,9 +1054,23 @@ export default function AdminApp() {
                   </div>
                   <div style={{ marginBottom:16,background:'rgba(255,255,255,0.03)',borderRadius:8,padding:12,border:'0.5px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ fontSize:12,fontWeight:500,marginBottom:8,color:COLOR_APP }}>Ventana de inscripción — {APP_LUGAR}</div>
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8 }}>
+                      <div>
+                        <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Mes de disponibilidad</label>
+                        <select value={ventanas.mesVentana||MES_ACTUAL} onChange={e => setVentanas(prev => ({...prev,mesVentana:parseInt(e.target.value)}))} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(200,168,75,0.4)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#c8a84b',outline:'none',fontWeight:500 }}>
+                          {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Año</label>
+                        <select value={ventanas.anioVentana||ANIO_ACTUAL} onChange={e => setVentanas(prev => ({...prev,anioVentana:parseInt(e.target.value)}))} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(200,168,75,0.4)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#c8a84b',outline:'none',fontWeight:500 }}>
+                          {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
+                        </select>
+                      </div>
+                    </div>
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8 }}>
                       <div>
-                        <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Día</label>
+                        <label style={{ fontSize:11,color:'var(--text-muted)',display:'block',marginBottom:4 }}>Día de apertura</label>
                         <input type="number" min="1" max="31" placeholder="Ej: 20" value={ventanas.dia} onChange={e => setVentanas(prev => ({...prev,dia:e.target.value}))} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
                       </div>
                       <div>
@@ -1068,15 +1082,17 @@ export default function AdminApp() {
                         <input type="time" value={ventanas.horaFin} onChange={e => setVentanas(prev => ({...prev,horaFin:e.target.value}))} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }} />
                       </div>
                     </div>
-                    <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>{ventanas.dia?`Inscripción el día ${ventanas.dia} de ${NOMBRE_MES_SOLO} ${ANIO} de ${ventanas.horaInicio} a ${ventanas.horaFin} — efectivos verán ${NOMBRE_MES_SOLO} ${ANIO} bloqueado`:'Sin ventana — inscripción bloqueada'}</div>
+                    <div style={{ marginTop:8,fontSize:10,color:'var(--text-muted)' }}>{ventanas.dia?`Efectivos verán: ${MESES_NOMBRES[(ventanas.mesVentana||MES_ACTUAL)-1]} ${ventanas.anioVentana||ANIO_ACTUAL} — Apertura día ${ventanas.dia} de ${ventanas.horaInicio} a ${ventanas.horaFin}`:'Sin ventana — inscripción bloqueada'}</div>
                   </div>
                   <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={async () => {
                     const L = lugarDetectado
                     const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).eq('mes', MES).eq('anio', ANIO).maybeSingle()
+                    const mesV = ventanas.mesVentana || MES
+                    const anioV = ventanas.anioVentana || ANIO
                     if (existing) {
-                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes: MES, anio: ANIO }).eq('id', existing.id)
+                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes: mesV, anio: anioV }).eq('id', existing.id)
                     } else {
-                      await supabase.from('configuracion').insert([{ lugar: L, mes: MES, anio: ANIO, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }])
+                      await supabase.from('configuracion').insert([{ lugar: L, mes: mesV, anio: anioV, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin }])
                     }
                     localStorage.setItem(`polad_ventanas_${L}`, JSON.stringify(ventanas))
                     setVentanasGuardadas(true); setTimeout(()=>setVentanasGuardadas(false),2500)
