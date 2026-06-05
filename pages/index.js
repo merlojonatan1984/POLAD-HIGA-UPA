@@ -42,15 +42,12 @@ export default function Login() {
       const mes = now.getMonth() + 1
       const anio = now.getFullYear()
 
-      // Buscar config más reciente para este lugar (sin filtrar por mes)
-      const { data: cfgs } = await supabase
+      // Buscar config por lugar — un registro por lugar
+      const { data: cfg } = await supabase
         .from('configuracion')
         .select('*')
         .eq('lugar', l)
-        .order('anio', { ascending: false })
-        .order('mes', { ascending: false })
-        .limit(1)
-      const cfg = cfgs && cfgs[0] ? cfgs[0] : null
+        .maybeSingle()
 
       // Si no hay configuración o no hay día seteado → bloqueado
       if (!cfg || !cfg.dia) {
