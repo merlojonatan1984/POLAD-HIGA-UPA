@@ -104,8 +104,9 @@ export default function Login() {
 
       if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
 
-      const claveCorrecta = data.es_admin ? pass === 'admin2025' : pass === legajo.trim()
-      if (!claveCorrecta) { setError('Contraseña incorrecta.'); setLoading(false); return }
+      // Clave: si tiene password propio usarlo, sino usar legajo como clave
+      const claveEsperada = data.es_admin ? 'admin2025' : (data.password || legajo.trim())
+      if (pass !== claveEsperada) { setError('Contraseña incorrecta.'); setLoading(false); return }
 
       localStorage.setItem('polad_user', JSON.stringify(data))
 
