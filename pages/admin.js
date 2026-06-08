@@ -206,6 +206,20 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
             <label>📝 Nota / Recordatorio</label>
             <textarea value={form.notas||''} onChange={e => setForm({...form,notas:e.target.value})} rows={2} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:12,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'none' }} />
           </div>
+          {!esNuevo && (
+            <div style={{ marginTop:10,padding:'10px 12px',background:'rgba(239,159,39,0.06)',borderRadius:8,border:'0.5px solid rgba(239,159,39,0.2)' }}>
+              <div style={{ fontSize:11,color:'#EF9F27',fontWeight:500,marginBottom:6 }}>🔑 Contraseña del efectivo</div>
+              <div style={{ display:'flex',gap:8,alignItems:'center' }}>
+                <span style={{ fontSize:11,color:'var(--text-muted)',flex:1 }}>
+                  {form.password ? 'Tiene clave personalizada' : 'Usa su legajo como clave'}
+                </span>
+                <button className="btn btn-sm" style={{ fontSize:11,color:'#EF9F27',borderColor:'rgba(239,159,39,0.3)' }}
+                  onClick={() => { if(confirm('¿Resetear la clave de ' + form.nombre + '? Volverá a usar su legajo.')) setForm({...form, password: null}) }}>
+                  Resetear clave
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div style={{ padding:'12px 16px',borderTop:'0.5px solid rgba(255,255,255,0.06)',display:'flex',justifyContent:'space-between' }}>
           <div>
@@ -481,7 +495,7 @@ export default function AdminApp() {
           supabase.from('firmas').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
         ])
       }
-      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR, password: datos.password || null }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
       const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
