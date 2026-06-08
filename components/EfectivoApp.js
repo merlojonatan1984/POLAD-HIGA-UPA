@@ -57,6 +57,12 @@ export default function EfectivoApp() {
   const [loading, setLoading] = useState(true)
   const [appLugar, setAppLugar] = useState('HIGA')
   const [isMobile, setIsMobile] = useState(false)
+  const [modalClave, setModalClave] = useState(false)
+  const [claveActual, setClaveActual] = useState('')
+  const [claveNueva, setClaveNueva] = useState('')
+  const [claveConfirm, setClaveConfirm] = useState('')
+  const [msgClave, setMsgClave] = useState(null)
+  const [guardandoClave, setGuardandoClave] = useState(false)
 
   useEffect(() => {
     const lugar = detectLugar()
@@ -152,6 +158,23 @@ export default function EfectivoApp() {
     }
   }
 
+  async function cambiarClave() {
+    if (!claveNueva || claveNueva.length < 4) { setMsgClave('La clave debe tener al menos 4 caracteres.'); return }
+    if (claveNueva !== claveConfirm) { setMsgClave('Las claves no coinciden.'); return }
+    const claveEsperada = usuario.password || usuario.legajo
+    if (claveActual !== claveEsperada) { setMsgClave('La clave actual es incorrecta.'); return }
+    setGuardandoClave(true)
+    const { error } = await supabase.from('efectivos').update({ password: claveNueva }).eq('id', usuario.id)
+    if (error) { setMsgClave('Error al guardar.'); setGuardandoClave(false); return }
+    const updated = { ...usuario, password: claveNueva }
+    localStorage.setItem('polad_user', JSON.stringify(updated))
+    setUsuario(updated)
+    setMsgClave('✓ Clave actualizada correctamente.')
+    setClaveActual(''); setClaveNueva(''); setClaveConfirm('')
+    setGuardandoClave(false)
+    setTimeout(() => { setModalClave(false); setMsgClave(null) }, 2000)
+  }
+
   async function guardar() {
     if (!usuario) return
     if (Object.keys(disponibilidad).length === 0) {
@@ -209,6 +232,40 @@ export default function EfectivoApp() {
   return (
     <div>
       {/* TOPBAR */}
+      {modalClave && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+          <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.3)',width:'100%',maxWidth:360,overflow:'hidden' }}>
+            <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(255,255,255,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)' }}>
+              <span style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>🔑 Cambiar contraseña</span>
+              <button className="btn btn-sm" onClick={() => { setModalClave(false); setMsgClave(null); setClaveActual(''); setClaveNueva(''); setClaveConfirm('') }}>Cerrar</button>
+            </div>
+            <div style={{ padding:16 }}>
+              {msgClave && <div className={`alert ${msgClave.startsWith('✓') ? 'alert-ok' : 'alert-err'}`} style={{ marginBottom:12 }}>{msgClave}</div>}
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:12,color:'var(--text-muted)',display:'block',marginBottom:5 }}>Clave actual</label>
+                <input type="password" placeholder="Tu clave actual" value={claveActual} onChange={e => setClaveActual(e.target.value)}
+                  style={{ width:'100%',padding:'10px 12px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',boxSizing:'border-box',outline:'none' }} />
+                <p style={{ fontSize:10,color:'var(--text-muted)',marginTop:4 }}>Si nunca la cambiaste, ingresá tu número de legajo</p>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ fontSize:12,color:'var(--text-muted)',display:'block',marginBottom:5 }}>Nueva clave</label>
+                <input type="password" placeholder="Mínimo 4 caracteres" value={claveNueva} onChange={e => setClaveNueva(e.target.value)}
+                  style={{ width:'100%',padding:'10px 12px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',boxSizing:'border-box',outline:'none' }} />
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <label style={{ fontSize:12,color:'var(--text-muted)',display:'block',marginBottom:5 }}>Confirmar nueva clave</label>
+                <input type="password" placeholder="Repetí la nueva clave" value={claveConfirm} onChange={e => setClaveConfirm(e.target.value)}
+                  style={{ width:'100%',padding:'10px 12px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',boxSizing:'border-box',outline:'none' }} />
+              </div>
+              <button disabled={guardandoClave} onClick={cambiarClave}
+                style={{ width:'100%',padding:'11px',borderRadius:8,border:'1px solid rgba(200,168,75,0.4)',background:'rgba(200,168,75,0.15)',color:'#c8a84b',fontSize:13,fontWeight:600,cursor:guardandoClave?'not-allowed':'pointer' }}>
+                {guardandoClave ? 'Guardando...' : 'Cambiar clave'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="topbar" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 6 : 10, padding: isMobile ? '8px 12px' : undefined }}>
         <div style={{ display:'flex', alignItems:'center', gap: 8, flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: isMobile ? 13 : 14, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -224,6 +281,7 @@ export default function EfectivoApp() {
             </span>
             <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:2 }}>🔒</span>
           </div>
+          <button className="btn btn-sm" style={{ color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.3)' }} onClick={() => setModalClave(true)}>🔑</button>
           <button className="btn btn-sm" style={{ color:'#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
         </div>
       </div>
