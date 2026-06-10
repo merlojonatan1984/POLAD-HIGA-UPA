@@ -455,13 +455,16 @@ export default function AdminApp() {
       return true
     }
 
-    // Busca sector disponible rotando para no acumular en el mismo
-    // Usa cantidad de nuevos ya asignados como base para rotar
+    // Rotación estricta: 1 guardia por sector antes de repetir
+    // Cuenta cuántas veces fue asignado cada sector para este efectivo
+    const conteoSector = {}
+    SECTORES_APP.forEach(s => { conteoSector[s] = 0 })
     function getSector(dia, turno) {
-      const base = nuevos.length // cambia con cada guardia asignada → rota naturalmente
-      for (let i = 0; i < SECTORES_APP.length; i++) {
-        const s = SECTORES_APP[(base + i) % SECTORES_APP.length]
+      // Ordenar sectores por los menos usados primero para distribuir parejo
+      const sectoresOrdenados = [...SECTORES_APP].sort((a, b) => conteoSector[a] - conteoSector[b])
+      for (const s of sectoresOrdenados) {
         if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < MAX_POR_SLOT) {
+          conteoSector[s]++
           return s
         }
       }
