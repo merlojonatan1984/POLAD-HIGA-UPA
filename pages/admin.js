@@ -405,6 +405,8 @@ export default function AdminApp() {
 
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno) {
     setAsignando(true)
+    cantidad = parseInt(cantidad) || 0
+    if (cantidad <= 0) { alert('Ingresá una cantidad válida.'); setAsignando(false); return }
     const [{ data: dispData }, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
       supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP),
