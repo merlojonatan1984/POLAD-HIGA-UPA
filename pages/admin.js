@@ -456,12 +456,12 @@ export default function AdminApp() {
     }
 
     // Busca sector disponible rotando para no acumular en el mismo
-    let sectorIdx = 0
+    // Usa cantidad de nuevos ya asignados como base para rotar
     function getSector(dia, turno) {
+      const base = nuevos.length // cambia con cada guardia asignada → rota naturalmente
       for (let i = 0; i < SECTORES_APP.length; i++) {
-        const s = SECTORES_APP[(sectorIdx + i) % SECTORES_APP.length]
+        const s = SECTORES_APP[(base + i) % SECTORES_APP.length]
         if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < MAX_POR_SLOT) {
-          sectorIdx = (sectorIdx + i + 1) % SECTORES_APP.length
           return s
         }
       }
