@@ -277,6 +277,7 @@ export default function AdminApp() {
   const [modalAsignar, setModalAsignar] = useState(null)
   const [efDisponibles, setEfDisponibles] = useState([])
   const [asignando, setAsignando] = useState(false)
+  const [rellenandoDia, setRellenandoDia] = useState(null)
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
 
@@ -625,6 +626,113 @@ export default function AdminApp() {
       msg += `\n⚠ Se pedían ${cantidad} pero la disponibilidad permitió ${nuevos.length}.`
     }
     alert(msg)
+  }
+
+  // Completar UN día: rellena los lugares libres con los efectivos disponibles
+  // priorizando a los que tienen MENOS guardias en el mes. No carga de más.
+  async function rellenarDiaAuto(dia) {
+    if (rellenandoDia) return
+    setRellenandoDia(dia)
+    try {
+      const L = lugarDetectado
+      const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+      const turnosLugar = L === 'MODULAR' ? ['m','t','n'] : ['d','n']
+      const horasTurno = L === 'MODULAR' ? 8 : 12
+
+      // Datos frescos desde Supabase: disponibilidad del día + turnos del mes
+      const [{ data: dispDia }, { data: turnosMes }] = await Promise.all([
+        supabase.from('disponibilidad').select('legajo, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', dia).eq('lugar', L),
+        supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+      ])
+
+      const ocupacion = {}
+      const hsMap = {}
+      const turnosPorLegajo = {}
+      ;(turnosMes || []).forEach(t => {
+        const k = t.dia + '-' + t.turno + '-' + t.sector
+        ocupacion[k] = (ocupacion[k] || 0) + 1
+        hsMap[t.legajo] = (hsMap[t.legajo] || 0) + horasTurno
+        if (!turnosPorLegajo[t.legajo]) turnosPorLegajo[t.legajo] = []
+        turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
+      })
+
+      const dispMap = {}
+      ;(dispDia || []).forEach(d => { dispMap[d.legajo] = d.turno || '' })
+
+      const nuevos = []
+      const nuevosPorLegajo = {}
+      const faltantesPorTurno = {}
+
+      // Descanso 12hs (HIGA/UPA): no D+N el mismo día, no N→D en días seguidos
+      function cumpleDescanso(legajo, diaX, turnoX) {
+        if (L === 'MODULAR') return true
+        const previos = [...(turnosPorLegajo[legajo] || []), ...(nuevosPorLegajo[legajo] || [])]
+        if (previos.some(a => a.dia === diaX && a.turno !== turnoX)) return false
+        if (turnoX === 'd' && previos.some(a => a.dia === diaX - 1 && a.turno === 'n')) return false
+        if (turnoX === 'n' && previos.some(a => a.dia === diaX + 1 && a.turno === 'd')) return false
+        return true
+      }
+
+      function horasDe(legajo) {
+        return (hsMap[legajo] || 0) + ((nuevosPorLegajo[legajo] || []).length * horasTurno)
+      }
+
+      // Disponibles para un turno: con disponibilidad cargada, sin duplicar, < 180hs,
+      // que cumplan descanso. Ordenados por MENOS guardias primero (equilibra la carga).
+      function candidatosTurno(turno) {
+        return efectivos.filter(e => {
+          const avail = dispMap[e.legajo] || ''
+          if (!avail.includes(turno)) return false
+          if (nuevos.some(n => n.legajo === e.legajo && n.dia === dia && n.turno === turno)) return false
+          if ((turnosPorLegajo[e.legajo] || []).some(a => a.dia === dia && a.turno === turno)) return false
+          if (horasDe(e.legajo) >= 180) return false
+          if (!cumpleDescanso(e.legajo, dia, turno)) return false
+          return true
+        }).sort((a, b) => horasDe(a.legajo) - horasDe(b.legajo))
+      }
+
+      for (const turno of turnosLugar) {
+        // Armar la lista de lugares libres de este turno (cada sector hasta MAX_POR_SLOT)
+        const slots = []
+        for (const sector of sectores) {
+          const ocup = ocupacion[dia + '-' + turno + '-' + sector] || 0
+          for (let k = ocup; k < MAX_POR_SLOT; k++) slots.push(sector)
+        }
+        for (const sector of slots) {
+          const cands = candidatosTurno(turno)
+          if (cands.length === 0) { faltantesPorTurno[turno] = (faltantesPorTurno[turno] || 0) + 1; continue }
+          const e = cands[0]
+          nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
+          if (!nuevosPorLegajo[e.legajo]) nuevosPorLegajo[e.legajo] = []
+          nuevosPorLegajo[e.legajo].push({ dia, turno })
+          ocupacion[dia + '-' + turno + '-' + sector] = (ocupacion[dia + '-' + turno + '-' + sector] || 0) + 1
+        }
+      }
+
+      const avisos = Object.entries(faltantesPorTurno).map(([tk, n]) => {
+        const ti = TURNOS_INFO.find(x => x.key === tk)
+        return `   • ${ti ? ti.label : tk.toUpperCase()}: faltó cubrir ${n} lugar${n > 1 ? 'es' : ''} (no hay más efectivos disponibles)`
+      })
+
+      if (nuevos.length === 0) {
+        let m = `Día ${dia}: no se asignó ninguna guardia nueva.`
+        m += avisos.length ? `\n\n${avisos.join('\n')}` : ` Ya estaba completo o no hay disponibilidad cargada.`
+        alert(m)
+        setRellenandoDia(null)
+        return
+      }
+
+      for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+      await cargarTodo(L)
+
+      let m = `✓ Día ${dia}: se asignaron ${nuevos.length} guardias.`
+      if (avisos.length) m += `\n\n⚠ Quedaron lugares sin cubrir:\n${avisos.join('\n')}`
+      alert(m)
+    } catch (err) {
+      alert('Error al completar el día: ' + (err?.message || err))
+    } finally {
+      setRellenandoDia(null)
+    }
   }
 
   async function descargarPlanilla(turno) {
@@ -1113,6 +1221,13 @@ export default function AdminApp() {
             <div style={{ marginBottom:12,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
               <h3 style={{ fontSize:14,fontWeight:500 }}>Día {filtroDia} — {NOMBRE_MES} — {APP_LUGAR}</h3>
               <div style={{ display:'flex',gap:8 }}>
+                {lugarDetectado === 'HIGA' && (
+                  <button className="btn btn-sm" disabled={rellenandoDia === filtroDia}
+                    style={{ background:'rgba(29,158,117,0.15)', color:'#1D9E75', border:'0.5px solid rgba(29,158,117,0.4)' }}
+                    onClick={() => rellenarDiaAuto(filtroDia)}>
+                    {rellenandoDia === filtroDia ? 'Completando…' : `⚡ Completar día ${filtroDia}`}
+                  </button>
+                )}
                 <button className="btn btn-primary btn-sm" onClick={() => setModalTurno({ dia:filtroDia,sector:SECTORES_APP[0],turno:TURNOS_LUGAR[0],legajo:'' })}>+ Agregar turno</button>
               </div>
             </div>
