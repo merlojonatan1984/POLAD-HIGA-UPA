@@ -37,8 +37,8 @@ const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves'
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'config', 'planillas', 'descarga']
-const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', config: 'Configuración', planillas: 'Planillas', descarga: '⬇ Planilla Guardia' }
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'rapida', 'config', 'planillas', 'descarga']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', rapida: '⚡ Asignación rápida', config: 'Configuración', planillas: 'Planillas', descarga: '⬇ Planilla Guardia' }
 
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 const BG_APP   = APP_LUGAR === 'HIGA' ? 'rgba(42,37,96,0.5)' : APP_LUGAR === 'UPA' ? 'rgba(80,30,10,0.5)' : 'rgba(10,50,60,0.5)'
@@ -278,6 +278,10 @@ export default function AdminApp() {
   const [efDisponibles, setEfDisponibles] = useState([])
   const [asignando, setAsignando] = useState(false)
   const [rellenandoDia, setRellenandoDia] = useState(null)
+  const [rapidaLista, setRapidaLista] = useState([])
+  const [rapidaCargando, setRapidaCargando] = useState(false)
+  const [rapidaProcesando, setRapidaProcesando] = useState(false)
+  const [rapidaMsg, setRapidaMsg] = useState(null)
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
 
@@ -307,6 +311,7 @@ export default function AdminApp() {
   }, [])
 
   useEffect(() => { if (mounted) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
+  useEffect(() => { if (mounted && vista === 'rapida') cargarRapida() }, [vista, mesSeleccionado, anioSeleccionado, mounted])
 
   useEffect(() => {
     if (!mounted) return
@@ -733,6 +738,171 @@ export default function AdminApp() {
     } finally {
       setRellenandoDia(null)
     }
+  }
+
+  // ===== Solapa "Asignación rápida": iguala la cantidad de guardias del mes anterior =====
+  function mesAnteriorDe(m, a) { return m === 1 ? { mes: 12, anio: a - 1 } : { mes: m - 1, anio: a } }
+
+  async function cargarRapida() {
+    setRapidaCargando(true); setRapidaMsg(null)
+    const L = lugarDetectado
+    const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+    const prev = mesAnteriorDe(MES, ANIO)
+    const [{ data: turnosPrev }, { data: dispAct }, { data: turnosAct }] = await Promise.all([
+      supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores),
+      supabase.from('disponibilidad').select('legajo').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
+      supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores),
+    ])
+    const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
+    const cargaron = new Set((dispAct || []).map(d => d.legajo))
+    const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
+    const lista = efectivos
+      .filter(e => cargaron.has(e.legajo) && (countPrev[e.legajo] || 0) > 0)
+      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
+      .sort((a, b) => b.objetivo - a.objetivo)
+    setRapidaLista(lista); setRapidaCargando(false)
+  }
+
+  // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
+  // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
+  async function procesarRapida(targets) {
+    const L = lugarDetectado
+    const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+    const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
+    const horasTurno = L === 'MODULAR' ? 8 : 12
+    const MAX_HS = 180
+
+    const [{ data: dispAll }, { data: turnosMes }] = await Promise.all([
+      supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
+      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores),
+    ])
+
+    const ocupacion = {}
+    const hsMap = {}
+    const turnosPorLegajo = {}
+    ;(turnosMes || []).forEach(t => {
+      ocupacion[t.dia + '-' + t.turno + '-' + t.sector] = (ocupacion[t.dia + '-' + t.turno + '-' + t.sector] || 0) + 1
+      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + horasTurno
+      if (!turnosPorLegajo[t.legajo]) turnosPorLegajo[t.legajo] = []
+      turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
+    })
+
+    const dispMap = {}
+    ;(dispAll || []).forEach(d => {
+      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
+      dispMap[d.legajo][parseInt(d.dia)] = d.turno
+    })
+
+    const nuevos = []
+    const reporte = []
+
+    function cumpleDescanso(legajo, dia, turno) {
+      const prev = turnosPorLegajo[legajo] || []
+      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día (uno por día)
+      if (L !== 'MODULAR') {
+        const ayer = prev.find(a => a.dia === dia - 1)
+        if (ayer && ayer.turno === 'n' && turno === 'd') return false
+        const manana = prev.find(a => a.dia === dia + 1)
+        if (manana && turno === 'n' && manana.turno === 'd') return false
+      }
+      return true
+    }
+
+    for (const { legajo, objetivo } of targets) {
+      const hsActuales = hsMap[legajo] || 0
+      const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
+      const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
+
+      const dmap = dispMap[legajo] || {}
+      const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
+        .map(dia => ({ dia, turno: dmap[dia] }))
+        .filter(({ dia, turno }) => turnosLugar.some(tk => turno.includes(tk)))
+
+      const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
+      const conteoTurnos = {}; turnosLugar.forEach(tk => { conteoTurnos[tk] = 0 })
+      function getSector(dia, turno) {
+        const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
+        for (const s of orden) {
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
+        }
+        return null
+      }
+
+      let asignadas = 0
+      const intervalo = diasCandidatos.length > meta && meta > 0 ? Math.floor(diasCandidatos.length / meta) : 1
+      let idx = 0; let vueltas = 0
+      while (asignadas < meta && vueltas < diasCandidatos.length * 2) {
+        vueltas++
+        if (idx >= diasCandidatos.length) idx = 0
+        const { dia, turno: dispTurno } = diasCandidatos[idx]
+        const turnosOk = turnosLugar.filter(tk =>
+          dispTurno.includes(tk) &&
+          !(turnosPorLegajo[legajo] || []).some(a => a.dia === dia && a.turno === tk) &&
+          cumpleDescanso(legajo, dia, tk)
+        )
+        if (turnosOk.length > 0) {
+          const tk = turnosOk.sort((a, b) => conteoTurnos[a] - conteoTurnos[b])[0]
+          const s = getSector(dia, tk)
+          if (s) {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+            turnosPorLegajo[legajo].push({ dia, turno: tk })
+            ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
+            conteoTurnos[tk]++
+            hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
+            asignadas++
+            idx += intervalo
+            continue
+          }
+        }
+        idx++
+      }
+      reporte.push({ legajo, objetivo, asignadas })
+    }
+
+    for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+    return { total: nuevos.length, reporte }
+  }
+
+  async function asignarUnoRapida(item) {
+    setRapidaProcesando(true); setRapidaMsg(null)
+    const { reporte } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }])
+    await cargarTodo(lugarDetectado); await cargarRapida()
+    const r = reporte[0]
+    const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
+    let m = `✓ ${nombre}: se asignaron ${r.asignadas} de ${r.objetivo}.`
+    if (r.asignadas < r.objetivo) m += ` Faltaron ${r.objetivo - r.asignadas} (disponibilidad o tope).`
+    setRapidaProcesando(false); alert(m)
+  }
+
+  async function asignarTodosRapida() {
+    if (rapidaLista.length === 0) return
+    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?`)) return
+    setRapidaProcesando(true); setRapidaMsg(null)
+    const { total, reporte } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })))
+    await cargarTodo(lugarDetectado); await cargarRapida()
+    const incompletos = reporte.filter(r => r.asignadas < r.objetivo)
+    let m = `✓ Se asignaron ${total} guardias en total.`
+    if (incompletos.length) {
+      m += `\n\n⚠ ${incompletos.length} efectivo(s) no llegaron al número:\n` +
+        incompletos.slice(0, 12).map(r => {
+          const n = (efectivos.find(e => e.legajo === r.legajo)?.nombre || r.legajo).split(',')[0]
+          return `   • ${n}: ${r.asignadas} de ${r.objetivo}`
+        }).join('\n')
+      if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
+    }
+    setRapidaProcesando(false); alert(m)
+  }
+
+  async function borrarRapida() {
+    const L = lugarDetectado
+    const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+    if (!confirm(`¿Borrar TODAS las guardias de ${L} de ${NOMBRE_MES}? (No afecta a los otros lugares)`)) return
+    setRapidaProcesando(true)
+    await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    await cargarTodo(L); await cargarRapida()
+    setRapidaProcesando(false)
+    setRapidaMsg(`Se borraron las guardias de ${L} de ${NOMBRE_MES}.`)
   }
 
   async function descargarPlanilla(turno) {
@@ -1316,6 +1486,90 @@ export default function AdminApp() {
             </div>
           </div>
         )}
+
+        {vista === 'rapida' && (() => {
+          const prev = mesAnteriorDe(MES, ANIO)
+          const nombrePrev = MESES_NOMBRES[prev.mes - 1] + ' ' + prev.anio
+          const totalObjetivo = rapidaLista.reduce((s, i) => s + i.objetivo, 0)
+          return (
+            <div>
+              <div className="panel" style={{ marginBottom:14 }}>
+                <div className="panel-header" style={{ background:BG_APP }}>
+                  <h3 style={{ color:COLOR_APP }}>⚡ Asignación rápida — {APP_LUGAR} · {NOMBRE_MES}</h3>
+                  <span style={{ fontSize:11, color:'var(--text-muted)' }}>Iguala la cantidad de guardias de {nombrePrev}</span>
+                </div>
+                <div style={{ padding:14 }}>
+                  <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
+                    Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b>, y le asigna la <b>misma cantidad</b> usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
+                  </p>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+                    <button className="btn btn-sm" disabled={rapidaProcesando || rapidaLista.length === 0}
+                      style={{ background:'rgba(29,158,117,0.15)', color:'#1D9E75', border:'0.5px solid rgba(29,158,117,0.4)' }}
+                      onClick={asignarTodosRapida}>
+                      {rapidaProcesando ? 'Procesando…' : `⚡ Asignar todos (${rapidaLista.length})`}
+                    </button>
+                    <button className="btn btn-sm" disabled={rapidaProcesando}
+                      style={{ color:'#F09595', borderColor:'rgba(240,149,149,0.3)' }}
+                      onClick={borrarRapida}>
+                      🗑 Borrar guardias de {APP_LUGAR} · {NOMBRE_MES_SOLO}
+                    </button>
+                    <button className="btn btn-sm" disabled={rapidaProcesando} onClick={cargarRapida}>↻ Actualizar</button>
+                  </div>
+                  {rapidaMsg && <div className="alert alert-ok" style={{ marginBottom:10 }}>{rapidaMsg}</div>}
+                  {rapidaCargando ? (
+                    <div style={{ padding:'20px 0', textAlign:'center', color:'var(--text-muted)', fontSize:12 }}>Cargando…</div>
+                  ) : rapidaLista.length === 0 ? (
+                    <div className="alert alert-warn">No hay efectivos que cumplan: deben haber cargado disponibilidad en {NOMBRE_MES} y tener guardias en {nombrePrev}.</div>
+                  ) : (
+                    <div style={{ overflowX:'auto' }}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Efectivo</th>
+                            <th style={{ width:110, textAlign:'center' }}>{nombrePrev}</th>
+                            <th style={{ width:110, textAlign:'center' }}>Este mes</th>
+                            <th style={{ width:90, textAlign:'center' }}>Estado</th>
+                            <th style={{ width:90 }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rapidaLista.map(i => {
+                            const completo = i.yaAsignadas >= i.objetivo
+                            return (
+                              <tr key={i.legajo}>
+                                <td>
+                                  <div style={{ fontSize:12, fontWeight:500 }}>{i.nombre}</div>
+                                  <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {i.legajo}</div>
+                                </td>
+                                <td style={{ textAlign:'center', fontWeight:500, color:COLOR_APP }}>{i.objetivo}</td>
+                                <td style={{ textAlign:'center', fontWeight:500, color: completo ? '#1D9E75' : i.yaAsignadas > 0 ? '#EF9F27' : 'var(--text-muted)' }}>{i.yaAsignadas}</td>
+                                <td style={{ textAlign:'center' }}>
+                                  {completo
+                                    ? <span style={{ fontSize:10, color:'#1D9E75', fontWeight:500 }}>✓ Completo</span>
+                                    : <span style={{ fontSize:10, color:'#EF9F27' }}>Faltan {i.objetivo - i.yaAsignadas}</span>}
+                                </td>
+                                <td>
+                                  <button className="btn btn-sm" disabled={rapidaProcesando}
+                                    style={{ fontSize:10, padding:'2px 8px', background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }}
+                                    onClick={() => asignarUnoRapida(i)}>Asignar</button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                          <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                            <td style={{ fontWeight:500 }}>Total ({rapidaLista.length})</td>
+                            <td style={{ textAlign:'center', fontWeight:600, color:COLOR_APP }}>{totalObjetivo}</td>
+                            <td colSpan={3}></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {vista === 'config' && (() => {
           const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
