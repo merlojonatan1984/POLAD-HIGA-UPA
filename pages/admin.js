@@ -282,6 +282,7 @@ export default function AdminApp() {
   const [rapidaCargando, setRapidaCargando] = useState(false)
   const [rapidaProcesando, setRapidaProcesando] = useState(false)
   const [rapidaMsg, setRapidaMsg] = useState(null)
+  const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
 
@@ -760,6 +761,11 @@ export default function AdminApp() {
       .filter(e => cargaron.has(e.legajo) && (countPrev[e.legajo] || 0) > 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
       .sort((a, b) => b.objetivo - a.objetivo)
+    const nuevos = efectivos
+      .filter(e => cargaron.has(e.legajo) && (countPrev[e.legajo] || 0) === 0)
+      .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+    setRapidaNuevos(nuevos)
     setRapidaLista(lista); setRapidaCargando(false)
   }
 
@@ -1567,6 +1573,22 @@ export default function AdminApp() {
                   )}
                 </div>
               </div>
+              {rapidaNuevos.length > 0 && (
+                <div className="panel">
+                  <div className="panel-header">
+                    <h3>Sin guardias el mes anterior — {rapidaNuevos.length}</h3>
+                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>Cargaron disponibilidad este mes pero no tienen número de referencia — asignar a mano</span>
+                  </div>
+                  <div style={{ padding:14, display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:8 }}>
+                    {rapidaNuevos.map(n => (
+                      <div key={n.legajo} style={{ padding:'8px 10px', border:'0.5px solid var(--border)', borderRadius:8, background:'var(--surface2)' }}>
+                        <div style={{ fontSize:12, fontWeight:500 }}>{n.nombre}</div>
+                        <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {n.legajo}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })()}
