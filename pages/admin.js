@@ -288,29 +288,11 @@ export default function AdminApp() {
   const [loginAdmin, setLoginAdmin] = useState(null) // null=verificando, false=logueado, {legajo,pass,error,loading}=mostrando form
 
   useEffect(() => {
-    // Redetectar lugar en el cliente para asegurar valor correcto
     const lugar = _detectLugar()
     setLugarDetectado(lugar)
     setMounted(true)
-    const u = localStorage.getItem('polad_user')
-    if (!u) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
-    const parsed = JSON.parse(u)
-    if (!parsed.es_admin) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
-    setLoginAdmin(false)
-    const v = localStorage.getItem(`polad_ventanas_${lugar}`)
-    if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
-    // Cargar ventana desde Supabase
-    const now = new Date()
-    // Buscar config solo por lugar
-    supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
-      if (cfg) {
-        const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
-        setVentanas(v2)
-        localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
-      }
-    })
-    // Cargar datos con el lugar detectado en cliente
-    setTimeout(() => cargarTodo(lugar), 0)
+    // Siempre pedir credenciales en /admin — nunca auto-login desde localStorage
+    setLoginAdmin({ legajo: '', pass: '', error: '', loading: false })
   }, [])
 
   useEffect(() => { if (mounted) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
@@ -1055,7 +1037,17 @@ export default function AdminApp() {
       }
       localStorage.setItem('polad_user', JSON.stringify(data))
       setLoginAdmin(false)
-      setTimeout(() => cargarTodo(lugarDetectado), 0)
+      // Cargar ventanas y datos al ingresar
+      const lugar = _detectLugar()
+      const now = new Date()
+      supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
+        if (cfg) {
+          const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
+          setVentanas(v2)
+          localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
+        }
+      })
+      setTimeout(() => cargarTodo(lugar), 0)
     } catch (err) {
       setLoginAdmin(prev => ({ ...prev, error: 'Error de conexión.', loading: false }))
     }
