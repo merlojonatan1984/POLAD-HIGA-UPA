@@ -285,6 +285,7 @@ export default function AdminApp() {
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
+  const [loginAdmin, setLoginAdmin] = useState(null) // null=verificando, false=logueado, {legajo,pass,error,loading}=mostrando form
 
   useEffect(() => {
     // Redetectar lugar en el cliente para asegurar valor correcto
@@ -292,9 +293,10 @@ export default function AdminApp() {
     setLugarDetectado(lugar)
     setMounted(true)
     const u = localStorage.getItem('polad_user')
-    if (!u) { router.push('/'); return }
+    if (!u) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
     const parsed = JSON.parse(u)
-    if (!parsed.es_admin) { router.push('/efectivo'); return }
+    if (!parsed.es_admin) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
+    setLoginAdmin(false)
     const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
     // Cargar ventana desde Supabase
@@ -1032,6 +1034,70 @@ export default function AdminApp() {
     setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: null } }))
     setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: null } : e))
   }
+
+  async function handleLoginAdmin(e) {
+    e.preventDefault()
+    setLoginAdmin(prev => ({ ...prev, error: '', loading: true }))
+    try {
+      const { data } = await supabase
+        .from('efectivos')
+        .select('*')
+        .eq('legajo', loginAdmin.legajo.trim())
+        .eq('es_admin', true)
+        .maybeSingle()
+      if (!data) {
+        setLoginAdmin(prev => ({ ...prev, error: 'Legajo no encontrado o sin permisos de admin.', loading: false }))
+        return
+      }
+      if (loginAdmin.pass !== 'admin2025') {
+        setLoginAdmin(prev => ({ ...prev, error: 'Contraseña incorrecta.', loading: false }))
+        return
+      }
+      localStorage.setItem('polad_user', JSON.stringify(data))
+      setLoginAdmin(false)
+      setTimeout(() => cargarTodo(lugarDetectado), 0)
+    } catch (err) {
+      setLoginAdmin(prev => ({ ...prev, error: 'Error de conexión.', loading: false }))
+    }
+  }
+
+  if (loginAdmin !== false) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0d0f17', padding:20 }}>
+      <div style={{ width:'100%', maxWidth:360, background:'rgba(10,10,10,0.9)', border:'0.5px solid rgba(200,168,75,0.25)', borderRadius:12, padding:'32px 28px' }}>
+        <h1 style={{ fontFamily:"'Cinzel', serif", fontSize:18, fontWeight:700, color:'#e8eaf0', marginBottom:4, textAlign:'center', letterSpacing:'0.06em' }}>
+          POLAD · {APP_LUGAR}
+        </h1>
+        <p style={{ fontSize:11, color:'#c8a84b', textAlign:'center', letterSpacing:'0.12em', marginBottom:28, textTransform:'uppercase' }}>
+          Panel Administrador
+        </p>
+        {loginAdmin === null ? (
+          <p style={{ color:'#8b90a0', textAlign:'center', fontSize:13 }}>Verificando...</p>
+        ) : (
+          <form onSubmit={handleLoginAdmin}>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Legajo</label>
+              <input type="text" placeholder="Número de legajo" value={loginAdmin.legajo} onChange={e => setLoginAdmin(prev => ({ ...prev, legajo: e.target.value }))} required autoFocus
+                style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
+            </div>
+            <div style={{ marginBottom:20 }}>
+              <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Contraseña</label>
+              <input type="password" placeholder="••••••••" value={loginAdmin.pass} onChange={e => setLoginAdmin(prev => ({ ...prev, pass: e.target.value }))} required
+                style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
+            </div>
+            {loginAdmin.error && (
+              <div style={{ padding:'10px 14px', borderRadius:8, fontSize:13, marginBottom:14, background:'#2b0d0d', color:'#f87171' }}>
+                {loginAdmin.error}
+              </div>
+            )}
+            <button type="submit" disabled={loginAdmin.loading}
+              style={{ fontFamily:"'Cinzel', serif", width:'100%', padding:'11px 16px', borderRadius:8, border:'1px solid rgba(200,168,75,0.4)', background:loginAdmin.loading?'rgba(26,26,26,0.85)':'rgba(200,168,75,0.15)', color:'#c8a84b', fontSize:13, fontWeight:600, letterSpacing:'0.1em', cursor:loginAdmin.loading?'not-allowed':'pointer' }}>
+              {loginAdmin.loading ? 'Ingresando...' : 'INGRESAR'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
 
   if (!mounted || loading) return <div className="loading">Cargando...</div>
 
