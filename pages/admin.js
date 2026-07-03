@@ -291,8 +291,22 @@ export default function AdminApp() {
     const lugar = _detectLugar()
     setLugarDetectado(lugar)
     setMounted(true)
-    // Siempre pedir credenciales en /admin — nunca auto-login desde localStorage
-    setLoginAdmin({ legajo: '', pass: '', error: '', loading: false })
+    const u = localStorage.getItem('polad_user')
+    if (!u) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
+    const parsed = JSON.parse(u)
+    if (!parsed.es_admin) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
+    setLoginAdmin(false)
+    const v = localStorage.getItem(`polad_ventanas_${lugar}`)
+    if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
+    const now = new Date()
+    supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
+      if (cfg) {
+        const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
+        setVentanas(v2)
+        localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
+      }
+    })
+    setTimeout(() => cargarTodo(lugar), 0)
   }, [])
 
   useEffect(() => { if (mounted) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
@@ -1053,40 +1067,49 @@ export default function AdminApp() {
     }
   }
 
+  const IMAGEN_FONDO = APP_LUGAR === 'UPA' ? '/upa2.webp' : APP_LUGAR === 'MODULAR' ? '/modular.jpeg' : '/higa foto.webp'
+
   if (loginAdmin !== false) return (
-    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0d0f17', padding:20 }}>
-      <div style={{ width:'100%', maxWidth:360, background:'rgba(10,10,10,0.9)', border:'0.5px solid rgba(200,168,75,0.25)', borderRadius:12, padding:'32px 28px' }}>
-        <h1 style={{ fontFamily:"'Cinzel', serif", fontSize:18, fontWeight:700, color:'#e8eaf0', marginBottom:4, textAlign:'center', letterSpacing:'0.06em' }}>
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20, position:'relative', overflow:'hidden' }}>
+      <div style={{ position:'fixed', top:0, left:0, right:0, bottom:0, backgroundImage:`url('${IMAGEN_FONDO}')`, backgroundSize:'cover', backgroundPosition:'center', filter:'grayscale(100%) brightness(0.3) contrast(1.1)', zIndex:0 }} />
+      <div style={{ position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.45)', zIndex:1 }} />
+      <div style={{ position:'relative', zIndex:2, width:'100%', maxWidth:360 }}>
+        <h1 style={{ fontFamily:"'Cinzel', serif", fontSize:22, fontWeight:700, color:'#e8eaf0', marginBottom:4, textAlign:'center', letterSpacing:'0.06em' }}>
           POLAD · {APP_LUGAR}
         </h1>
         <p style={{ fontSize:11, color:'#c8a84b', textAlign:'center', letterSpacing:'0.12em', marginBottom:28, textTransform:'uppercase' }}>
           Panel Administrador
         </p>
-        {loginAdmin === null ? (
-          <p style={{ color:'#8b90a0', textAlign:'center', fontSize:13 }}>Verificando...</p>
-        ) : (
-          <form onSubmit={handleLoginAdmin}>
-            <div style={{ marginBottom:14 }}>
-              <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Legajo</label>
-              <input type="text" placeholder="Número de legajo" value={loginAdmin.legajo} onChange={e => setLoginAdmin(prev => ({ ...prev, legajo: e.target.value }))} required autoFocus
-                style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
-            </div>
-            <div style={{ marginBottom:20 }}>
-              <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Contraseña</label>
-              <input type="password" placeholder="••••••••" value={loginAdmin.pass} onChange={e => setLoginAdmin(prev => ({ ...prev, pass: e.target.value }))} required
-                style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
-            </div>
-            {loginAdmin.error && (
-              <div style={{ padding:'10px 14px', borderRadius:8, fontSize:13, marginBottom:14, background:'#2b0d0d', color:'#f87171' }}>
-                {loginAdmin.error}
+        <div style={{ background:'rgba(10,10,10,0.75)', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:12, padding:'28px 24px', backdropFilter:'blur(6px)' }}>
+          {loginAdmin === null ? (
+            <p style={{ color:'#8b90a0', textAlign:'center', fontSize:13 }}>Verificando...</p>
+          ) : (
+            <form onSubmit={handleLoginAdmin}>
+              <div style={{ marginBottom:14 }}>
+                <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Legajo</label>
+                <input type="text" placeholder="Número de legajo" value={loginAdmin.legajo} onChange={e => setLoginAdmin(prev => ({ ...prev, legajo: e.target.value }))} required autoFocus
+                  style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
               </div>
-            )}
-            <button type="submit" disabled={loginAdmin.loading}
-              style={{ fontFamily:"'Cinzel', serif", width:'100%', padding:'11px 16px', borderRadius:8, border:'1px solid rgba(200,168,75,0.4)', background:loginAdmin.loading?'rgba(26,26,26,0.85)':'rgba(200,168,75,0.15)', color:'#c8a84b', fontSize:13, fontWeight:600, letterSpacing:'0.1em', cursor:loginAdmin.loading?'not-allowed':'pointer' }}>
-              {loginAdmin.loading ? 'Ingresando...' : 'INGRESAR'}
-            </button>
-          </form>
-        )}
+              <div style={{ marginBottom:20 }}>
+                <label style={{ display:'block', fontSize:12, color:'#8b90a0', marginBottom:5 }}>Contraseña</label>
+                <input type="password" placeholder="••••••••" value={loginAdmin.pass} onChange={e => setLoginAdmin(prev => ({ ...prev, pass: e.target.value }))} required
+                  style={{ width:'100%', padding:'10px 12px', border:'0.5px solid rgba(200,168,75,0.2)', borderRadius:8, fontSize:14, background:'rgba(26,26,26,0.9)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
+              </div>
+              {loginAdmin.error && (
+                <div style={{ padding:'10px 14px', borderRadius:8, fontSize:13, marginBottom:14, background:'#2b0d0d', color:'#f87171' }}>
+                  {loginAdmin.error}
+                </div>
+              )}
+              <button type="submit" disabled={loginAdmin.loading}
+                style={{ fontFamily:"'Cinzel', serif", width:'100%', padding:'11px 16px', borderRadius:8, border:'1px solid rgba(200,168,75,0.4)', background:loginAdmin.loading?'rgba(26,26,26,0.85)':'rgba(200,168,75,0.15)', color:'#c8a84b', fontSize:13, fontWeight:600, letterSpacing:'0.1em', cursor:loginAdmin.loading?'not-allowed':'pointer' }}>
+                {loginAdmin.loading ? 'Ingresando...' : 'INGRESAR'}
+              </button>
+            </form>
+          )}
+        </div>
+        <p style={{ fontFamily:"'Cinzel', serif", textAlign:'center', fontSize:9, color:'#444', marginTop:20, letterSpacing:'0.1em' }}>
+          SISTEMA DE GESTIÓN DE TURNOS POLAD
+        </p>
       </div>
     </div>
   )
