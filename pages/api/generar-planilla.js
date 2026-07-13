@@ -59,7 +59,8 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
-      orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+      orientation: 'portrait', paperSize: 9, fitToPage: true,
+      fitToWidth: 1, fitToHeight: 1,
       margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
     }
     ws.pageSetup.printTitlesRow = '1:3'
