@@ -10,19 +10,20 @@ function fmtNombre(ef) {
   let nombre = (ef.nombre || '').trim()
   let jer = (ef.jerarquia || '').trim()
 
-  // Limpiar paréntesis de escalafón: (E.G.), (S.G.), (ADM), (CDO), etc.
-  nombre = nombre.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\)|\(CDO\)|\(ADM\.?\)/gi, '').replace(/\s+/g, ' ').trim()
-  jer = jer.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\)|\(CDO\)|\(ADM\.?\)/gi, '').replace(/\s+/g, ' ').trim()
+  // Limpiar paréntesis de escalafón
+  nombre = nombre.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
+  jer    = jer.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
 
-  let resto = nombre
+  // Extraer jerarquía del campo nombre si viene pegada
   if (!jer) {
-    const m = nombre.match(/^(.+?)\s+([A-Z]+,\s*[A-Z]+.*)$/)
-    if (m) { jer = m[1].trim(); resto = m[2].trim() }
+    const m = nombre.match(/^(OFICIAL\s*SUB\s*AYUDANTE|OFICIAL\s*AYUDANTE|SUB\s*COMISARIO|COMISARIO|SUBINSPECTOR|INSPECTOR|SARGENTO|TENIENTE|CAPITAN|MAYOR|OFICIAL)\s+(.+)$/i)
+    if (m) { jer = m[1].trim(); nombre = m[2].trim() }
   }
 
-  const partes = resto.split(',')
-  const apellido = partes[0]?.trim() || resto
-  const primerNombre = (partes[1]?.trim() || '').split(/\s+/)[0] || ''
+  // Nombres sin coma: palabras[0] = apellido, palabras[1] = primer nombre
+  const palabras = nombre.split(/\s+/).filter(Boolean)
+  const apellido     = palabras[0] || ''
+  const primerNombre = palabras[1] || ''
 
   const abreviar = j => j
     .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
@@ -33,11 +34,13 @@ function fmtNombre(ef) {
     .replace(/MAYOR/i,                    'May.')
     .replace(/TENIENTE/i,                 'Tte.')
     .replace(/SARGENTO/i,                 'Sgto.')
-    .replace(/OFICIAL/i,                  'Ofl.')
     .replace(/SUBINSPECTOR/i,             'SubInsp.')
     .replace(/INSPECTOR/i,                'Insp.')
+    .replace(/OFICIAL/i,                  'Ofl.')
   const jerAbrev = jer ? abreviar(jer) : ''
-  return jerAbrev ? `${jerAbrev} ${apellido} ${primerNombre}`.trim() : `${apellido} ${primerNombre}`.trim()
+  return jerAbrev
+    ? `${jerAbrev} ${apellido} ${primerNombre}`.trim()
+    : `${apellido} ${primerNombre}`.trim()
 }
 
 function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
