@@ -16,7 +16,7 @@ function fmtNombre(ef) {
   }
   const partes = resto.split(',')
   const apellido = partes[0]?.trim() || resto
-  const nombreCompleto = partes[1]?.trim() || ''
+  const primerNombre = (partes[1]?.trim() || '').split(/\s+/)[0] || ''
   const abreviar = j => j
     .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
     .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
@@ -28,7 +28,7 @@ function fmtNombre(ef) {
     .replace(/SARGENTO/i,                 'Sgto.')
     .replace(/OFICIAL/i,                  'Ofl.')
   const jerAbrev = jer ? abreviar(jer) : ''
-  return jerAbrev ? `${jerAbrev} ${apellido} ${nombreCompleto}`.trim() : `${apellido} ${nombreCompleto}`.trim()
+  return jerAbrev ? `${jerAbrev} ${apellido} ${primerNombre}`.trim() : `${apellido} ${primerNombre}`.trim()
 }
 
 function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
