@@ -7,16 +7,23 @@ const supabase = createClient(
 )
 
 function fmtNombre(ef) {
-  const nombre = (ef.nombre || '').trim()
+  let nombre = (ef.nombre || '').trim()
   let jer = (ef.jerarquia || '').trim()
+
+  // Limpiar paréntesis de escalafón: (E.G.), (S.G.), (ADM), (CDO), etc.
+  nombre = nombre.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\)|\(CDO\)|\(ADM\.?\)/gi, '').replace(/\s+/g, ' ').trim()
+  jer = jer.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\)|\(CDO\)|\(ADM\.?\)/gi, '').replace(/\s+/g, ' ').trim()
+
   let resto = nombre
   if (!jer) {
     const m = nombre.match(/^(.+?)\s+([A-Z]+,\s*[A-Z]+.*)$/)
     if (m) { jer = m[1].trim(); resto = m[2].trim() }
   }
+
   const partes = resto.split(',')
   const apellido = partes[0]?.trim() || resto
   const primerNombre = (partes[1]?.trim() || '').split(/\s+/)[0] || ''
+
   const abreviar = j => j
     .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
     .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
@@ -27,6 +34,8 @@ function fmtNombre(ef) {
     .replace(/TENIENTE/i,                 'Tte.')
     .replace(/SARGENTO/i,                 'Sgto.')
     .replace(/OFICIAL/i,                  'Ofl.')
+    .replace(/SUBINSPECTOR/i,             'SubInsp.')
+    .replace(/INSPECTOR/i,                'Insp.')
   const jerAbrev = jer ? abreviar(jer) : ''
   return jerAbrev ? `${jerAbrev} ${apellido} ${primerNombre}`.trim() : `${apellido} ${primerNombre}`.trim()
 }
