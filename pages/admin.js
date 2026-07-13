@@ -1419,6 +1419,46 @@ export default function AdminApp() {
                             <div style={{ marginTop:8, fontSize:10, color:'var(--text-muted)', display:'flex', gap:12, flexWrap:'wrap' }}>
                               {TURNOS_INFO.map(ti => <span key={ti.key} style={{ color:ti.color }}>{ti.key.toUpperCase()} = {ti.label.split(' ')[0]}</span>)}
                             </div>
+
+                            {/* Guardias asignadas */}
+                            {(() => {
+                              const turnosEf = (turnos[e.legajo] || []).filter(t => t && t.dia != null)
+                              if (turnosEf.length === 0) return (
+                                <div style={{ marginTop:10, paddingTop:10, borderTop:'0.5px solid rgba(255,255,255,0.08)', fontSize:10, color:'var(--text-muted)', fontStyle:'italic' }}>Sin guardias asignadas este mes</div>
+                              )
+                              const turnosPorDia = {}
+                              turnosEf.forEach(t => {
+                                const d = parseInt(t.dia)
+                                if (!turnosPorDia[d]) turnosPorDia[d] = []
+                                turnosPorDia[d].push(t)
+                              })
+                              return (
+                                <div style={{ marginTop:10, paddingTop:10, borderTop:'0.5px solid rgba(255,255,255,0.08)' }}>
+                                  <div style={{ fontSize:10, color:'#5DCAA5', marginBottom:8, fontWeight:500 }}>
+                                    Guardias asignadas — {turnosEf.length} turno{turnosEf.length !== 1 ? 's' : ''}
+                                  </div>
+                                  <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                                    {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+                                      const ts = turnosPorDia[dia]
+                                      if (!ts || ts.length === 0) return (
+                                        <span key={dia} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:4, background:'var(--surface2)', fontSize:10, color:'var(--text-hint)', border:'0.5px solid rgba(255,255,255,0.05)' }}>{dia}</span>
+                                      )
+                                      const ti = TURNOS_INFO.find(x => x.key === ts[0]?.turno) || TURNOS_INFO[0]
+                                      const color = ti?.color || '#5DCAA5'
+                                      const bg = ti?.bg || 'rgba(29,158,117,0.2)'
+                                      const label = (ts[0]?.turno || '?').toUpperCase()
+                                      const tooltip = ts.map(t => `${t.sector || ''} (${t.turno || ''})`).join(', ')
+                                      return (
+                                        <span key={dia} title={tooltip} style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background:bg, fontSize:9, color, border:`0.5px solid ${color}88`, fontWeight:700, cursor:'default' }}>
+                                          <span style={{ fontSize:8, fontWeight:400, opacity:0.8 }}>{dia}</span>
+                                          <span>{label}</span>
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         )}
                       </div>
