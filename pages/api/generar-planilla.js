@@ -16,7 +16,7 @@ function fmtNombre(ef) {
   }
   const partes = resto.split(',')
   const apellido = partes[0]?.trim() || resto
-  const inicial = partes[1]?.trim()[0] ? partes[1].trim()[0] + '.' : ''
+  const nombreCompleto = partes[1]?.trim() || ''
   const abreviar = j => j
     .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
     .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
@@ -28,322 +28,276 @@ function fmtNombre(ef) {
     .replace(/SARGENTO/i,                 'Sgto.')
     .replace(/OFICIAL/i,                  'Ofl.')
   const jerAbrev = jer ? abreviar(jer) : ''
-  return jerAbrev ? `${jerAbrev} ${apellido} ${inicial}`.trim() : `${apellido} ${inicial}`.trim()
+  return jerAbrev ? `${jerAbrev} ${apellido} ${nombreCompleto}`.trim() : `${apellido} ${nombreCompleto}`.trim()
 }
 
-function fill(color) {
-  return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
+function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
+function font(bold = false, size = 9, color = '000000') { return { name: 'Arial', bold, size, color: { argb: 'FF' + color } } }
+function aln(h = 'center', wrap = false) { return { horizontal: h, vertical: 'middle', wrapText: wrap } }
+
+const BORDE_EXT = { style: 'thin', color: { argb: 'FF999999' } }  // borde externo: gris medio
+const BORDE_INT = { style: 'hair', color: { argb: 'FFCCCCCC' } }  // borde interno: gris muy claro
+
+function borde(top, bot, left, right) {
+  const s = v => v === 'medium' ? BORDE_EXT : BORDE_INT
+  return { top: s(top), bottom: s(bot), left: s(left), right: s(right) }
 }
 
-function font(bold = false, size = 9, color = '000000') {
-  return { name: 'Arial', bold, size, color: { argb: 'FF' + color } }
-}
+// ── HIGA: 2 filas por día (DÍA + NOCHE), columnas por sector ──────────
+async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
+  const rangos = [[1, 15], [16, DIAS_MES]]
 
-function aln(h = 'center', wrap = false) {
-  return { horizontal: h, vertical: 'middle', wrapText: wrap }
-}
-
-// ── Config por turno ──────────────────────────────────────────────────
-function getTurnoConfig(turnoKey, lugar) {
-  if (lugar === 'MODULAR') {
-    if (turnoKey === 'm') return {
-      str: 'TURNO MAÑANA  08:00 a 16:00',
-      C_HDR: 'B8860B', C_EF1: 'FFFBF0', C_EF2: 'FFF0C0', C_EF3: 'FFE8B0',
-      C_VACIO: 'FAF6E8', C_TIT: 'C8A84B'
+  for (const [d1, d2] of rangos) {
+    const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
+    ws.pageSetup = {
+      orientation: 'landscape', paperSize: 9, fitToPage: true,
+      fitToWidth: 1, fitToHeight: 1,
+      margins: { left:0.15, right:0.15, top:0.2, bottom:0.2, header:0, footer:0 }
     }
-    if (turnoKey === 't') return {
-      str: 'TURNO TARDE  16:00 a 23:59',
-      C_HDR: '5A4A8A', C_EF1: 'F0EDFF', C_EF2: 'E0D8FF', C_EF3: 'D0C8FF',
-      C_VACIO: 'F5F3FF', C_TIT: 'AFA9EC'
-    }
-    // noche modular
-    return {
-      str: 'TURNO NOCHE  23:59 a 08:00',
-      C_HDR: '1A3A6B', C_EF1: 'EDF4FF', C_EF2: 'C8DEFF', C_EF3: 'B0CCFF',
-      C_VACIO: 'EBF2FF', C_TIT: '85B7EB'
-    }
-  }
-  // HIGA / UPA
-  if (turnoKey === 'd') return {
-    str: 'TURNO DÍA  08:00 a 20:00',
-    C_HDR: 'B8860B', C_EF1: 'FFFBF0', C_EF2: 'FFF0C0', C_EF3: 'FFE8B0',
-    C_VACIO: 'FAF6E8', C_TIT: 'C8A84B'
-  }
-  return {
-    str: 'TURNO NOCHE  20:00 a 08:00',
-    C_HDR: '1A3A6B', C_EF1: 'EDF4FF', C_EF2: 'C8DEFF', C_EF3: 'B0CCFF',
-    C_VACIO: 'EBF2FF', C_TIT: '85B7EB'
-  }
-}
 
-// ── HIGA ──────────────────────────────────────────────────────────────
-async function generarHIGA(wb, turnoKey, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, d1, d2) {
-  const cfg = getTurnoConfig(turnoKey, 'HIGA')
-  const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
-  const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
+    ws.getColumn(1).width = 4.5
+    ws.getColumn(2).width = 10.5
+    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 11.5
 
-  ws.pageSetup.orientation = 'landscape'
-  ws.pageSetup.paperSize = 9
-  ws.pageSetup.fitToPage = true
-  ws.pageSetup.fitToWidth = 1
-  ws.pageSetup.fitToHeight = 1
-  ws.pageSetup.margins = { left: 0.15, right: 0.15, top: 0.2, bottom: 0.2, header: 0, footer: 0 }
+    const totalCols = 2 + sectores.length * 2
+    const lastLetter = ws.getColumn(totalCols).letter
+    const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
+    const rowsData = dias.length * 2
 
-  const COL_DIA = 4.0
-  const COL_EF  = 12.0
-  ws.getColumn(1).width = COL_DIA
-  for (let i = 0; i < sectores.length * 2; i++) {
-    ws.getColumn(2 + i).width = COL_EF
-  }
-  const lastColIdx = 1 + sectores.length * 2
-  const lastColLetter = ws.getColumn(lastColIdx).letter
+    ws.getRow(1).height = 18
+    ws.getRow(2).height = 12
+    ws.getRow(3).height = 11
+    const altoFila = Math.max(14, Math.floor((500 - 41 - 10) / rowsData))
+    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = altoFila
+    const pieRow = 4 + rowsData
+    ws.getRow(pieRow).height = 10
+    ws.pageSetup.printArea = `A1:${lastLetter}${pieRow}`
 
-  const ALTO_TIT  = 20
-  const ALTO_HDR1 = 13
-  const ALTO_HDR2 = 13
-  const ALTO_DATO = Math.floor((538 - ALTO_TIT - ALTO_HDR1 - ALTO_HDR2 - 10) / dias.length)
+    // Título
+    ws.mergeCells(`A1:${lastLetter}1`)
+    const tit = ws.getCell('A1')
+    tit.value = `POLAD · HIGA  —  ${NOMBRE_MES}  (Días ${d1} al ${d2})`
+    tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FFC8A84B'} }
+    tit.alignment = aln(); tit.fill = fill('1a1a2e')
+    tit.border = borde('medium','medium','medium','medium')
 
-  ws.getRow(1).height = ALTO_TIT
-  ws.getRow(2).height = ALTO_HDR1
-  ws.getRow(3).height = ALTO_HDR2
-  for (let r = 4; r <= 3 + dias.length; r++) ws.getRow(r).height = ALTO_DATO
-  const pieRow = 4 + dias.length
-  ws.getRow(pieRow).height = 10
-  ws.pageSetup.printArea = `A1:${lastColLetter}${pieRow}`
+    // Header fila 2: DÍA | TURNO | sectores
+    ws.mergeCells('A2:A3')
+    const hA = ws.getCell('A2')
+    hA.value = 'DÍA'; hA.font = font(true,8,'FFFFFF'); hA.alignment = aln()
+    hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
 
-  // TÍTULO
-  ws.mergeCells(`A1:${lastColLetter}1`)
-  const tit = ws.getCell('A1')
-  tit.value = `POLAD · HIGA  —  ${cfg.str}  —  ${NOMBRE_MES}  (Días ${d1} al ${d2})`
-  tit.font = { name: 'Arial', bold: true, size: 9, color: { argb: 'FF' + cfg.C_TIT } }
-  tit.alignment = aln(); tit.fill = fill('1a1a2e')
-  tit.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
-
-  // HEADER fila 2 (col A)
-  const hdrDia2 = ws.getCell('A2')
-  hdrDia2.value = 'DÍA'
-  hdrDia2.font = { name:'Arial', bold:true, size:8, color:{argb:'FFFFFFFF'} }
-  hdrDia2.alignment = aln()
-  hdrDia2.fill = fill('2d2d44')
-  hdrDia2.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'medium'}, right:{style:'medium'} }
-  ws.mergeCells('A2:A3')
-
-  sectores.forEach((sec, si) => {
-    const colA = 2 + si * 2
-    const colB = colA + 1
-    const colLetA = ws.getColumn(colA).letter
-    const colLetB = ws.getColumn(colB).letter
-    const isLast = si === sectores.length - 1
-
-    ws.mergeCells(`${colLetA}2:${colLetB}2`)
-    const cSec = ws.getCell(`${colLetA}2`)
-    cSec.value = sec
-    cSec.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
-    cSec.alignment = aln('center', true)
-    cSec.fill = fill(cfg.C_HDR)
-    cSec.border = { top:{style:'medium'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style: isLast?'medium':'thin'} }
-
-    ;[colLetA, colLetB].forEach((col, ei) => {
-      const c = ws.getCell(`${col}3`)
-      c.value = ei === 0 ? 'Ef.1' : 'Ef.2'
-      c.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
-      c.alignment = aln()
-      c.fill = fill(cfg.C_HDR)
-      c.border = { top:{style:'thin'}, bottom:{style:'medium'}, left:{style:'thin'}, right:{style: (isLast && ei===1) ? 'medium' : 'thin'} }
-    })
-  })
-
-  ws.getCell('A3').border = { bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
-
-  // DATOS
-  dias.forEach((dia, di) => {
-    const fila = 4 + di
-    const topS = di === 0 ? 'medium' : 'thin'
-    const botS = di === dias.length - 1 ? 'medium' : 'thin'
-
-    const cDia = ws.getCell(fila, 1)
-    cDia.value = dia
-    cDia.font = { name:'Arial', bold:true, size:8, color:{argb:'FFFFFFFF'} }
-    cDia.alignment = aln()
-    cDia.fill = fill(cfg.C_HDR)
-    cDia.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'medium'}, right:{style:'medium'} }
+    ws.mergeCells('B2:B3')
+    const hB = ws.getCell('B2')
+    hB.value = 'TURNO'; hB.font = font(true,8,'FFFFFF'); hB.alignment = aln()
+    hB.fill = fill('2d2d44'); hB.border = borde('medium','medium','thin','thin')
 
     sectores.forEach((sec, si) => {
-      const isLastSec = si === sectores.length - 1
-      ;[0, 1].forEach(ei => {
-        const col = 2 + si * 2 + ei
-        const nm = gds[dia]?.[sec]?.[ei] || ''
-        const c = ws.getCell(fila, col)
-        c.value = nm
-        c.font = { name:'Arial', size:6, color:{argb:'FF111122'} }
-        c.alignment = aln('center', true)
-        const colorFill = nm ? (ei===0 ? cfg.C_EF1 : cfg.C_EF2) : (ei < 2 ? 'E84040' : cfg.C_VACIO)
-        c.fill = fill(colorFill)
-        c.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'thin'}, right:{style: (isLastSec && ei===1) ? 'medium' : 'thin'} }
+      const cA = 3 + si * 2, cB = cA + 1
+      const lA = ws.getColumn(cA).letter, lB = ws.getColumn(cB).letter
+      const isLast = si === sectores.length - 1
+      ws.mergeCells(`${lA}2:${lB}2`)
+      const cSec = ws.getCell(`${lA}2`)
+      cSec.value = sec; cSec.font = font(true,7,'FFFFFF'); cSec.alignment = aln('center',true)
+      cSec.fill = fill('2d3a6b'); cSec.border = borde('medium','thin','thin', isLast?'medium':'thin')
+      ;[lA, lB].forEach((l, ei) => {
+        const c = ws.getCell(`${l}3`)
+        c.value = ei===0?'Ef.1':'Ef.2'; c.font = font(true,7,'FFFFFF'); c.alignment = aln()
+        c.fill = fill('1a2a5e'); c.border = borde('thin','medium','thin',(isLast&&ei===1)?'medium':'thin')
       })
     })
+
+    // Datos: 2 filas por día
+    const turnos = [
+      { key:'d', label:'DÍA  08:00–20:00',  C_HDR:'B8860B', C_EF1:'FFFBF0', C_EF2:'FFF0C0' },
+      { key:'n', label:'NOCHE  20:00–08:00', C_HDR:'1A3A6B', C_EF1:'EDF4FF', C_EF2:'C8DEFF' },
+    ]
+
+    dias.forEach((dia, di) => {
+      const filaD = 4 + di * 2
+      const filaN = filaD + 1
+      ws.mergeCells(`A${filaD}:A${filaN}`)
+      const cDia = ws.getCell(`A${filaD}`)
+      cDia.value = dia; cDia.font = font(true,11,'FFFFFF'); cDia.alignment = aln()
+      cDia.fill = fill('2d2d44'); cDia.border = borde('medium','medium','medium','thin')
+
+      turnos.forEach(({ key, label, C_HDR, C_EF1, C_EF2 }, ti) => {
+        const fila = filaD + ti
+        const topS = ti===0 ? 'medium' : 'thin'
+        const botS = ti===1 ? 'medium' : 'thin'
+        const cT = ws.getCell(`B${fila}`)
+        cT.value = label; cT.font = font(true,7,'FFFFFF'); cT.alignment = aln()
+        cT.fill = fill(C_HDR); cT.border = borde(topS,botS,'thin','thin')
+
+        sectores.forEach((sec, si) => {
+          const isLastSec = si === sectores.length - 1
+          ;[0,1].forEach(ei => {
+            const col = 3 + si * 2 + ei
+            const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
+            const c = ws.getCell(fila, col)
+            c.value = nm; c.font = { name:'Arial', size:6.5, color:{argb:'FF000000'} }
+            c.alignment = aln('center',true)
+            c.fill = fill(nm ? (ei===0?C_EF1:C_EF2) : 'E84040')
+            c.border = borde(topS,botS,'thin',(isLastSec&&ei===1)?'medium':'thin')
+          })
+        })
+      })
+    })
+
+    ws.mergeCells(`A${pieRow}:${lastLetter}${pieRow}`)
+    const pie = ws.getCell(`A${pieRow}`)
+    pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+    pie.font = { name:'Arial', size:6.5, italic:true, color:{argb:'FF8b90a0'} }
+    pie.alignment = aln(); pie.fill = fill('1a1a2e')
+    pie.border = borde('medium','medium','medium','medium')
+  }
+}
+
+// ── UPA: 1 fila por día, turnos lado a lado ───────────────────────────
+async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
+  const ws = wb.addWorksheet(`UPA ${NOMBRE_MES}`)
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+    horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  ws.getColumn(1).width = 5.0
+  ws.getColumn(2).width = 22.0; ws.getColumn(3).width = 22.0
+  ws.getColumn(4).width = 22.0; ws.getColumn(5).width = 22.0
+
+  ws.getRow(1).height = 24; ws.getRow(2).height = 14; ws.getRow(3).height = 12
+  const altoFila = Math.max(14, Math.floor((800 - 50 - 10) / DIAS_MES))
+  for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
+  const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
+  ws.pageSetup.printArea = `A1:E${pieRow}`
+
+  ws.mergeCells('A1:E1')
+  const tit = ws.getCell('A1')
+  tit.value = `POLAD · UPA  —  ${NOMBRE_MES}`
+  tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FFFF6633'} }
+  tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
+
+  ws.mergeCells('A2:A3')
+  const hA = ws.getCell('A2'); hA.value = 'DÍA'; hA.font = font(true,9,'FFFFFF')
+  hA.alignment = aln(); hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
+  ws.getCell('A3').border = borde('thin','medium','medium','thin')
+
+  ws.mergeCells('B2:C2')
+  const hB = ws.getCell('B2'); hB.value = 'TURNO DÍA  08:00 a 20:00'; hB.font = font(true,9,'FFFFFF')
+  hB.alignment = aln(); hB.fill = fill('B8860B'); hB.border = borde('medium','thin','thin','thin')
+
+  ws.mergeCells('D2:E2')
+  const hD = ws.getCell('D2'); hD.value = 'TURNO NOCHE  20:00 a 08:00'; hD.font = font(true,9,'FFFFFF')
+  hD.alignment = aln(); hD.fill = fill('1A3A6B'); hD.border = borde('medium','thin','thin','medium')
+
+  ;[['B3','Ef.1','B8860B'],['C3','Ef.2','B8860B'],['D3','Ef.1','1A3A6B'],['E3','Ef.2','1A3A6B']].forEach(([coord,val,bg],i) => {
+    const c = ws.getCell(coord); c.value = val; c.font = font(true,8,'FFFFFF')
+    c.alignment = aln(); c.fill = fill(bg); c.border = borde('thin','medium','thin',i===3?'medium':'thin')
   })
 
-  // PIE
-  ws.mergeCells(`A${pieRow}:${lastColLetter}${pieRow}`)
+  const colores = [['FFFBF0','FFF0C0'],['EDF4FF','C8DEFF']]
+  const keys = ['d','n']
+  for (let di = 0; di < DIAS_MES; di++) {
+    const dia = di+1, fila = 4+di
+    const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,10,'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    keys.forEach((key,ki) => {
+      ;[0,1].forEach(ei => {
+        const nm = gds[dia]?.[key]?.[ei] || ''
+        const c = ws.getCell(fila, 2+ki*2+ei); c.value = nm; c.font = font(false,8,'000000')
+        c.alignment = aln('center',true); c.fill = fill(nm?colores[ki][ei]:'E84040')
+        c.border = borde(topS,botS,'thin',(ki===1&&ei===1)?'medium':'thin')
+      })
+    })
+  }
+
+  ws.mergeCells(`A${pieRow}:E${pieRow}`)
   const pie = ws.getCell(`A${pieRow}`)
   pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
-  pie.font = { name:'Arial', size:6, italic:true, color:{argb:'FF8b90a0'} }
-  pie.alignment = aln()
-  pie.fill = fill('1a1a2e')
-  pie.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
+  pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
 }
 
-// ── UPA ───────────────────────────────────────────────────────────────
-async function generarUPA(wb, turnoKey, gds, diasMes, nombreMes) {
-  const cfg = getTurnoConfig(turnoKey, 'UPA')
-  const ws = wb.addWorksheet(`UPA ${nombreMes}`)
+// ── MODULAR: 1 fila por día, 3 turnos lado a lado ─────────────────────
+async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
+  const ws = wb.addWorksheet(`MODULAR ${NOMBRE_MES}`)
   ws.pageSetup = {
-    orientation: 'portrait', paperSize: 9, fitToPage: true,
-    fitToWidth: 1, fitToHeight: 1, horizontalCentered: true,
-    margins: { left:0.15, right:0.15, top:0.2, bottom:0.2, header:0, footer:0 }
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+    horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
   }
-
   ws.getColumn(1).width = 5.0
-  ws.getColumn(2).width = 42.5
-  ws.getColumn(3).width = 42.5
+  for (let i = 2; i <= 7; i++) ws.getColumn(i).width = 15.5
 
-  ws.getRow(1).height = 26
-  ws.getRow(2).height = 22
-  for (let r = 3; r <= 2 + diasMes; r++) ws.getRow(r).height = Math.floor((813 - 26 - 22 - 12) / diasMes)
-  const pieRow = 3 + diasMes
-  ws.getRow(pieRow).height = 12
-  ws.pageSetup.printArea = `A1:C${pieRow}`
+  ws.getRow(1).height = 24; ws.getRow(2).height = 14; ws.getRow(3).height = 12
+  const altoFila = Math.max(14, Math.floor((800 - 50 - 10) / DIAS_MES))
+  for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
+  const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
+  ws.pageSetup.printArea = `A1:G${pieRow}`
 
-  ws.mergeCells('A1:C1')
+  ws.mergeCells('A1:G1')
   const tit = ws.getCell('A1')
-  tit.value = `POLAD · UPA  —  ${cfg.str}  —  ${nombreMes}  (Mes completo)`
-  tit.font = { name:'Arial', bold:true, size:9, color:{argb:'FF'+cfg.C_TIT} }
-  tit.alignment = aln(); tit.fill = fill('1a1a2e')
-  tit.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
+  tit.value = `POLAD · MODULAR  —  ${NOMBRE_MES}`
+  tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FF20A0B0'} }
+  tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
 
-  ;[['A2','DÍA','2d2d44'],['B2','EFECTIVO 1',cfg.C_HDR],['C2','EFECTIVO 2',cfg.C_HDR]].forEach(([coord, val, bg], i) => {
-    const c = ws.getCell(coord)
-    c.value = val; c.font = font(true, 9, 'FFFFFF')
-    c.alignment = aln(); c.fill = fill(bg)
-    c.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:i===0?'medium':'thin'}, right:{style:i===2?'medium':'thin'} }
+  ws.mergeCells('A2:A3')
+  const hA = ws.getCell('A2'); hA.value = 'DÍA'; hA.font = font(true,9,'FFFFFF')
+  hA.alignment = aln(); hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
+  ws.getCell('A3').border = borde('thin','medium','medium','thin')
+
+  const turnosConf = [
+    { key:'m', label:'MAÑANA  08:00–16:00',  C_HDR:'B8860B', C_EF1:'FFFBF0', C_EF2:'FFF0C0', colI:2 },
+    { key:'t', label:'TARDE  16:00–23:59',   C_HDR:'5A4A8A', C_EF1:'F0EDFF', C_EF2:'E0D8FF', colI:4 },
+    { key:'n', label:'NOCHE  23:59–08:00',   C_HDR:'1A3A6B', C_EF1:'EDF4FF', C_EF2:'C8DEFF', colI:6 },
+  ]
+
+  turnosConf.forEach(({ label, C_HDR, colI }, ti) => {
+    const lA = ws.getColumn(colI).letter, lB = ws.getColumn(colI+1).letter
+    const isLast = ti === turnosConf.length - 1
+    ws.mergeCells(`${lA}2:${lB}2`)
+    const c2 = ws.getCell(`${lA}2`); c2.value = label; c2.font = font(true,8,'FFFFFF')
+    c2.alignment = aln(); c2.fill = fill(C_HDR); c2.border = borde('medium','thin','thin',isLast?'medium':'thin')
+    ;[lA, lB].forEach((l, ei) => {
+      const c3 = ws.getCell(`${l}3`); c3.value = `Ef.${ei+1}`; c3.font = font(true,8,'FFFFFF')
+      c3.alignment = aln(); c3.fill = fill(C_HDR); c3.border = borde('thin','medium','thin',(isLast&&ei===1)?'medium':'thin')
+    })
   })
 
-  for (let di = 0; di < diasMes; di++) {
-    const dia = di + 1
-    const fila = 3 + di
-    const topS = di === 0 ? 'medium' : 'thin'
-    const botS = di === diasMes - 1 ? 'medium' : 'thin'
-
-    const cDia = ws.getCell(fila, 1)
-    cDia.value = dia; cDia.font = font(true, 10, 'FFFFFF')
-    cDia.alignment = aln(); cDia.fill = fill(cfg.C_HDR)
-    cDia.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'medium'}, right:{style:'medium'} }
-
-    ;[0,1].forEach(j => {
-      const nm = gds[dia]?.[j] || ''
-      const c = ws.getCell(fila, 2 + j)
-      c.value = nm; c.font = font(false, 9, '111122')
-      c.alignment = aln(); c.fill = fill(nm ? (j===0 ? cfg.C_EF1 : cfg.C_EF2) : cfg.C_VACIO)
-      c.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'thin'}, right:{style:j===1?'medium':'thin'} }
+  for (let di = 0; di < DIAS_MES; di++) {
+    const dia = di+1, fila = 4+di
+    const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,11,'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    turnosConf.forEach(({ key, C_EF1, C_EF2, colI }, ti) => {
+      const isLast = ti === turnosConf.length - 1
+      ;[0,1].forEach(ei => {
+        const nm = gds[dia]?.[key]?.[ei] || ''
+        const c = ws.getCell(fila, colI+ei); c.value = nm; c.font = font(false,7.5,'000000')
+        c.alignment = aln('center',true); c.fill = fill(nm?(ei===0?C_EF1:C_EF2):'E84040')
+        c.border = borde(topS,botS,'thin',(isLast&&ei===1)?'medium':'thin')
+      })
     })
   }
 
-  ws.mergeCells(`A${pieRow}:C${pieRow}`)
+  ws.mergeCells(`A${pieRow}:G${pieRow}`)
   const pie = ws.getCell(`A${pieRow}`)
-  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${nombreMes}`
-  pie.font = { name:'Arial', size:7.5, italic:true, color:{argb:'FF8b90a0'} }
-  pie.alignment = aln(); pie.fill = fill('1a1a2e')
-  pie.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
+  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+  pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
 }
 
-// ── MODULAR ───────────────────────────────────────────────────────────
-async function generarMODULAR(wb, turnoKey, gds, diasMes, nombreMes) {
-  const cfg = getTurnoConfig(turnoKey, 'MODULAR')
-  const ws = wb.addWorksheet(`MODULAR ${nombreMes}`)
-  ws.pageSetup = {
-    orientation: 'portrait', paperSize: 9, fitToPage: true,
-    fitToWidth: 1, fitToHeight: 1, horizontalCentered: true,
-    margins: { left:0.15, right:0.15, top:0.2, bottom:0.2, header:0, footer:0 }
-  }
-
-  ws.getColumn(1).width = 5.0
-  ws.getColumn(2).width = 28.0
-  ws.getColumn(3).width = 28.0
-  ws.getColumn(4).width = 28.0
-
-  ws.getRow(1).height = 26
-  ws.getRow(2).height = 22
-  for (let r = 3; r <= 2 + diasMes; r++) ws.getRow(r).height = Math.floor((813 - 26 - 22 - 12) / diasMes)
-  const pieRow = 3 + diasMes
-  ws.getRow(pieRow).height = 12
-  ws.pageSetup.printArea = `A1:D${pieRow}`
-
-  ws.mergeCells('A1:D1')
-  const tit = ws.getCell('A1')
-  tit.value = `POLAD · MODULAR  —  ${cfg.str}  —  ${nombreMes}  (Mes completo)`
-  tit.font = { name:'Arial', bold:true, size:9, color:{argb:'FF'+cfg.C_TIT} }
-  tit.alignment = aln(); tit.fill = fill('1a1a2e')
-  tit.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
-
-  ;[['A2','DÍA','2d2d44','medium','medium'],
-    ['B2','EFECTIVO 1',cfg.C_HDR,'thin','thin'],
-    ['C2','EFECTIVO 2',cfg.C_HDR,'thin','thin'],
-    ['D2','EFECTIVO 3',cfg.C_HDR,'thin','medium']
-  ].forEach(([coord, val, bg, lft, rgt]) => {
-    const c = ws.getCell(coord)
-    c.value = val; c.font = font(true, 9, 'FFFFFF')
-    c.alignment = aln(); c.fill = fill(bg)
-    c.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:lft}, right:{style:rgt} }
-  })
-
-  for (let di = 0; di < diasMes; di++) {
-    const dia = di + 1
-    const fila = 3 + di
-    const topS = di === 0 ? 'medium' : 'thin'
-    const botS = di === diasMes - 1 ? 'medium' : 'thin'
-
-    const cDia = ws.getCell(fila, 1)
-    cDia.value = dia; cDia.font = font(true, 11, 'FFFFFF')
-    cDia.alignment = aln(); cDia.fill = fill(cfg.C_HDR)
-    cDia.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'medium'}, right:{style:'medium'} }
-
-    ;[0,1,2].forEach(j => {
-      const nm = gds[dia]?.[j] || ''
-      const c = ws.getCell(fila, 2 + j)
-      c.value = nm; c.font = font(false, 7, '111122')
-      c.alignment = aln('center', true)
-      c.fill = fill(nm ? [cfg.C_EF1, cfg.C_EF2, cfg.C_EF3][j] : cfg.C_VACIO)
-      c.border = { top:{style:topS}, bottom:{style:botS}, left:{style:'thin'}, right:{style:j===2?'medium':'thin'} }
-    })
-  }
-
-  ws.mergeCells(`A${pieRow}:D${pieRow}`)
-  const pie = ws.getCell(`A${pieRow}`)
-  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${nombreMes}`
-  pie.font = { name:'Arial', size:7.5, italic:true, color:{argb:'FF8b90a0'} }
-  pie.alignment = aln(); pie.fill = fill('1a1a2e')
-  pie.border = { top:{style:'medium'}, bottom:{style:'medium'}, left:{style:'medium'}, right:{style:'medium'} }
-}
-
-// ── HANDLER PRINCIPAL ─────────────────────────────────────────────────
+// ── HANDLER ────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
+  const { lugar, mes, anio } = req.query
+  if (!lugar || !mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
 
-  const { lugar, turno, mes, anio } = req.query
-  if (!lugar || !turno || !mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
+  const MES = parseInt(mes), ANIO = parseInt(anio)
+  const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+  const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto',
+    'Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
 
-  const MES  = parseInt(mes)
-  const ANIO = parseInt(anio)
-  const DIAS_MES   = new Date(ANIO, MES, 0).getDate()
-  const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
-
-  // Cargar efectivos de este lugar
-  const { data: efectivos } = await supabase
-    .from('efectivos')
-    .select('*')
-    .eq('es_admin', false)
-    .eq('lugar', lugar)
+  const { data: efectivos } = await supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', lugar)
 
   const wb = new ExcelJS.Workbook()
   wb.creator = 'POLAD HIGA UPA'
@@ -351,47 +305,43 @@ export default async function handler(req, res) {
   if (lugar === 'HIGA') {
     const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
     const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).eq('turno', turno).in('sector', sectores)
-
+      .eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
     const gds = {}
-    for (let d = 1; d <= DIAS_MES; d++) { gds[d] = {}; sectores.forEach(s => { gds[d][s] = [] }) }
+    for (let d = 1; d <= DIAS_MES; d++) {
+      gds[d] = {}
+      for (const t of ['d','n']) { gds[d][t] = {}; sectores.forEach(s => { gds[d][t][s] = [] }) }
+    }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef && gds[t.dia]?.[t.sector]) gds[t.dia][t.sector].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]?.[t.sector]) gds[t.dia][t.turno][t.sector].push(fmtNombre(ef))
     })
-    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, 1, 15)
-    await generarHIGA(wb, turno, gds, sectores, MES, ANIO, DIAS_MES, NOMBRE_MES, 16, DIAS_MES)
+    await generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES)
 
   } else if (lugar === 'UPA') {
     const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).eq('turno', turno).eq('sector', 'UPA')
-
+      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'UPA')
     const gds = {}
-    for (let d = 1; d <= DIAS_MES; d++) gds[d] = []
+    for (let d = 1; d <= DIAS_MES; d++) gds[d] = { d:[], n:[] }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef) gds[t.dia].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
     })
-    await generarUPA(wb, turno, gds, DIAS_MES, NOMBRE_MES)
+    await generarUPA(wb, gds, DIAS_MES, NOMBRE_MES)
 
   } else if (lugar === 'MODULAR') {
-    // MODULAR usa turnos m (mañana), t (tarde), n (noche)
     const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).eq('turno', turno).eq('sector', 'Modular')
-
+      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'Modular')
     const gds = {}
-    for (let d = 1; d <= DIAS_MES; d++) gds[d] = []
+    for (let d = 1; d <= DIAS_MES; d++) gds[d] = { m:[], t:[], n:[] }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef) gds[t.dia].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
     })
-    await generarMODULAR(wb, turno, gds, DIAS_MES, NOMBRE_MES)
+    await generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES)
   }
 
   const buffer = await wb.xlsx.writeBuffer()
-  const turnoLabel = turno === 'm' ? 'MANANA' : turno === 't' ? 'TARDE' : turno === 'n' ? 'NOCHE' : turno === 'd' ? 'DIA' : 'NOCHE'
-  const filename = `${lugar}_${turnoLabel}_${NOMBRE_MES.replace(' ','')}.xlsx`
-
+  const filename = `POLAD_${lugar}_${NOMBRE_MES.replace(' ','_')}.xlsx`
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(Buffer.from(buffer))
