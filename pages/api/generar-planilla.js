@@ -52,9 +52,9 @@ function borde(top, bot, left, right) {
   return { top: s(top), bottom: s(bot), left: s(left), right: s(right) }
 }
 
-// ── HIGA: landscape, 2 filas por día, 15 días por hoja ───────────────
+// ── HIGA: landscape, 2 filas por día, 10 días por hoja ───────────────
 async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
-  const rangos = [[1, 15], [16, DIAS_MES]]
+  const rangos = [[1,10],[11,20],[21,DIAS_MES]]
 
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
@@ -63,32 +63,24 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
       fitToPage: true, fitToWidth: 1, fitToHeight: 1,
       margins: { left:0.2, right:0.2, top:0.2, bottom:0.2, header:0, footer:0 }
     }
-    ws.pageSetup.printTitlesRow = '1:3'
 
-    // Columnas: DÍA(4) + TURNO(11) + 5 sectores × 2 ef
     ws.getColumn(1).width = 4.5
-    ws.getColumn(2).width = 11.5
-    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 15.0
+    ws.getColumn(2).width = 12.0
+    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 15.5
 
     const totalCols = 2 + sectores.length * 2
     const lastLetter = ws.getColumn(totalCols).letter
     const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
-    const rowsData = dias.length * 2  // 2 filas por día
+    const rowsData = dias.length * 2
 
-    // A4 landscape usable height ≈ 557pt (210mm - 2×0.3" márgenes)
-    // Filas fijas: título(18) + hdr2(12) + hdr3(10) + pie(9) = 49pt
-    // Variable disponible: 557 - 49 = 508pt para rowsData filas
-    const ALTO_FIJA_TOTAL = 49
-    const A4_LANDSCAPE_H = 557
-    const altoFila = Math.floor((A4_LANDSCAPE_H - ALTO_FIJA_TOTAL) / rowsData)
-
-    ws.getRow(1).height = 18
-    ws.getRow(2).height = 12
-    ws.getRow(3).height = 10
-    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = altoFila
+    ws.getRow(1).height = 20
+    ws.getRow(2).height = 14
+    ws.getRow(3).height = 12
+    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = 22
     const pieRow = 4 + rowsData
-    ws.getRow(pieRow).height = 9
+    ws.getRow(pieRow).height = 10
     ws.pageSetup.printArea = `A1:${lastLetter}${pieRow}`
+
 
     // Título
     ws.mergeCells(`A1:${lastLetter}1`)
