@@ -45,29 +45,31 @@ function borde(top, bot, left, right) {
 
 // ── HIGA: 2 filas por día (DÍA + NOCHE), columnas por sector ──────────
 async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
-  const rangos = [[1, 15], [16, DIAS_MES]]
+  // 10 días por hoja para que haya espacio suficiente
+  const rangos = []
+  for (let d = 1; d <= DIAS_MES; d += 10) rangos.push([d, Math.min(d + 9, DIAS_MES)])
 
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
       orientation: 'landscape', paperSize: 9, fitToPage: true,
-      fitToWidth: 1, fitToHeight: 1,
-      margins: { left:0.15, right:0.15, top:0.2, bottom:0.2, header:0, footer:0 }
+      fitToWidth: 1,
+      margins: { left:0.2, right:0.2, top:0.25, bottom:0.25, header:0, footer:0 }
     }
 
-    ws.getColumn(1).width = 4.5
-    ws.getColumn(2).width = 10.5
-    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 11.5
+    ws.getColumn(1).width = 5.0   // DÍA
+    ws.getColumn(2).width = 14.0  // TURNO — más ancho para "NOCHE 20:00-08:00"
+    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 13.0
 
     const totalCols = 2 + sectores.length * 2
     const lastLetter = ws.getColumn(totalCols).letter
     const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
     const rowsData = dias.length * 2
 
-    ws.getRow(1).height = 18
-    ws.getRow(2).height = 12
-    ws.getRow(3).height = 11
-    const altoFila = Math.max(14, Math.floor((500 - 41 - 10) / rowsData))
+    ws.getRow(1).height = 20  // título
+    ws.getRow(2).height = 14  // header sector
+    ws.getRow(3).height = 12  // header ef
+    const altoFila = 24       // altura fija cómoda por fila de dato
     for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = altoFila
     const pieRow = 4 + rowsData
     ws.getRow(pieRow).height = 10
@@ -157,15 +159,15 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
 async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
   const ws = wb.addWorksheet(`UPA ${NOMBRE_MES}`)
   ws.pageSetup = {
-    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
     horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
   }
   ws.getColumn(1).width = 5.0
   ws.getColumn(2).width = 22.0; ws.getColumn(3).width = 22.0
   ws.getColumn(4).width = 22.0; ws.getColumn(5).width = 22.0
 
-  ws.getRow(1).height = 24; ws.getRow(2).height = 14; ws.getRow(3).height = 12
-  const altoFila = Math.max(14, Math.floor((800 - 50 - 10) / DIAS_MES))
+  ws.getRow(1).height = 24; ws.getRow(2).height = 16; ws.getRow(3).height = 13
+  const altoFila = 24
   for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
   const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
   ws.pageSetup.printArea = `A1:E${pieRow}`
@@ -222,14 +224,14 @@ async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
 async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
   const ws = wb.addWorksheet(`MODULAR ${NOMBRE_MES}`)
   ws.pageSetup = {
-    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
     horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
   }
   ws.getColumn(1).width = 5.0
   for (let i = 2; i <= 7; i++) ws.getColumn(i).width = 15.5
 
-  ws.getRow(1).height = 24; ws.getRow(2).height = 14; ws.getRow(3).height = 12
-  const altoFila = Math.max(14, Math.floor((800 - 50 - 10) / DIAS_MES))
+  ws.getRow(1).height = 24; ws.getRow(2).height = 16; ws.getRow(3).height = 13
+  const altoFila = 24
   for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
   const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
   ws.pageSetup.printArea = `A1:G${pieRow}`
