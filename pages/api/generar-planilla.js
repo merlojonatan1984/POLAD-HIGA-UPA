@@ -60,23 +60,27 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
       orientation: 'landscape', paperSize: 9,
-      fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+      fitToPage: true, fitToWidth: 1,
       margins: { left:0.2, right:0.2, top:0.2, bottom:0.2, header:0, footer:0 }
     }
+
+    // A4 landscape usable height: 210mm - 2×0.2" margins = 595 - 29 = 566pt
+    // Filas fijas: titulo(20)+hdr2(14)+hdr3(12)+pie(10) = 56pt
+    // Filas data: (d2-d1+1)*2 filas → altoFila = (566-56)/((d2-d1+1)*2)
+    const totalCols = 2 + sectores.length * 2
+    const lastLetter = ws.getColumn(totalCols).letter
+    const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
+    const rowsData = dias.length * 2
+    const altoFila = Math.floor((566 - 56) / rowsData)
 
     ws.getColumn(1).width = 4.5
     ws.getColumn(2).width = 12.0
     for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 15.5
 
-    const totalCols = 2 + sectores.length * 2
-    const lastLetter = ws.getColumn(totalCols).letter
-    const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
-    const rowsData = dias.length * 2
-
     ws.getRow(1).height = 20
     ws.getRow(2).height = 14
     ws.getRow(3).height = 12
-    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = 22
+    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = altoFila
     const pieRow = 4 + rowsData
     ws.getRow(pieRow).height = 10
     ws.pageSetup.printArea = `A1:${lastLetter}${pieRow}`
@@ -142,7 +146,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
             const col = 3 + si * 2 + ei
             const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
             const c = ws.getCell(fila, col)
-            c.value = nm; c.font = { name:'Arial', size:7, color:{argb:'FF000000'} }
+            c.value = nm; c.font = { name:'Arial', size:6.5, color:{argb:'FF000000'} }
             c.alignment = { horizontal:'center', vertical:'middle', wrapText:false }
             c.fill = fill(nm ? (ei===0?C_EF1:C_EF2) : 'E84040')
             c.border = borde(topS,botS,'thin',(isLastSec&&ei===1)?'medium':'thin')
