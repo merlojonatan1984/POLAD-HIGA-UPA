@@ -43,116 +43,99 @@ function borde(top, bot, left, right) {
   return { top: s(top), bottom: s(bot), left: s(left), right: s(right) }
 }
 
-// ── HIGA: 2 filas por día (DÍA + NOCHE), columnas por sector ──────────
+// ── HIGA: layout vertical — sectores como filas ───────────────────────
 async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
-  // 10 días por hoja para que haya espacio suficiente
-  const rangos = []
-  for (let d = 1; d <= DIAS_MES; d += 10) rangos.push([d, Math.min(d + 9, DIAS_MES)])
+  const ws = wb.addWorksheet(`HIGA ${NOMBRE_MES}`)
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+    margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  ws.pageSetup.printTitlesRow = '1:3'
 
-  for (const [d1, d2] of rangos) {
-    const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
-    ws.pageSetup = {
-      orientation: 'landscape', paperSize: 9, fitToPage: true,
-      fitToWidth: 1,
-      margins: { left:0.2, right:0.2, top:0.25, bottom:0.25, header:0, footer:0 }
-    }
+  ws.getColumn(1).width = 18.0  // SECTOR
+  ws.getColumn(2).width = 19.0  // DÍA Ef.1
+  ws.getColumn(3).width = 19.0  // DÍA Ef.2
+  ws.getColumn(4).width = 19.0  // NOCHE Ef.1
+  ws.getColumn(5).width = 19.0  // NOCHE Ef.2
 
-    ws.getColumn(1).width = 5.0   // DÍA
-    ws.getColumn(2).width = 14.0  // TURNO — más ancho para "NOCHE 20:00-08:00"
-    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 13.0
+  // Título
+  ws.getRow(1).height = 22
+  ws.mergeCells('A1:E1')
+  const tit = ws.getCell('A1')
+  tit.value = `POLAD · HIGA  —  ${NOMBRE_MES}`
+  tit.font = { name:'Arial', bold:true, size:11, color:{argb:'FFC8A84B'} }
+  tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
 
-    const totalCols = 2 + sectores.length * 2
-    const lastLetter = ws.getColumn(totalCols).letter
-    const dias = Array.from({ length: d2 - d1 + 1 }, (_, i) => i + d1)
-    const rowsData = dias.length * 2
+  // Header turno (fila 2)
+  ws.getRow(2).height = 13
+  ws.mergeCells('A2:A3')
+  const hSec = ws.getCell('A2'); hSec.value = 'SECTOR'; hSec.font = font(true,8,'FFFFFF')
+  hSec.alignment = aln(); hSec.fill = fill('2d2d44'); hSec.border = borde('medium','medium','medium','thin')
 
-    ws.getRow(1).height = 20  // título
-    ws.getRow(2).height = 14  // header sector
-    ws.getRow(3).height = 12  // header ef
-    const altoFila = 24       // altura fija cómoda por fila de dato
-    for (let r = 4; r <= 3 + rowsData; r++) ws.getRow(r).height = altoFila
-    const pieRow = 4 + rowsData
-    ws.getRow(pieRow).height = 10
-    ws.pageSetup.printArea = `A1:${lastLetter}${pieRow}`
+  ws.mergeCells('B2:C2')
+  const hDia = ws.getCell('B2'); hDia.value = 'TURNO DÍA  08:00–20:00'; hDia.font = font(true,8,'FFFFFF')
+  hDia.alignment = aln(); hDia.fill = fill('B8860B'); hDia.border = borde('medium','thin','thin','thin')
 
-    // Título
-    ws.mergeCells(`A1:${lastLetter}1`)
-    const tit = ws.getCell('A1')
-    tit.value = `POLAD · HIGA  —  ${NOMBRE_MES}  (Días ${d1} al ${d2})`
-    tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FFC8A84B'} }
-    tit.alignment = aln(); tit.fill = fill('1a1a2e')
-    tit.border = borde('medium','medium','medium','medium')
+  ws.mergeCells('D2:E2')
+  const hNoc = ws.getCell('D2'); hNoc.value = 'TURNO NOCHE  20:00–08:00'; hNoc.font = font(true,8,'FFFFFF')
+  hNoc.alignment = aln(); hNoc.fill = fill('1A3A6B'); hNoc.border = borde('medium','thin','thin','medium')
 
-    // Header fila 2: DÍA | TURNO | sectores
-    ws.mergeCells('A2:A3')
-    const hA = ws.getCell('A2')
-    hA.value = 'DÍA'; hA.font = font(true,8,'FFFFFF'); hA.alignment = aln()
-    hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
+  // Header ef (fila 3)
+  ws.getRow(3).height = 11
+  ws.getCell('A3').border = borde('thin','medium','medium','thin')
+  ;[['B3','Ef.1','B8860B'],['C3','Ef.2','B8860B'],['D3','Ef.1','1A3A6B'],['E3','Ef.2','1A3A6B']].forEach(([coord,val,bg],i) => {
+    const c = ws.getCell(coord); c.value = val; c.font = font(true,8,'FFFFFF')
+    c.alignment = aln(); c.fill = fill(bg); c.border = borde('thin','medium','thin',i===3?'medium':'thin')
+  })
 
-    ws.mergeCells('B2:B3')
-    const hB = ws.getCell('B2')
-    hB.value = 'TURNO'; hB.font = font(true,8,'FFFFFF'); hB.alignment = aln()
-    hB.fill = fill('2d2d44'); hB.border = borde('medium','medium','thin','thin')
+  // Datos: por día, por sector
+  let row = 4
+  for (let dia = 1; dia <= DIAS_MES; dia++) {
+    // Header del día
+    ws.getRow(row).height = 15
+    ws.mergeCells(`A${row}:E${row}`)
+    const cDia = ws.getCell(`A${row}`)
+    cDia.value = `DÍA ${dia}`
+    cDia.font = font(true, 9, 'FFFFFF'); cDia.alignment = aln()
+    cDia.fill = fill('2d2d44'); cDia.border = borde('medium','thin','medium','medium')
+    row++
 
     sectores.forEach((sec, si) => {
-      const cA = 3 + si * 2, cB = cA + 1
-      const lA = ws.getColumn(cA).letter, lB = ws.getColumn(cB).letter
       const isLast = si === sectores.length - 1
-      ws.mergeCells(`${lA}2:${lB}2`)
-      const cSec = ws.getCell(`${lA}2`)
-      cSec.value = sec; cSec.font = font(true,7,'FFFFFF'); cSec.alignment = aln('center',true)
-      cSec.fill = fill('2d3a6b'); cSec.border = borde('medium','thin','thin', isLast?'medium':'thin')
-      ;[lA, lB].forEach((l, ei) => {
-        const c = ws.getCell(`${l}3`)
-        c.value = ei===0?'Ef.1':'Ef.2'; c.font = font(true,7,'FFFFFF'); c.alignment = aln()
-        c.fill = fill('1a2a5e'); c.border = borde('thin','medium','thin',(isLast&&ei===1)?'medium':'thin')
-      })
-    })
+      ws.getRow(row).height = 22
 
-    // Datos: 2 filas por día
-    const turnos = [
-      { key:'d', label:'DÍA  08:00–20:00',  C_HDR:'B8860B', C_EF1:'FFFBF0', C_EF2:'FFF0C0' },
-      { key:'n', label:'NOCHE  20:00–08:00', C_HDR:'1A3A6B', C_EF1:'EDF4FF', C_EF2:'C8DEFF' },
-    ]
+      const cSec = ws.getCell(`A${row}`)
+      cSec.value = sec; cSec.font = font(true, 8, 'FFFFFF')
+      cSec.alignment = { horizontal:'left', vertical:'middle' }
+      cSec.fill = fill('2d3a6b')
+      cSec.border = borde('thin', isLast?'medium':'thin', 'medium', 'thin')
 
-    dias.forEach((dia, di) => {
-      const filaD = 4 + di * 2
-      const filaN = filaD + 1
-      ws.mergeCells(`A${filaD}:A${filaN}`)
-      const cDia = ws.getCell(`A${filaD}`)
-      cDia.value = dia; cDia.font = font(true,11,'FFFFFF'); cDia.alignment = aln()
-      cDia.fill = fill('2d2d44'); cDia.border = borde('medium','medium','medium','thin')
-
-      turnos.forEach(({ key, label, C_HDR, C_EF1, C_EF2 }, ti) => {
-        const fila = filaD + ti
-        const topS = ti===0 ? 'medium' : 'thin'
-        const botS = ti===1 ? 'medium' : 'thin'
-        const cT = ws.getCell(`B${fila}`)
-        cT.value = label; cT.font = font(true,7,'FFFFFF'); cT.alignment = aln()
-        cT.fill = fill(C_HDR); cT.border = borde(topS,botS,'thin','thin')
-
-        sectores.forEach((sec, si) => {
-          const isLastSec = si === sectores.length - 1
-          ;[0,1].forEach(ei => {
-            const col = 3 + si * 2 + ei
-            const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
-            const c = ws.getCell(fila, col)
-            c.value = nm; c.font = { name:'Arial', size:6.5, color:{argb:'FF000000'} }
-            c.alignment = aln('center',true)
-            c.fill = fill(nm ? (ei===0?C_EF1:C_EF2) : 'E84040')
-            c.border = borde(topS,botS,'thin',(isLastSec&&ei===1)?'medium':'thin')
-          })
+      const turnos = [
+        { key:'d', C_EF1:'FFFBF0', C_EF2:'FFF0C0', colStart:2 },
+        { key:'n', C_EF1:'EDF4FF', C_EF2:'C8DEFF', colStart:4 },
+      ]
+      turnos.forEach(({ key, C_EF1, C_EF2, colStart }) => {
+        ;[0,1].forEach(ei => {
+          const col = colStart + ei
+          const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
+          const c = ws.getCell(row, col)
+          c.value = nm; c.font = { name:'Arial', size:8, color:{argb:'FF000000'} }
+          c.alignment = aln('center', true)
+          c.fill = fill(nm ? (ei===0?C_EF1:C_EF2) : 'E84040')
+          c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
         })
       })
+      row++
     })
-
-    ws.mergeCells(`A${pieRow}:${lastLetter}${pieRow}`)
-    const pie = ws.getCell(`A${pieRow}`)
-    pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
-    pie.font = { name:'Arial', size:6.5, italic:true, color:{argb:'FF8b90a0'} }
-    pie.alignment = aln(); pie.fill = fill('1a1a2e')
-    pie.border = borde('medium','medium','medium','medium')
   }
+
+  // Pie
+  ws.getRow(row).height = 10
+  ws.mergeCells(`A${row}:E${row}`)
+  const pie = ws.getCell(`A${row}`)
+  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+  pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
 }
 
 // ── UPA: 1 fila por día, turnos lado a lado ───────────────────────────
