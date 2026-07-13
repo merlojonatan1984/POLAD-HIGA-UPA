@@ -59,17 +59,26 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
-      orientation: 'portrait', paperSize: 9, fitToPage: true,
-      fitToWidth: 1, fitToHeight: 1,
+      orientation: 'portrait', paperSize: 9,
+      scale: 100,
       margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
     }
     ws.pageSetup.printTitlesRow = '1:3'
 
-    ws.getColumn(1).width = 18.0
-    ws.getColumn(2).width = 19.0
-    ws.getColumn(3).width = 19.0
-    ws.getColumn(4).width = 19.0
-    ws.getColumn(5).width = 19.0
+    // A4 portrait usable height ≈ 799pt (con márgenes 0.3")
+    // Filas fijas: título(22) + hdr2(13) + hdr3(11) + pie(10) = 56pt
+    // Filas variables: 10 day headers + 50 sector rows = 60 rows
+    // Disponible para variables: 799 - 56 = 743pt
+    // day_h = 15, sec_h = (743 - 10*15) / 50 = 593/50 ≈ 12pt
+    const ALTO_DIA_HDR = 15
+    const ALTO_SEC = Math.round((743 - (d2 - d1 + 1) * ALTO_DIA_HDR) / ((d2 - d1 + 1) * sectores.length))
+
+    // Columnas ajustadas a A4 portrait (usable ≈ 194mm ≈ 76 chars)
+    ws.getColumn(1).width = 16.0  // SECTOR
+    ws.getColumn(2).width = 15.0  // DÍA Ef.1
+    ws.getColumn(3).width = 15.0  // DÍA Ef.2
+    ws.getColumn(4).width = 15.0  // NOCHE Ef.1
+    ws.getColumn(5).width = 15.0  // NOCHE Ef.2
 
     // Título
     ws.getRow(1).height = 22
@@ -104,7 +113,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     // Datos: por día, por sector
     let row = 4
     for (let dia = d1; dia <= d2; dia++) {
-      ws.getRow(row).height = 15
+      ws.getRow(row).height = ALTO_DIA_HDR
       ws.mergeCells(`A${row}:E${row}`)
       const cDia = ws.getCell(`A${row}`)
       cDia.value = `DÍA ${dia}`
@@ -114,9 +123,9 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
 
       sectores.forEach((sec, si) => {
         const isLast = si === sectores.length - 1
-        ws.getRow(row).height = 22
+        ws.getRow(row).height = ALTO_SEC
         const cSec = ws.getCell(`A${row}`)
-        cSec.value = sec; cSec.font = font(true, 8, 'FFFFFF')
+        cSec.value = sec; cSec.font = font(true, 7, 'FFFFFF')
         cSec.alignment = { horizontal:'left', vertical:'middle' }
         cSec.fill = fill('2d3a6b')
         cSec.border = borde('thin', isLast?'medium':'thin', 'medium', 'thin')
@@ -130,8 +139,8 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
             const col = colStart + ei
             const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
             const c = ws.getCell(row, col)
-            c.value = nm; c.font = { name:'Arial', size:8, color:{argb:'FF000000'} }
-            c.alignment = aln('center', true)
+            c.value = nm; c.font = { name:'Arial', size:7, color:{argb:'FF000000'} }
+            c.alignment = { horizontal:'center', vertical:'middle', wrapText: false }
             c.fill = fill(nm ? (ei===0?C_EF1:C_EF2) : 'E84040')
             c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
           })
