@@ -1980,24 +1980,36 @@ export default function AdminApp() {
         })()}
 
         {vista === 'descarga' && (() => {
-          const handleDescargar = async (turno, key) => { setDescargando(key); try { await descargarPlanilla(turno) } catch(e) { alert('Error') }; setDescargando(null) }
+          const handleDescargar = async () => {
+            setDescargando('planilla')
+            try {
+              const url = `/api/generar-planilla?lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`
+              const r = await fetch(url)
+              if (!r.ok) throw new Error('Error al generar')
+              const blob = await r.blob()
+              const a = document.createElement('a')
+              a.href = URL.createObjectURL(blob)
+              a.download = `POLAD_${lugarDetectado}_${NOMBRE_MES.replace(' ','_')}.xlsx`
+              a.click()
+            } catch(e) { alert('Error al generar la planilla') }
+            setDescargando(null)
+          }
           return (
             <div>
               <div style={{ marginBottom:20 }}>
                 <h3 style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Planilla de guardia — {APP_LUGAR}</h3>
-                <p style={{ fontSize:12,color:'var(--text-muted)' }}>Descargá las planillas de {NOMBRE_MES}</p>
+                <p style={{ fontSize:12,color:'var(--text-muted)' }}>Planilla completa de {NOMBRE_MES}, organizada por día con todos los turnos</p>
               </div>
-              <div style={{ display:'grid',gridTemplateColumns:`repeat(${TURNOS_INFO.length},1fr)`,gap:16,maxWidth:600 }}>
-                {TURNOS_INFO.map(ti => (
-                  <button key={ti.key} disabled={!!descargando} style={{ display:'flex',alignItems:'center',gap:10,padding:'16px',borderRadius:10,border:`0.5px solid ${ti.color}55`,background:descargando===ti.key?`${ti.color}22`:`${ti.color}11`,color:ti.color,cursor:descargando?'wait':'pointer',fontSize:13,fontWeight:500,opacity:descargando&&descargando!==ti.key?0.5:1 }} onClick={()=>handleDescargar(ti.key,ti.key)}>
-                    <span style={{ fontSize:20 }}>{descargando===ti.key?'⏳':'⬇'}</span>
-                    <div style={{ textAlign:'left' }}>
-                      <div>⬇ {ti.label}</div>
-                      <div style={{ fontSize:10,opacity:0.7,marginTop:2 }}>{descargando===ti.key?'Generando...':`${APP_LUGAR}_${ti.key}_${NOMBRE_MES}.xlsx`}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <button disabled={!!descargando} onClick={handleDescargar}
+                style={{ display:'flex',alignItems:'center',gap:12,padding:'18px 28px',borderRadius:10,border:`0.5px solid ${COLOR_APP}55`,background:descargando?`${COLOR_APP}22`:`${COLOR_APP}11`,color:COLOR_APP,cursor:descargando?'wait':'pointer',fontSize:14,fontWeight:500 }}>
+                <span style={{ fontSize:22 }}>{descargando?'⏳':'⬇'}</span>
+                <div style={{ textAlign:'left' }}>
+                  <div>{descargando?'Generando planilla...':'Descargar planilla mensual'}</div>
+                  <div style={{ fontSize:11,opacity:0.7,marginTop:3 }}>
+                    {descargando?'Aguardá un momento...':`POLAD_${lugarDetectado}_${NOMBRE_MES.replace(' ','_')}.xlsx`}
+                  </div>
+                </div>
+              </button>
             </div>
           )
         })()}
