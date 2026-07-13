@@ -136,7 +136,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
             const col = colStart + ei
             const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
             const c = ws.getCell(row, col)
-            c.value = nm; c.font = { name:'Arial', size:8, color:{argb:'FF000000'} }
+            c.value = nm; c.font = { name:'Arial', size:7, color:{argb:'FF000000'} }
             c.alignment = { horizontal:'center', vertical:'middle', wrapText:false }
             c.fill = fill(nm ? (ei===0?C1:C2) : 'E84040')
             c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
