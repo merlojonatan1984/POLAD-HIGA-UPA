@@ -60,15 +60,15 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
       orientation: 'landscape', paperSize: 9,
-      scale: 100,
-      margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+      fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+      margins: { left:0.2, right:0.2, top:0.2, bottom:0.2, header:0, footer:0 }
     }
     ws.pageSetup.printTitlesRow = '1:3'
 
     // Columnas: DÍA(4) + TURNO(11) + 5 sectores × 2 ef
-    ws.getColumn(1).width = 4.0
-    ws.getColumn(2).width = 11.0
-    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 13.5
+    ws.getColumn(1).width = 4.5
+    ws.getColumn(2).width = 11.5
+    for (let i = 0; i < sectores.length * 2; i++) ws.getColumn(3 + i).width = 15.0
 
     const totalCols = 2 + sectores.length * 2
     const lastLetter = ws.getColumn(totalCols).letter
