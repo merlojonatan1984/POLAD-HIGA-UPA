@@ -829,6 +829,23 @@ export default function AdminApp() {
       turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
     })
 
+    // Cargar horas de los OTROS lugares para respetar el tope global de 180hs
+    const sectoresModular = ['Modular']
+    const sectoresUPA     = ['UPA']
+    const sectoresHIGA    = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+    const sectoresOtros   = L === 'MODULAR' ? [...sectoresUPA, ...sectoresHIGA]
+                          : L === 'UPA'     ? [...sectoresModular, ...sectoresHIGA]
+                          : [...sectoresModular, ...sectoresUPA]
+
+    const { data: turnosOtrosLugares } = await supabase
+      .from('turnos').select('legajo, sector')
+      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros)
+
+    ;(turnosOtrosLugares || []).forEach(t => {
+      const hsT = sectoresModular.includes(t.sector) ? 8 : 12
+      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + hsT
+    })
+
     const dispMap = {}
     ;(dispAll || []).forEach(d => {
       if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
@@ -837,7 +854,7 @@ export default function AdminApp() {
 
     // Cargar turnos del lugar "hermano" para evitar cruces UPA↔MODULAR
     const sectorHermano = L === 'MODULAR' ? 'UPA' : L === 'UPA' ? 'Modular' : null
-    let diasOcupadosEnHermano = {} // legajo → Set de días ocupados en el otro lugar
+    let diasOcupadosEnHermano = {}
 
     if (sectorHermano) {
       const { data: turnosHermano } = await supabase
