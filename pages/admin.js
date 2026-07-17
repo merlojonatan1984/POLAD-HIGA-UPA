@@ -252,6 +252,7 @@ export default function AdminApp() {
   const [turnos, setTurnos] = useState({})
   const [horasAsig, setHorasAsig] = useState({})
   const [loading, setLoading] = useState(true)
+  const [notificados, setNotificados] = useState(new Map()) // legajo → timestamp ISO
   const [generando, setGenerando] = useState(false)
   const [msgGen, setMsgGen] = useState(null)
   const [modalTurno, setModalTurno] = useState(null)
@@ -298,6 +299,12 @@ export default function AdminApp() {
     if (!parsed.es_admin) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
     adminLoggedIn.current = true
     setLoginAdmin(false)
+    // Cargar notificados del mes actual
+    try {
+      const nKey = `polad_notif_${MES}_${ANIO}_${lugar}`
+      const saved = localStorage.getItem(nKey)
+      if (saved) setNotificados(new Map(JSON.parse(saved)))
+    } catch(e) {}
     const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
     const now = new Date()
@@ -310,6 +317,30 @@ export default function AdminApp() {
     })
     setTimeout(() => cargarTodo(lugar), 0)
   }, [])
+
+  function marcarNotificado(legajo) {
+    setNotificados(prev => {
+      const next = new Map(prev)
+      next.set(legajo, new Date().toISOString())
+      try {
+        const nKey = `polad_notif_${MES}_${ANIO}_${APP_LUGAR}`
+        localStorage.setItem(nKey, JSON.stringify([...next]))
+      } catch(e) {}
+      return next
+    })
+  }
+
+  function desmarcarNotificado(legajo) {
+    setNotificados(prev => {
+      const next = new Map(prev)
+      next.delete(legajo)
+      try {
+        const nKey = `polad_notif_${MES}_${ANIO}_${APP_LUGAR}`
+        localStorage.setItem(nKey, JSON.stringify([...next]))
+      } catch(e) {}
+      return next
+    })
+  }
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
   useEffect(() => { if (mounted && vista === 'rapida') cargarRapida() }, [vista, mesSeleccionado, anioSeleccionado, mounted])
@@ -1273,7 +1304,20 @@ export default function AdminApp() {
             const turnosEf = turnos[e.legajo] || []
             const iniciales = e.nombre.split(',').map(p => p.trim()[0]).join('').toUpperCase().slice(0, 2)
             return (
-              <div key={e.legajo} className="card" style={{ padding:0,overflow:'hidden',cursor:'pointer' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
+              <div key={e.legajo} className="card" style={{ padding:0, overflow:'hidden', cursor:'pointer', border: notificados.has(e.legajo) ? '0.5px solid rgba(29,158,117,0.4)' : undefined }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
+                {notificados.has(e.legajo) && (() => {
+                  const ts = notificados.get(e.legajo)
+                  const d = new Date(ts)
+                  const hora = d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })
+                  const dia = d.toLocaleDateString('es-AR', { day:'numeric', month:'long' })
+                  return (
+                    <div style={{ background:'rgba(29,158,117,0.1)', borderBottom:'0.5px solid rgba(29,158,117,0.2)', padding:'5px 12px', display:'flex', alignItems:'center', gap:6 }} onClick={ev=>ev.stopPropagation()}>
+                      <span style={{ fontSize:13, color:'#1D9E75' }}>✓</span>
+                      <span style={{ fontSize:10, fontWeight:500, color:'#1D9E75', flex:1 }}>Avisado el {dia} a las {hora}</span>
+                      <button onClick={ev=>{ev.stopPropagation();desmarcarNotificado(e.legajo)}} style={{ fontSize:9, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:0 }}>desmarcar</button>
+                    </div>
+                  )
+                })()}
                 <div style={{ padding:'12px 14px',borderBottom:'0.5px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',gap:12 }}>
                   <div style={{ width:40,height:40,borderRadius:'50%',background:'rgba(200,168,75,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:500,color:'#c8a84b',flexShrink:0 }}>{iniciales}</div>
                   <div style={{ flex:1,minWidth:0 }}>
@@ -1305,19 +1349,28 @@ export default function AdminApp() {
                     {turnosEf.length === 0 && <div style={{ gridColumn:'1/-1',fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin guardias asignadas</div>}
                   </div>
                   {e.telefono && turnosEf.length > 0 && (
-                    <a href={(() => {
-                      const tel = '549' + e.telefono.replace(/\D/g,'')
-                      const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
-                      const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
-                      const ts = [...turnosEf].sort((a,b) => a.dia - b.dia)
-                      const subtotal = ts.length * HORAS_TURNO
-                      const lineas = ts.map(t => { const ti = TURNOS_INFO.find(x=>x.key===t.turno); return `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${encodeURIComponent(ti?.horario||t.turno)} hs %E2%80%94 ${encodeURIComponent(t.sector)}` }).join('%0A')
-                      const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A%0A${lineas}%0A%0A%E2%9C%85 *Total: ${subtotal} hs*%0A%0A_Referente: Crio. Paulo Corbela_%0A_POLAD %C2%B7 ${APP_LUGAR} %C2%B7 Mar del Plata_`
-                      return `https://wa.me/${tel}?text=${msg}`
-                    })()} target="_blank" rel="noopener noreferrer" onClick={ev=>ev.stopPropagation()}
-                    style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'6px 10px',borderRadius:6,border:'0.5px solid rgba(37,211,102,0.4)',background:'rgba(37,211,102,0.08)',color:'#25D366',fontSize:11,fontWeight:500,textDecoration:'none' }}>
-                      <span>📱</span> Enviar guardias por WhatsApp
-                    </a>
+                    notificados.has(e.legajo)
+                    ? <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:6, border:'0.5px solid rgba(29,158,117,0.3)', background:'rgba(29,158,117,0.07)', opacity:0.8 }}>
+                        <span style={{ fontSize:14, color:'#1D9E75' }}>✓</span>
+                        <span style={{ fontSize:11, fontWeight:500, color:'#1D9E75', flex:1 }}>Mensaje enviado</span>
+                        <span style={{ fontSize:14, color:'#1D9E75', opacity:0.5 }}>📱</span>
+                      </div>
+                    : <a href={(() => {
+                        const tel = '549' + e.telefono.replace(/\D/g,'')
+                        const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
+                        const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
+                        const ts = [...turnosEf].sort((a,b) => a.dia - b.dia)
+                        const subtotal = ts.length * HORAS_TURNO
+                        const lineas = ts.map(t => { const ti = TURNOS_INFO.find(x=>x.key===t.turno); return `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${encodeURIComponent(ti?.horario||t.turno)} hs %E2%80%94 ${encodeURIComponent(t.sector)}` }).join('%0A')
+                        const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A%0A${lineas}%0A%0A%E2%9C%85 *Total: ${subtotal} hs*%0A%0A_Referente: Crio. Paulo Corbela_%0A_POLAD %C2%B7 ${APP_LUGAR} %C2%B7 Mar del Plata_`
+                        return `https://wa.me/${tel}?text=${msg}`
+                      })()} target="_blank" rel="noopener noreferrer"
+                      onClick={ev=>{ev.stopPropagation();marcarNotificado(e.legajo)}}
+                      style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:6, border:'0.5px solid rgba(37,211,102,0.35)', background:'rgba(37,211,102,0.07)', color:'#25D366', fontSize:11, fontWeight:500, textDecoration:'none' }}>
+                        <span style={{ fontSize:14 }}>📱</span>
+                        <span style={{ flex:1 }}>Enviar guardias por WhatsApp</span>
+                        <span style={{ fontSize:12, opacity:0.6 }}>›</span>
+                      </a>
                   )}
                 </div>
               </div>
