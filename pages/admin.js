@@ -835,12 +835,28 @@ export default function AdminApp() {
       dispMap[d.legajo][parseInt(d.dia)] = d.turno
     })
 
+    // Cargar turnos del lugar "hermano" para evitar cruces UPA↔MODULAR
+    const sectorHermano = L === 'MODULAR' ? 'UPA' : L === 'UPA' ? 'Modular' : null
+    let diasOcupadosEnHermano = {} // legajo → Set de días ocupados en el otro lugar
+
+    if (sectorHermano) {
+      const { data: turnosHermano } = await supabase
+        .from('turnos').select('legajo, dia')
+        .eq('mes', MES).eq('anio', ANIO).eq('sector', sectorHermano)
+      ;(turnosHermano || []).forEach(t => {
+        if (!diasOcupadosEnHermano[t.legajo]) diasOcupadosEnHermano[t.legajo] = new Set()
+        diasOcupadosEnHermano[t.legajo].add(parseInt(t.dia))
+      })
+    }
+
     const nuevos = []
     const reporte = []
 
     function cumpleDescanso(legajo, dia, turno) {
       const prev = turnosPorLegajo[legajo] || []
-      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día (uno por día)
+      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día
+      // Verificar cruce con el lugar hermano (UPA↔MODULAR)
+      if (diasOcupadosEnHermano[legajo]?.has(dia)) return false
       if (L !== 'MODULAR') {
         const ayer = prev.find(a => a.dia === dia - 1)
         if (ayer && ayer.turno === 'n' && turno === 'd') return false
