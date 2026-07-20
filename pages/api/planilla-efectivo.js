@@ -139,7 +139,7 @@ export default async function handler(req, res) {
       const base64Firma = ef.firma_url.split(',')[1]
       const ext = ef.firma_url.includes('png') ? 'png' : 'jpeg'
       const imgId = wb.addImage({ base64: base64Firma, extension: ext })
-      ws.addImage(imgId, { tl: { col: 0, row: 31 }, br: { col: 2, row: 33 } })
+      ws.addImage(imgId, { tl: { col: 0, row: 31 }, br: { col: 1.5, row: 33 } })
     } catch(e) { /* sin firma */ }
   }
 
@@ -151,7 +151,7 @@ export default async function handler(req, res) {
     const medallaId = wb.addImage({ base64: MEDALLA_B64, extension: 'png' })
     ws.addImage(medallaId, { tl: { col: 2.1, row: 31.1 }, ext: { width: 170, height: 107 } })
     const corbelaId = wb.addImage({ base64: CORBELA_B64, extension: 'png' })
-    ws.addImage(corbelaId, { tl: { col: 4.5, row: 31.5 }, ext: { width: 180, height: 40 } })
+    ws.addImage(corbelaId, { tl: { col: 4.5, row: 32.3 }, ext: { width: 220, height: 49 } })
   } catch(e) { /* sin imágenes */ }
 
   const outBuffer = await wb.xlsx.writeBuffer()
