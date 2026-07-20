@@ -1,152 +1,353 @@
-import { createClient } from '@supabase/supabase-js'
 import ExcelJS from 'exceljs'
+import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-const PLANTILLA_B64 = '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'
 
-const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+function fmtNombre(ef) {
+  let nombre = (ef.nombre || '').trim()
+  let jer = (ef.jerarquia || '').trim()
 
-function getHorario(turno, lugar) {
-  if (lugar === 'MODULAR') {
-    if (turno === 'm') return '08:00 a 16:00'
-    if (turno === 't') return '16:00 a 24:00'
-    return '23:59 a 08:00'
+  // Limpiar paréntesis de escalafón
+  nombre = nombre.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
+  jer    = jer.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
+
+  // Extraer jerarquía del campo nombre si viene pegada
+  if (!jer) {
+    const m = nombre.match(/^(OFICIAL\s*SUB\s*AYUDANTE|OFICIAL\s*AYUDANTE|SUB\s*COMISARIO|COMISARIO|SUBINSPECTOR|INSPECTOR|SARGENTO|TENIENTE|CAPITAN|MAYOR|OFICIAL)\s+(.+)$/i)
+    if (m) { jer = m[1].trim(); nombre = m[2].trim() }
   }
-  return turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+
+  // Nombres sin coma: palabras[0] = apellido, palabras[1] = primer nombre
+  const palabras = nombre.split(/\s+/).filter(Boolean)
+  const apellido     = palabras[0] || ''
+  const primerNombre = palabras[1] || ''
+
+  const abreviar = j => j
+    .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
+    .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
+    .replace(/SUB\s*COMISARIO/i,          'Scrio.')
+    .replace(/COMISARIO/i,                'Crio.')
+    .replace(/CAPITAN/i,                  'Cap.')
+    .replace(/MAYOR/i,                    'May.')
+    .replace(/TENIENTE/i,                 'Tte.')
+    .replace(/SARGENTO/i,                 'Sgto.')
+    .replace(/SUBINSPECTOR/i,             'SubInsp.')
+    .replace(/INSPECTOR/i,                'Insp.')
+    .replace(/OFICIAL/i,                  'Ofl.')
+  const jerAbrev = jer ? abreviar(jer) : ''
+  return jerAbrev
+    ? `${jerAbrev} ${apellido} ${primerNombre}`.trim()
+    : `${apellido} ${primerNombre}`.trim()
 }
 
-function getHoras(turno, lugar) {
-  return lugar === 'MODULAR' ? 8 : 12
+function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
+function font(bold = false, size = 9, color = '000000') { return { name: 'Arial', bold, size, color: { argb: 'FF' + color } } }
+function aln(h = 'center', wrap = false) { return { horizontal: h, vertical: 'middle', wrapText: wrap } }
+
+const BORDE_EXT = { style: 'thin', color: { argb: 'FF999999' } }  // borde externo: gris medio
+const BORDE_INT = { style: 'hair', color: { argb: 'FFCCCCCC' } }  // borde interno: gris muy claro
+
+function borde(top, bot, left, right) {
+  const s = v => v === 'medium' ? BORDE_EXT : BORDE_INT
+  return { top: s(top), bottom: s(bot), left: s(left), right: s(right) }
 }
 
+// ── HIGA: portrait, vertical, 10 días por hoja, alturas exactas ─────
+async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
+  const rangos = [[1,10],[11,20],[21,DIAS_MES]]
+
+  for (const [d1, d2] of rangos) {
+    const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
+    ws.pageSetup = {
+      orientation: 'portrait', paperSize: 9,
+      margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+    }
+
+    // Columnas portrait A4 (usable ≈ 194mm ≈ 94 chars)
+    ws.getColumn(1).width = 18.0  // SECTOR
+    ws.getColumn(2).width = 19.0  // DÍA Ef.1
+    ws.getColumn(3).width = 19.0  // DÍA Ef.2
+    ws.getColumn(4).width = 19.0  // NOCHE Ef.1
+    ws.getColumn(5).width = 19.0  // NOCHE Ef.2
+
+    // A4 portrait usable height: 297mm - 2×0.3"×25.4 = 281.8mm = 798pt
+    // Filas fijas: título(22)+hdr2(13)+hdr3(11)+pie(10) = 56pt → disponible 742pt
+    // 10 días × (1 day_hdr + 5 sectores) = 60 filas
+    // day_hdr=14pt, sector=12pt → 10×14 + 50×12 = 140+600 = 740pt ≈ exacto
+    const nDias = d2 - d1 + 1
+    const ALTO_DIA_HDR = 14
+    const ALTO_SEC     = 12
+
+    ws.getRow(1).height = 22
+    ws.getRow(2).height = 13
+    ws.getRow(3).height = 11
+    const pieRow = 4 + nDias * (1 + sectores.length)
+    ws.getRow(pieRow).height = 10
+    ws.pageSetup.printArea = `A1:E${pieRow}`
+
+    // Título
+    ws.mergeCells('A1:E1')
+    const tit = ws.getCell('A1')
+    tit.value = `POLAD · HIGA  —  ${NOMBRE_MES}  (Días ${d1} al ${d2})`
+    tit.font = { name:'Arial', bold:true, size:11, color:{argb:'FFC8A84B'} }
+    tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
+
+    // Header turno fila 2
+    ws.mergeCells('A2:A3')
+    const hSec = ws.getCell('A2'); hSec.value = 'SECTOR'; hSec.font = font(true,8,'FFFFFF')
+    hSec.alignment = aln(); hSec.fill = fill('2d2d44'); hSec.border = borde('medium','medium','medium','thin')
+    ws.getCell('A3').border = borde('thin','medium','medium','thin')
+
+    ws.mergeCells('B2:C2')
+    const hDia = ws.getCell('B2'); hDia.value = 'TURNO DÍA  08:00–20:00'; hDia.font = font(true,8,'FFFFFF')
+    hDia.alignment = aln(); hDia.fill = fill('B8860B'); hDia.border = borde('medium','thin','thin','thin')
+
+    ws.mergeCells('D2:E2')
+    const hNoc = ws.getCell('D2'); hNoc.value = 'TURNO NOCHE  20:00–08:00'; hNoc.font = font(true,8,'FFFFFF')
+    hNoc.alignment = aln(); hNoc.fill = fill('1A3A6B'); hNoc.border = borde('medium','thin','thin','medium')
+
+    ;[['B3','Ef.1','B8860B'],['C3','Ef.2','B8860B'],['D3','Ef.1','1A3A6B'],['E3','Ef.2','1A3A6B']].forEach(([coord,val,bg],i) => {
+      const c = ws.getCell(coord); c.value = val; c.font = font(true,8,'FFFFFF')
+      c.alignment = aln(); c.fill = fill(bg); c.border = borde('thin','medium','thin',i===3?'medium':'thin')
+    })
+
+    // Datos
+    let row = 4
+    for (let dia = d1; dia <= d2; dia++) {
+      ws.getRow(row).height = ALTO_DIA_HDR
+      ws.mergeCells(`A${row}:E${row}`)
+      const cDia = ws.getCell(`A${row}`)
+      cDia.value = `DÍA ${dia}`
+      cDia.font = font(true,9,'FFFFFF'); cDia.alignment = aln()
+      cDia.fill = fill('2d2d44'); cDia.border = borde('medium','thin','medium','medium')
+      row++
+
+      sectores.forEach((sec, si) => {
+        const isLast = si === sectores.length - 1
+        ws.getRow(row).height = ALTO_SEC
+        const cSec = ws.getCell(`A${row}`)
+        cSec.value = sec; cSec.font = font(true,8,'FFFFFF')
+        cSec.alignment = { horizontal:'left', vertical:'middle' }
+        cSec.fill = fill('2d3a6b')
+        cSec.border = borde('thin', isLast?'medium':'thin', 'medium', 'thin')
+
+        ;[[0,2,'FFFBF0','FFF0C0','d'],[1,4,'EDF4FF','C8DEFF','n']].forEach(([ei0, colStart, C1, C2, key]) => {
+          [0,1].forEach(ei => {
+            const col = colStart + ei
+            const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
+            const c = ws.getCell(row, col)
+            c.value = nm; c.font = { name:'Arial', size:7, color:{argb:'FF000000'} }
+            c.alignment = { horizontal:'center', vertical:'middle', wrapText:false }
+            c.fill = fill(nm ? (ei===0?C1:C2) : 'E84040')
+            c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
+          })
+        })
+        row++
+      })
+    }
+
+    // Pie
+    ws.mergeCells(`A${pieRow}:E${pieRow}`)
+    const pie = ws.getCell(`A${pieRow}`)
+    pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+    pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+    pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
+  }
+}
+// ── UPA: 1 fila por día, turnos lado a lado ───────────────────────────
+async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
+  const ws = wb.addWorksheet(`UPA ${NOMBRE_MES}`)
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+    horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  ws.getColumn(1).width = 5.0
+  ws.getColumn(2).width = 22.0; ws.getColumn(3).width = 22.0
+  ws.getColumn(4).width = 22.0; ws.getColumn(5).width = 22.0
+
+  ws.getRow(1).height = 24; ws.getRow(2).height = 16; ws.getRow(3).height = 13
+  const altoFila = 24
+  for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
+  const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
+  ws.pageSetup.printArea = `A1:E${pieRow}`
+
+  ws.mergeCells('A1:E1')
+  const tit = ws.getCell('A1')
+  tit.value = `POLAD · UPA  —  ${NOMBRE_MES}`
+  tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FFFF6633'} }
+  tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
+
+  ws.mergeCells('A2:A3')
+  const hA = ws.getCell('A2'); hA.value = 'DÍA'; hA.font = font(true,9,'FFFFFF')
+  hA.alignment = aln(); hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
+  ws.getCell('A3').border = borde('thin','medium','medium','thin')
+
+  ws.mergeCells('B2:C2')
+  const hB = ws.getCell('B2'); hB.value = 'TURNO DÍA  08:00 a 20:00'; hB.font = font(true,9,'FFFFFF')
+  hB.alignment = aln(); hB.fill = fill('B8860B'); hB.border = borde('medium','thin','thin','thin')
+
+  ws.mergeCells('D2:E2')
+  const hD = ws.getCell('D2'); hD.value = 'TURNO NOCHE  20:00 a 08:00'; hD.font = font(true,9,'FFFFFF')
+  hD.alignment = aln(); hD.fill = fill('1A3A6B'); hD.border = borde('medium','thin','thin','medium')
+
+  ;[['B3','Ef.1','B8860B'],['C3','Ef.2','B8860B'],['D3','Ef.1','1A3A6B'],['E3','Ef.2','1A3A6B']].forEach(([coord,val,bg],i) => {
+    const c = ws.getCell(coord); c.value = val; c.font = font(true,8,'FFFFFF')
+    c.alignment = aln(); c.fill = fill(bg); c.border = borde('thin','medium','thin',i===3?'medium':'thin')
+  })
+
+  const colores = [['FFFBF0','FFF0C0'],['EDF4FF','C8DEFF']]
+  const keys = ['d','n']
+  for (let di = 0; di < DIAS_MES; di++) {
+    const dia = di+1, fila = 4+di
+    const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,10,'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    keys.forEach((key,ki) => {
+      ;[0,1].forEach(ei => {
+        const nm = gds[dia]?.[key]?.[ei] || ''
+        const c = ws.getCell(fila, 2+ki*2+ei); c.value = nm; c.font = font(false,8,'000000')
+        c.alignment = aln('center',true); c.fill = fill(nm?colores[ki][ei]:'E84040')
+        c.border = borde(topS,botS,'thin',(ki===1&&ei===1)?'medium':'thin')
+      })
+    })
+  }
+
+  ws.mergeCells(`A${pieRow}:E${pieRow}`)
+  const pie = ws.getCell(`A${pieRow}`)
+  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+  pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
+}
+
+// ── MODULAR: 1 fila por día, 3 turnos lado a lado ─────────────────────
+async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
+  const ws = wb.addWorksheet(`MODULAR ${NOMBRE_MES}`)
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+    horizontalCentered: true, margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  ws.getColumn(1).width = 5.0
+  for (let i = 2; i <= 7; i++) ws.getColumn(i).width = 15.5
+
+  ws.getRow(1).height = 24; ws.getRow(2).height = 16; ws.getRow(3).height = 13
+  const altoFila = 24
+  for (let r = 4; r <= 3 + DIAS_MES; r++) ws.getRow(r).height = altoFila
+  const pieRow = 4 + DIAS_MES; ws.getRow(pieRow).height = 10
+  ws.pageSetup.printArea = `A1:G${pieRow}`
+
+  ws.mergeCells('A1:G1')
+  const tit = ws.getCell('A1')
+  tit.value = `POLAD · MODULAR  —  ${NOMBRE_MES}`
+  tit.font = { name:'Arial', bold:true, size:10, color:{argb:'FF20A0B0'} }
+  tit.alignment = aln(); tit.fill = fill('1a1a2e'); tit.border = borde('medium','medium','medium','medium')
+
+  ws.mergeCells('A2:A3')
+  const hA = ws.getCell('A2'); hA.value = 'DÍA'; hA.font = font(true,9,'FFFFFF')
+  hA.alignment = aln(); hA.fill = fill('2d2d44'); hA.border = borde('medium','medium','medium','thin')
+  ws.getCell('A3').border = borde('thin','medium','medium','thin')
+
+  const turnosConf = [
+    { key:'m', label:'MAÑANA  08:00–16:00',  C_HDR:'B8860B', C_EF1:'FFFBF0', C_EF2:'FFF0C0', colI:2 },
+    { key:'t', label:'TARDE  16:00–23:59',   C_HDR:'5A4A8A', C_EF1:'F0EDFF', C_EF2:'E0D8FF', colI:4 },
+    { key:'n', label:'NOCHE  23:59–08:00',   C_HDR:'1A3A6B', C_EF1:'EDF4FF', C_EF2:'C8DEFF', colI:6 },
+  ]
+
+  turnosConf.forEach(({ label, C_HDR, colI }, ti) => {
+    const lA = ws.getColumn(colI).letter, lB = ws.getColumn(colI+1).letter
+    const isLast = ti === turnosConf.length - 1
+    ws.mergeCells(`${lA}2:${lB}2`)
+    const c2 = ws.getCell(`${lA}2`); c2.value = label; c2.font = font(true,8,'FFFFFF')
+    c2.alignment = aln(); c2.fill = fill(C_HDR); c2.border = borde('medium','thin','thin',isLast?'medium':'thin')
+    ;[lA, lB].forEach((l, ei) => {
+      const c3 = ws.getCell(`${l}3`); c3.value = `Ef.${ei+1}`; c3.font = font(true,8,'FFFFFF')
+      c3.alignment = aln(); c3.fill = fill(C_HDR); c3.border = borde('thin','medium','thin',(isLast&&ei===1)?'medium':'thin')
+    })
+  })
+
+  for (let di = 0; di < DIAS_MES; di++) {
+    const dia = di+1, fila = 4+di
+    const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,11,'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    turnosConf.forEach(({ key, C_EF1, C_EF2, colI }, ti) => {
+      const isLast = ti === turnosConf.length - 1
+      ;[0,1].forEach(ei => {
+        const nm = gds[dia]?.[key]?.[ei] || ''
+        const c = ws.getCell(fila, colI+ei); c.value = nm; c.font = font(false,7.5,'000000')
+        c.alignment = aln('center',true); c.fill = fill(nm?(ei===0?C_EF1:C_EF2):'E84040')
+        c.border = borde(topS,botS,'thin',(isLast&&ei===1)?'medium':'thin')
+      })
+    })
+  }
+
+  ws.mergeCells(`A${pieRow}:G${pieRow}`)
+  const pie = ws.getCell(`A${pieRow}`)
+  pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
+  pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
+  pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
+}
+
+// ── HANDLER ────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
+  const { lugar, mes, anio } = req.query
+  if (!lugar || !mes || !anio) return res.status(400).json({ error: 'Faltan parámetros' })
 
-  const { legajo, mes, anio, lugar } = req.query
-  if (!legajo || !mes || !anio || !lugar) return res.status(400).json({ error: 'Faltan parámetros' })
+  const MES = parseInt(mes), ANIO = parseInt(anio)
+  const DIAS_MES = new Date(ANIO, MES, 0).getDate()
+  const NOMBRE_MES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto',
+    'Septiembre','Octubre','Noviembre','Diciembre'][MES-1] + ' ' + ANIO
 
-  const MES = parseInt(mes)
-  const ANIO = parseInt(anio)
-  const NOMBRE_MES = MESES[MES - 1] + ' ' + ANIO
+  const { data: efectivos } = await supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', lugar)
 
-  // Cargar efectivo
-  const { data: ef } = await supabase
-    .from('efectivos')
-    .select('*')
-    .eq('legajo', legajo)
-    .eq('lugar', lugar)
-    .maybeSingle()
-
-  if (!ef) return res.status(404).json({ error: 'Efectivo no encontrado' })
-
-  // Cargar datos
-  const [{ data: turnosData }, { data: asistData }, { data: manualData }] = await Promise.all([
-    supabase.from('turnos').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).order('dia'),
-    supabase.from('asistencia').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugar),
-    supabase.from('planilla_manual').select('*').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugar),
-  ])
-
-  // Mapa de asistencia confirmada
-  const asistMap = {}
-  ;(asistData || []).forEach(a => { asistMap[`${a.dia}-${a.turno}`] = true })
-
-  // Mapa de horas manuales por dia-horario
-  const manualMap = {}
-  ;(manualData || []).forEach(m => { manualMap[`${parseInt(m.dia)}-${m.horario}`] = parseInt(m.horas) || getHoras(null, lugar) })
-
-  // Construir guardias por día — solo turnos con asistencia confirmada
-  const gdsMap = {}
-  ;(turnosData || []).forEach(t => {
-    if (!asistMap[`${t.dia}-${t.turno}`]) return
-    if (!gdsMap[t.dia]) gdsMap[t.dia] = []
-    const horario = getHorario(t.turno, lugar)
-    if (gdsMap[t.dia].find(g => g.horario === horario)) return
-    const horas = manualMap[`${t.dia}-${horario}`] || getHoras(t.turno, lugar)
-    gdsMap[t.dia].push({ horario, horas })
-  })
-
-  // Agregar entradas manuales con asistencia confirmada
-  ;(manualData || []).forEach(m => {
-    const dia = parseInt(m.dia)
-    let turnoKey
-    if (lugar === 'MODULAR') {
-      if (m.horario === '08:00 a 16:00') turnoKey = 'm'
-      else if (m.horario === '16:00 a 24:00') turnoKey = 't'
-      else turnoKey = 'n'
-    } else {
-      turnoKey = m.horario === '08:00 a 20:00' ? 'd' : 'n'
-    }
-    if (!asistMap[`${dia}-${turnoKey}`]) return
-    if (!gdsMap[dia]) gdsMap[dia] = []
-    if (gdsMap[dia].find(g => g.horario === m.horario)) return
-    gdsMap[dia].push({ horario: m.horario, horas: parseInt(m.horas) || getHoras(turnoKey, lugar) })
-  })
-
-  // Total horas
-  const totalHoras = Object.values(gdsMap).flat().reduce((s, g) => s + (g.horas || 0), 0)
-  const total90 = Math.round(totalHoras * 0.9)
-
-  // Cargar plantilla
-  const buffer = Buffer.from(PLANTILLA_B64, 'base64')
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buffer)
-  const ws = wb.getWorksheet('PLANILLA INDIVIDUAL') || wb.worksheets[0]
+  wb.creator = 'POLAD HIGA UPA'
 
-  // Rellenar datos del efectivo
-  ws.getCell('A7').value = ef.nombre || ''
-  ws.getCell('D7').value = lugar
-  ws.getCell('B9').value = NOMBRE_MES.toUpperCase()
-  ws.getCell('C9').value = ef.jerarquia || ''
-  ws.getCell('D9').value = ef.legajo
-  ws.getCell('F9').value = ef.dni || ''
-
-  // Columna izquierda: días 1-16 → filas 11-26
-  for (let i = 0; i < 16; i++) {
-    const dia = i + 1
-    const fila = 11 + i
-    const gs = gdsMap[dia] || []
-    if (gs.length > 0) {
-      ws.getCell(`B${fila}`).value = gs[0].horario
-      ws.getCell(`C${fila}`).value = gs[0].horas
+  if (lugar === 'HIGA') {
+    const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+    const { data: turnosData } = await supabase.from('turnos').select('*')
+      .eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    const gds = {}
+    for (let d = 1; d <= DIAS_MES; d++) {
+      gds[d] = {}
+      for (const t of ['d','n']) { gds[d][t] = {}; sectores.forEach(s => { gds[d][t][s] = [] }) }
     }
+    ;(turnosData || []).forEach(t => {
+      const ef = (efectivos || []).find(e => e.legajo === t.legajo)
+      if (ef && gds[t.dia]?.[t.turno]?.[t.sector]) gds[t.dia][t.turno][t.sector].push(fmtNombre(ef))
+    })
+    await generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES)
+
+  } else if (lugar === 'UPA') {
+    const { data: turnosData } = await supabase.from('turnos').select('*')
+      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'UPA')
+    const gds = {}
+    for (let d = 1; d <= DIAS_MES; d++) gds[d] = { d:[], n:[] }
+    ;(turnosData || []).forEach(t => {
+      const ef = (efectivos || []).find(e => e.legajo === t.legajo)
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
+    })
+    await generarUPA(wb, gds, DIAS_MES, NOMBRE_MES)
+
+  } else if (lugar === 'MODULAR') {
+    const { data: turnosData } = await supabase.from('turnos').select('*')
+      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'Modular')
+    const gds = {}
+    for (let d = 1; d <= DIAS_MES; d++) gds[d] = { m:[], t:[], n:[] }
+    ;(turnosData || []).forEach(t => {
+      const ef = (efectivos || []).find(e => e.legajo === t.legajo)
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
+    })
+    await generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES)
   }
 
-  // Columna derecha: días 17-31 → filas 11-25
-  for (let i = 0; i < 15; i++) {
-    const dia = 17 + i
-    const fila = 11 + i
-    const gs = gdsMap[dia] || []
-    if (gs.length > 0) {
-      ws.getCell(`E${fila}`).value = gs[0].horario
-      ws.getCell(`G${fila}`).value = gs[0].horas
-    }
-  }
-
-  // Totales
-  ws.getCell('G26').value = totalHoras
-  ws.getCell('G27').value = total90
-
-  // Declaración
-  ws.getCell('A29').value = `Declaro de conformidad, haber prestado ${totalHoras} horas de servicio de Policia Adicional, en el destino que figura la presente planilla.`
-
-  // Firma del efectivo si existe
-  if (ef.firma_url && ef.firma_url.startsWith('data:image')) {
-    try {
-      const base64Firma = ef.firma_url.split(',')[1]
-      const ext = ef.firma_url.includes('png') ? 'png' : 'jpeg'
-      const imgId = wb.addImage({ base64: base64Firma, extension: ext })
-      ws.addImage(imgId, { tl: { col: 0, row: 31 }, br: { col: 3, row: 35 } })
-    } catch(e) { /* sin firma */ }
-  }
-
-  const outBuffer = await wb.xlsx.writeBuffer()
-  const filename = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${lugar}_${NOMBRE_MES.replace(' ','_')}.xlsx`
-
+  const buffer = await wb.xlsx.writeBuffer()
+  const filename = `POLAD_${lugar}_${NOMBRE_MES.replace(' ','_')}.xlsx`
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-  res.send(Buffer.from(outBuffer))
+  res.send(Buffer.from(buffer))
 }
