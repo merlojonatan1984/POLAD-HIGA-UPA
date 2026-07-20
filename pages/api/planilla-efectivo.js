@@ -95,6 +95,18 @@ export default async function handler(req, res) {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer)
   const ws = wb.getWorksheet('PLANILLA INDIVIDUAL') || wb.worksheets[0]
+  // Acortar línea de firma: borrar borde inferior en cols C-D (zona del sello)
+  const filaFirma = ws.getRow(30)
+  ;[3, 4].forEach(colNum => {
+    const cell = filaFirma.getCell(colNum)
+    const b = cell.border || {}
+    cell.border = {
+      ...(b.top ? { top: b.top } : {}),
+      ...(b.left ? { left: b.left } : {}),
+      ...(b.right ? { right: b.right } : {})
+      // sin bottom → línea acortada
+    }
+  })
 
   // Rellenar datos del efectivo
   ws.getCell('A7').value = ef.nombre || ''
@@ -139,7 +151,7 @@ export default async function handler(req, res) {
       const base64Firma = ef.firma_url.split(',')[1]
       const ext = ef.firma_url.includes('png') ? 'png' : 'jpeg'
       const imgId = wb.addImage({ base64: base64Firma, extension: ext })
-      ws.addImage(imgId, { tl: { col: 0, row: 31 }, br: { col: 1.5, row: 33 } })
+      ws.addImage(imgId, { tl: { col: 0, row: 31 }, br: { col: 1, row: 33 } })
     } catch(e) { /* sin firma */ }
   }
 
