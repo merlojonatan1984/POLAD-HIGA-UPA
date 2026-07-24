@@ -362,7 +362,7 @@ export default function AdminApp() {
       const [{ data: efs }, { data: disp }, { data: turns }] = await Promise.all([
         supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', L).order('nombre'),
         supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
-        supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+        supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
       ])
       setEfectivos(efs || [])
       const dispMap = {}
@@ -470,8 +470,8 @@ export default function AdminApp() {
 
     const [{ data: dispData }, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
       supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado),
-      supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP),
-      supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP)
+      supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
+      supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000)
     ])
 
     const ocupacion = {}
@@ -684,7 +684,7 @@ export default function AdminApp() {
       // Datos frescos desde Supabase: disponibilidad del día + turnos del mes
       const [{ data: dispDia }, { data: turnosMes }] = await Promise.all([
         supabase.from('disponibilidad').select('legajo, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', dia).eq('lugar', L),
-        supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+        supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
       ])
 
       const ocupacion = {}
@@ -786,9 +786,9 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const prev = mesAnteriorDe(MES, ANIO)
     const [{ data: turnosPrev }, { data: dispAct }, { data: turnosAct }] = await Promise.all([
-      supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores),
+      supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores).limit(10000),
       supabase.from('disponibilidad').select('legajo').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
-      supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores),
+      supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
     ])
     const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
     const cargaron = new Set((dispAct || []).map(d => d.legajo))
@@ -816,7 +816,7 @@ export default function AdminApp() {
 
     const [{ data: dispAll }, { data: turnosMes }] = await Promise.all([
       supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
-      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores),
+      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
     ])
 
     const ocupacion = {}
@@ -839,7 +839,7 @@ export default function AdminApp() {
 
     const { data: turnosOtrosLugares } = await supabase
       .from('turnos').select('legajo, sector')
-      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros)
+      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros).limit(10000)
 
     ;(turnosOtrosLugares || []).forEach(t => {
       const hsT = sectoresModular.includes(t.sector) ? 8 : 12
@@ -859,7 +859,7 @@ export default function AdminApp() {
     if (sectorHermano) {
       const { data: turnosHermano } = await supabase
         .from('turnos').select('legajo, dia')
-        .eq('mes', MES).eq('anio', ANIO).eq('sector', sectorHermano)
+        .eq('mes', MES).eq('anio', ANIO).eq('sector', sectorHermano).limit(10000)
       ;(turnosHermano || []).forEach(t => {
         if (!diasOcupadosEnHermano[t.legajo]) diasOcupadosEnHermano[t.legajo] = new Set()
         diasOcupadosEnHermano[t.legajo].add(parseInt(t.dia))
