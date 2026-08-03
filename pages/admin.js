@@ -956,8 +956,25 @@ export default function AdminApp() {
     setRapidaProcesando(true); setRapidaMsg(null)
     const { total, reporte } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })))
     await cargarTodo(lugarDetectado); await cargarRapida()
+
+    // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
+    const sectoresV = SECTORES_POR_LUGAR[lugarDetectado] || SECTORES_POR_LUGAR['HIGA']
+    const diasMes = new Date(ANIO, MES, 0).getDate()
+    const { data: verificacion } = await supabase
+      .from('turnos').select('dia')
+      .eq('mes', MES).eq('anio', ANIO)
+      .in('sector', sectoresV).limit(10000)
+    const diasCubiertos = new Set((verificacion || []).map(t => parseInt(t.dia)))
+    const diasFaltantes = []
+    for (let d = 1; d <= diasMes; d++) { if (!diasCubiertos.has(d)) diasFaltantes.push(d) }
+
     const incompletos = reporte.filter(r => r.asignadas < r.objetivo)
-    let m = `✓ Se asignaron ${total} guardias en total.`
+    let m = `✓ Se asignaron ${total} guardias en total.\n\n`
+    if (diasFaltantes.length === 0) {
+      m += `✅ ${diasMes}/${diasMes} días del mes tienen turnos asignados.`
+    } else {
+      m += `⚠ ATENCIÓN: Solo ${diasCubiertos.size}/${diasMes} días tienen turnos.\nDías SIN turnos: ${diasFaltantes.join(', ')}`
+    }
     if (incompletos.length) {
       m += `\n\n⚠ ${incompletos.length} efectivo(s) no llegaron al número:\n` +
         incompletos.slice(0, 12).map(r => {
@@ -1100,6 +1117,34 @@ export default function AdminApp() {
     if (existeFirma) await supabase.from('firmas').update({ firma_url: null }).eq('id', existeFirma.id)
     setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: null } }))
     setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: null } : e))
+  }
+
+  async function subirPlanillaAdmin(legajo, file) {
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      alert('Solo se aceptan archivos .xlsx\nGuardá el archivo como Excel (.xlsx) antes de subirlo.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const base64 = e.target.result.split(',')[1]
+      const res = await fetch('/api/subir-planilla', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo, fileBase64: base64, fileName: file.name })
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) { alert('Error al subir: ' + (data.error || 'desconocido')); return }
+      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: data.url } : e))
+      alert('✅ Planilla subida correctamente')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function eliminarPlanillaAdmin(legajo) {
+    await supabase.storage.from('planillas').remove([`${legajo}.xlsx`])
+    await supabase.from('efectivos').update({ planilla_url: null }).eq('legajo', legajo)
+    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: null } : e))
   }
 
   async function handleLoginAdmin(e) {
@@ -1994,13 +2039,19 @@ export default function AdminApp() {
                         <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
                         <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P} · {APP_LUGAR}</span>
                       </div>
-                      <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
-                        onClick={async () => {
-                          const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
-                          const res = await fetch(url); if (!res.ok) { alert('Error'); return }
-                          const blob = await res.blob(); const a = document.createElement('a')
-                          a.href = URL.createObjectURL(blob); a.download = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
-                        }}>⬇ Planilla Excel</button>
+                      {ef.planilla_url ? (
+                        <a href={ef.planilla_url} download={`Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`}>
+                          <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}>⬇ Planilla Excel</button>
+                        </a>
+                      ) : (
+                        <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
+                          onClick={async () => {
+                            const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
+                            const res = await fetch(url); if (!res.ok) { alert('Error'); return }
+                            const blob = await res.blob(); const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob); a.download = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
+                          }}>⬇ Planilla Excel (auto)</button>
+                      )}
                     </div>
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
                       <div className="panel">
@@ -2072,6 +2123,28 @@ export default function AdminApp() {
                             ))}
                           </div>
                           {ef.notas && <div style={{ margin:'8px 12px',padding:'8px 10px',background:'rgba(200,168,75,0.08)',borderRadius:6,border:'0.5px solid rgba(200,168,75,0.3)' }}><div style={{ fontSize:10,color:'#c8a84b',fontWeight:500,marginBottom:3 }}>📝 Nota</div><div style={{ fontSize:11,color:'var(--text)',lineHeight:1.4 }}>{ef.notas}</div></div>}
+                        </div>
+                        <div className="panel">
+                          <div className="panel-header"><h3>Planilla del efectivo</h3></div>
+                          <div style={{ padding:12 }}>
+                            {ef.planilla_url ? (
+                              <div>
+                                <div style={{ fontSize:11,color:'#1D9E75',marginBottom:8 }}>✅ Planilla cargada</div>
+                                <div style={{ display:'flex',gap:6 }}>
+                                  <a href={ef.planilla_url} download style={{ flex:1 }}>
+                                    <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }}>⬇ Descargar</button>
+                                  </a>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>Reemplazar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la planilla?')) eliminarPlanillaAdmin(ef.legajo) }}>Eliminar</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <div style={{ height:40,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}><span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin planilla cargada</span></div>
+                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir planilla (.xlsx)</button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div className="panel">
                           <div className="panel-header"><h3>Firma del efectivo</h3></div>
