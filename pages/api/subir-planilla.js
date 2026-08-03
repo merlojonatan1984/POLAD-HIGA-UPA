@@ -29,7 +29,6 @@ async function fixPrintArea(buffer) {
   if (sheetFile) {
     let sheetXml = await sheetFile.async('string')
 
-    // Quitar rowBreaks
     while (sheetXml.includes('<rowBreaks')) {
       const start = sheetXml.indexOf('<rowBreaks')
       const end = sheetXml.indexOf('>', start)
