@@ -1099,21 +1099,21 @@ export default function AdminApp() {
     const newMap = {}; ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m }); setPlanillaManual(newMap)
   }
 
-  async function subirFirmaAdmin(legajo, base64) {
-    await supabase.from('efectivos').update({ firma_url: base64 }).eq('legajo', legajo)
+  async function subirFirmaAdmin(id, legajo, base64) {
+    await supabase.from('efectivos').update({ firma_url: base64 }).eq('id', id)
     const existeFirma = firmas[legajo]
     if (existeFirma) await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
     else await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
     setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
-    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: base64 } : e))
+    setEfectivos(prev => prev.map(e => e.id === id ? { ...e, firma_url: base64 } : e))
   }
 
-  async function eliminarFirmaAdmin(legajo) {
-    await supabase.from('efectivos').update({ firma_url: null }).eq('legajo', legajo)
+  async function eliminarFirmaAdmin(id, legajo) {
+    await supabase.from('efectivos').update({ firma_url: null }).eq('id', id)
     const existeFirma = firmas[legajo]
     if (existeFirma) await supabase.from('firmas').update({ firma_url: null }).eq('id', existeFirma.id)
     setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: null } }))
-    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: null } : e))
+    setEfectivos(prev => prev.map(e => e.id === id ? { ...e, firma_url: null } : e))
   }
 
   async function fixPrintAreaXlsxClient(buffer) {
@@ -1174,7 +1174,7 @@ export default function AdminApp() {
     return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
   }
 
-  async function subirPlanillaAdmin(legajo, file) {
+  async function subirPlanillaAdmin(id, legajo, file) {
     if (!file) return
     const nombreLower = file.name.toLowerCase()
     const esXlsx = nombreLower.endsWith('.xlsx')
@@ -1194,7 +1194,7 @@ export default function AdminApp() {
       const urlRes = await fetch('/api/crear-url-planilla', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ legajo, ext })
+        body: JSON.stringify({ legajo, ext, lugar: APP_LUGAR })
       })
       const urlData = await urlRes.json()
       if (!urlRes.ok || !urlData.ok) { alert('Error al preparar la subida: ' + (urlData.error || 'desconocido')); return }
@@ -1211,24 +1211,24 @@ export default function AdminApp() {
       const { data: pub } = supabase.storage.from('planillas').getPublicUrl(urlData.path)
       const publicUrl = pub.publicUrl
 
-      const { error: updateError } = await supabase.from('efectivos').update({ planilla_url: publicUrl }).eq('legajo', legajo)
+      const { error: updateError } = await supabase.from('efectivos').update({ planilla_url: publicUrl }).eq('id', id)
       if (updateError) { alert('Error actualizando: ' + updateError.message); return }
 
-      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: publicUrl } : e))
-      setPlanillaEf(prev => (prev && prev.legajo === legajo) ? { ...prev, planilla_url: publicUrl } : prev)
+      setEfectivos(prev => prev.map(e => e.id === id ? { ...e, planilla_url: publicUrl } : e))
+      setPlanillaEf(prev => (prev && prev.id === id) ? { ...prev, planilla_url: publicUrl } : prev)
       alert('✅ Planilla subida correctamente')
     } catch (err) {
       alert('Error al subir: ' + err.message)
     }
   }
 
-  async function eliminarPlanillaAdmin(legajo) {
-    const actual = efectivos.find(e => e.legajo === legajo)
+  async function eliminarPlanillaAdmin(id, legajo) {
+    const actual = efectivos.find(e => e.id === id)
     const extActual = actual?.planilla_url?.toLowerCase().endsWith('.ods') ? 'ods' : 'xlsx'
-    await supabase.storage.from('planillas').remove([`${legajo}.${extActual}`])
-    await supabase.from('efectivos').update({ planilla_url: null }).eq('legajo', legajo)
-    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: null } : e))
-    setPlanillaEf(prev => (prev && prev.legajo === legajo) ? { ...prev, planilla_url: null } : prev)
+    await supabase.storage.from('planillas').remove([`${legajo}-${APP_LUGAR}.${extActual}`])
+    await supabase.from('efectivos').update({ planilla_url: null }).eq('id', id)
+    setEfectivos(prev => prev.map(e => e.id === id ? { ...e, planilla_url: null } : e))
+    setPlanillaEf(prev => (prev && prev.id === id) ? { ...prev, planilla_url: null } : prev)
   }
 
   async function handleLoginAdmin(e) {
@@ -1329,7 +1329,7 @@ export default function AdminApp() {
           file={firmaEditando.file}
           onCancel={() => setFirmaEditando(null)}
           onConfirm={async (base64) => {
-            await subirFirmaAdmin(firmaEditando.legajo, base64)
+            await subirFirmaAdmin(firmaEditando.id, firmaEditando.legajo, base64)
             setFirmaEditando(null)
           }}
         />
@@ -2228,14 +2228,14 @@ export default function AdminApp() {
                                   <a href={ef.planilla_url} download style={{ flex:1 }}>
                                     <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }}>⬇ Descargar</button>
                                   </a>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>Reemplazar</button>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la planilla?')) eliminarPlanillaAdmin(ef.legajo) }}>Eliminar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.id,ef.legajo,e.target.files[0]) }; inp.click() }}>Reemplazar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la planilla?')) eliminarPlanillaAdmin(ef.id,ef.legajo) }}>Eliminar</button>
                                 </div>
                               </div>
                             ) : (
                               <div>
                                 <div style={{ height:40,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}><span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin planilla cargada</span></div>
-                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir planilla (.xlsx / .ods)</button>
+                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.id,ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir planilla (.xlsx / .ods)</button>
                               </div>
                             )}
                           </div>
@@ -2247,14 +2247,14 @@ export default function AdminApp() {
                               <div>
                                 <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
                                 <div style={{ display:'flex',gap:6,marginTop:4 }}>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>Cambiar</button>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la firma?')) eliminarFirmaAdmin(ef.legajo) }}>Eliminar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ id: ef.id, legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>Cambiar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la firma?')) eliminarFirmaAdmin(ef.id,ef.legajo) }}>Eliminar</button>
                                 </div>
                               </div>
                             ) : (
                               <div>
                                 <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}><span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span></div>
-                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>+ Subir firma</button>
+                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ id: ef.id, legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>+ Subir firma</button>
                               </div>
                             )}
                           </div>
