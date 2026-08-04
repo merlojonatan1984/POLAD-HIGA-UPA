@@ -1116,33 +1116,119 @@ export default function AdminApp() {
     setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: null } : e))
   }
 
+  async function fixPrintAreaXlsxClient(buffer) {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(buffer)
+    const workbookFile = zip.file('xl/workbook.xml')
+    if (!workbookFile) throw new Error('estructura xlsx inválida')
+    let wbXml = await workbookFile.async('string')
+    const sheetMatch = wbXml.match(/<sheet[^>]+name="([^"]+)"/)
+    const sheetName = sheetMatch ? sheetMatch[1] : 'PLANILLA INDIVIDUAL'
+    const printAreaDef = '<definedName name="Print_Area" localSheetId="0">' + "'" + sheetName + "'!$A$1:$G$39</definedName>"
+    if (wbXml.includes('<definedNames>')) {
+      if (!wbXml.includes('Print_Area')) wbXml = wbXml.replace('<definedNames>', '<definedNames>' + printAreaDef)
+    } else {
+      wbXml = wbXml.replace('</workbook>', '<definedNames>' + printAreaDef + '</definedNames></workbook>')
+    }
+    zip.file('xl/workbook.xml', wbXml)
+    const sheetFile = zip.file('xl/worksheets/sheet1.xml')
+    if (sheetFile) {
+      let sheetXml = await sheetFile.async('string')
+      while (sheetXml.includes('<rowBreaks')) {
+        const start = sheetXml.indexOf('<rowBreaks')
+        const end = sheetXml.indexOf('>', start)
+        if (sheetXml[end - 1] === '/') sheetXml = sheetXml.slice(0, start) + sheetXml.slice(end + 1)
+        else {
+          const closeTag = sheetXml.indexOf('</rowBreaks>', end)
+          if (closeTag === -1) break
+          sheetXml = sheetXml.slice(0, start) + sheetXml.slice(closeTag + 12)
+        }
+      }
+      const pageSetup = '<pageSetup paperSize="9" orientation="portrait" fitToHeight="1" fitToWidth="1"/>'
+      if (sheetXml.includes('<pageSetup')) {
+        const ps = sheetXml.indexOf('<pageSetup')
+        const pe = sheetXml.indexOf('/>', ps) + 2
+        sheetXml = sheetXml.slice(0, ps) + pageSetup + sheetXml.slice(pe)
+      } else {
+        sheetXml = sheetXml.replace('</worksheet>', pageSetup + '</worksheet>')
+      }
+      zip.file('xl/worksheets/sheet1.xml', sheetXml)
+    }
+    return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+  }
+
+  async function fixPrintAreaOdsClient(buffer) {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(buffer)
+    const contentFile = zip.file('content.xml')
+    if (!contentFile) throw new Error('estructura ods inválida')
+    let contentXml = await contentFile.async('string')
+    if (!contentXml.includes('table:print-ranges')) {
+      contentXml = contentXml.replace(/(<table:table\b)([^>]*)(>)/, function (match, p1, p2, p3) {
+        const sheetMatch = p2.match(/table:name="([^"]+)"/)
+        const sheetName = sheetMatch ? sheetMatch[1] : 'PLANILLA INDIVIDUAL'
+        return p1 + p2 + ' table:print-ranges="' + sheetName + '.$A$1:$G$39"' + p3
+      })
+      zip.file('content.xml', contentXml)
+    }
+    return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+  }
+
   async function subirPlanillaAdmin(legajo, file) {
     if (!file) return
     const nombreLower = file.name.toLowerCase()
-    if (!nombreLower.endsWith('.xlsx') && !nombreLower.endsWith('.ods')) {
-      alert('Solo se aceptan archivos .xlsx o .ods')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      const base64 = e.target.result.split(',')[1]
-      const res = await fetch('/api/subir-planilla', {
+    const esXlsx = nombreLower.endsWith('.xlsx')
+    const esOds = nombreLower.endsWith('.ods')
+    if (!esXlsx && !esOds) { alert('Solo se aceptan archivos .xlsx o .ods'); return }
+    const ext = esXlsx ? 'xlsx' : 'ods'
+
+    try {
+      const buffer = await file.arrayBuffer()
+      let finalBlob
+      try {
+        finalBlob = esXlsx ? await fixPrintAreaXlsxClient(buffer) : await fixPrintAreaOdsClient(buffer)
+      } catch (e) {
+        finalBlob = file
+      }
+
+      const urlRes = await fetch('/api/crear-url-planilla', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ legajo, fileBase64: base64, fileName: file.name })
+        body: JSON.stringify({ legajo, ext })
       })
-      const data = await res.json()
-      if (!res.ok || !data.ok) { alert('Error al subir: ' + (data.error || 'desconocido')); return }
-      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: data.url } : e))
+      const urlData = await urlRes.json()
+      if (!urlRes.ok || !urlData.ok) { alert('Error al preparar la subida: ' + (urlData.error || 'desconocido')); return }
+
+      const { error: uploadError } = await supabase.storage
+        .from('planillas')
+        .uploadToSignedUrl(urlData.path, urlData.token, finalBlob, {
+          contentType: esXlsx
+            ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            : 'application/vnd.oasis.opendocument.spreadsheet'
+        })
+      if (uploadError) { alert('Error al subir: ' + uploadError.message); return }
+
+      const { data: pub } = supabase.storage.from('planillas').getPublicUrl(urlData.path)
+      const publicUrl = pub.publicUrl
+
+      const { error: updateError } = await supabase.from('efectivos').update({ planilla_url: publicUrl }).eq('legajo', legajo)
+      if (updateError) { alert('Error actualizando: ' + updateError.message); return }
+
+      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: publicUrl } : e))
+      setPlanillaEf(prev => (prev && prev.legajo === legajo) ? { ...prev, planilla_url: publicUrl } : prev)
       alert('✅ Planilla subida correctamente')
+    } catch (err) {
+      alert('Error al subir: ' + err.message)
     }
-    reader.readAsDataURL(file)
   }
 
   async function eliminarPlanillaAdmin(legajo) {
-    await supabase.storage.from('planillas').remove([`${legajo}.xlsx`])
+    const actual = efectivos.find(e => e.legajo === legajo)
+    const extActual = actual?.planilla_url?.toLowerCase().endsWith('.ods') ? 'ods' : 'xlsx'
+    await supabase.storage.from('planillas').remove([`${legajo}.${extActual}`])
     await supabase.from('efectivos').update({ planilla_url: null }).eq('legajo', legajo)
     setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, planilla_url: null } : e))
+    setPlanillaEf(prev => (prev && prev.legajo === legajo) ? { ...prev, planilla_url: null } : prev)
   }
 
   async function handleLoginAdmin(e) {
