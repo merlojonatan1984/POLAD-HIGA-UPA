@@ -2109,8 +2109,8 @@ export default function AdminApp() {
                           <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
                             <span style={{ fontSize:11,color:COLOR_APP,fontWeight:500 }}>{APP_LUGAR}: {hs} hs</span>
                             <span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:10 }}>
-                              <span style={{ width:8,height:8,borderRadius:'50%',background:ef.firma_url?'#1D9E75':'#E24B4A',display:'inline-block' }}></span>
-                              <span style={{ color:ef.firma_url?'#1D9E75':'#E24B4A' }}>{ef.firma_url?'Firma ✓':'Sin firma'}</span>
+                              <span style={{ width:8,height:8,borderRadius:'50%',background:ef.planilla_url?'#1D9E75':'#E24B4A',display:'inline-block' }}></span>
+                              <span style={{ color:ef.planilla_url?'#1D9E75':'#E24B4A' }}>{ef.planilla_url?'Planilla ✓':'Sin planilla'}</span>
                             </span>
                           </div>
                         </div>
