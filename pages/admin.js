@@ -1118,8 +1118,9 @@ export default function AdminApp() {
 
   async function subirPlanillaAdmin(legajo, file) {
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.xlsx')) {
-      alert('Solo se aceptan archivos .xlsx\nGuardá el archivo como Excel (.xlsx) antes de subirlo.')
+    const nombreLower = file.name.toLowerCase()
+    if (!nombreLower.endsWith('.xlsx') && !nombreLower.endsWith('.ods')) {
+      alert('Solo se aceptan archivos .xlsx o .ods')
       return
     }
     const reader = new FileReader()
@@ -2141,14 +2142,14 @@ export default function AdminApp() {
                                   <a href={ef.planilla_url} download style={{ flex:1 }}>
                                     <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }}>⬇ Descargar</button>
                                   </a>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>Reemplazar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>Reemplazar</button>
                                   <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la planilla?')) eliminarPlanillaAdmin(ef.legajo) }}>Eliminar</button>
                                 </div>
                               </div>
                             ) : (
                               <div>
                                 <div style={{ height:40,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}><span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin planilla cargada</span></div>
-                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir planilla (.xlsx)</button>
+                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(29,158,117,0.1)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.ods'; inp.onchange=e=>{ if(e.target.files[0]) subirPlanillaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir planilla (.xlsx / .ods)</button>
                               </div>
                             )}
                           </div>
