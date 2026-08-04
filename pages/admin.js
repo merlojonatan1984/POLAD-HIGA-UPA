@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
+import FirmaEditorModal from '../components/FirmaEditorModal'
 
 function _detectLugar() {
   try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA','UPA','MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch(e) {}
@@ -268,6 +269,7 @@ export default function AdminApp() {
   const [planillaEf, setPlanillaEf] = useState(null)
   const [planillaManual, setPlanillaManual] = useState({})
   const [firmas, setFirmas] = useState({})
+  const [firmaEditando, setFirmaEditando] = useState(null) // { legajo, file } o null
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
   const [filasCache, setFilasCache] = useState([])
   const [manualDia, setManualDia] = useState(1)
@@ -1097,18 +1099,13 @@ export default function AdminApp() {
     const newMap = {}; ;(fresh || []).forEach(m => { newMap[`${m.dia}-${m.horario}`] = m }); setPlanillaManual(newMap)
   }
 
-  async function subirFirmaAdmin(legajo, file) {
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      const base64 = e.target.result
-      await supabase.from('efectivos').update({ firma_url: base64 }).eq('legajo', legajo)
-      const existeFirma = firmas[legajo]
-      if (existeFirma) await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
-      else await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
-      setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
-      setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: base64 } : e))
-    }
-    reader.readAsDataURL(file)
+  async function subirFirmaAdmin(legajo, base64) {
+    await supabase.from('efectivos').update({ firma_url: base64 }).eq('legajo', legajo)
+    const existeFirma = firmas[legajo]
+    if (existeFirma) await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
+    else await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
+    setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: base64 } }))
+    setEfectivos(prev => prev.map(e => e.legajo === legajo ? { ...e, firma_url: base64 } : e))
   }
 
   async function eliminarFirmaAdmin(legajo) {
@@ -1240,6 +1237,16 @@ export default function AdminApp() {
 
   return (
     <div>
+      {firmaEditando && (
+        <FirmaEditorModal
+          file={firmaEditando.file}
+          onCancel={() => setFirmaEditando(null)}
+          onConfirm={async (base64) => {
+            await subirFirmaAdmin(firmaEditando.legajo, base64)
+            setFirmaEditando(null)
+          }}
+        />
+      )}
       {modalTurno && <ModalTurno turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig} onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion} onEliminar={handleEliminarTurno} onAgregar={handleAgregarTurno} diasMes={DIAS_MES} mes={MES} anio={ANIO} turnosDelDia={todosLosTurnos.filter(t => t.dia === (modalTurno.dia || filtroDia))} />}
 
       {modalAsignar && (
@@ -2153,14 +2160,14 @@ export default function AdminApp() {
                               <div>
                                 <img src={firma} style={{ width:'100%',maxHeight:100,objectFit:'contain',marginBottom:8,background:'white',borderRadius:4,padding:4 }} alt="firma" />
                                 <div style={{ display:'flex',gap:6,marginTop:4 }}>
-                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>Cambiar</button>
+                                  <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11 }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>Cambiar</button>
                                   <button className="btn btn-sm" style={{ flex:1,justifyContent:'center',fontSize:11,color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => { if(confirm('¿Eliminar la firma?')) eliminarFirmaAdmin(ef.legajo) }}>Eliminar</button>
                                 </div>
                               </div>
                             ) : (
                               <div>
                                 <div style={{ height:60,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8,border:'0.5px dashed var(--border)',borderRadius:6 }}><span style={{ fontSize:11,color:'var(--text-hint)' }}>Sin firma</span></div>
-                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) subirFirmaAdmin(ef.legajo,e.target.files[0]) }; inp.click() }}>+ Subir firma</button>
+                                <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }} onClick={() => { const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.onchange=e=>{ if(e.target.files[0]) setFirmaEditando({ legajo: ef.legajo, file: e.target.files[0] }) }; inp.click() }}>+ Subir firma</button>
                               </div>
                             )}
                           </div>
