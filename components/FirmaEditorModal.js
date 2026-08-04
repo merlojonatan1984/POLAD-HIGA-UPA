@@ -4,9 +4,13 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 // pero renderizado a mayor resolución (x3) para que no se vea pixelado al imprimir.
 const OUT_W = 480
 const OUT_H = 147
+// Tamaño real con el que la firma aparece en la planilla (en píxeles de pantalla, aprox.)
+const REAL_W = 160
+const REAL_H = 49
 
 export default function FirmaEditorModal({ file, onCancel, onConfirm }) {
   const canvasRef = useRef(null)
+  const previewCanvasRef = useRef(null)
   const imgRef = useRef(null)
   const [zoom, setZoom] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -30,19 +34,36 @@ export default function FirmaEditorModal({ file, onCancel, onConfirm }) {
   }, [file])
 
   const dibujar = useCallback(() => {
-    const canvas = canvasRef.current
     const img = imgRef.current
-    if (!canvas || !img) return
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, OUT_W, OUT_H)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, OUT_W, OUT_H)
+    if (!img) return
 
     const w = img.width * zoom
     const h = img.height * zoom
-    const x = (OUT_W - w) / 2 + offset.x
-    const y = (OUT_H - h) / 2 + offset.y
-    ctx.drawImage(img, x, y, w, h)
+
+    // Canvas grande, de edición
+    const canvas = canvasRef.current
+    if (canvas) {
+      const ctx = canvas.getContext('2d')
+      ctx.clearRect(0, 0, OUT_W, OUT_H)
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, OUT_W, OUT_H)
+      const x = (OUT_W - w) / 2 + offset.x
+      const y = (OUT_H - h) / 2 + offset.y
+      ctx.drawImage(img, x, y, w, h)
+    }
+
+    // Canvas chico, vista previa a tamaño real (mismo contenido, escalado)
+    const preview = previewCanvasRef.current
+    if (preview) {
+      const ctx2 = preview.getContext('2d')
+      const escala = REAL_W / OUT_W
+      ctx2.clearRect(0, 0, REAL_W, REAL_H)
+      ctx2.fillStyle = '#ffffff'
+      ctx2.fillRect(0, 0, REAL_W, REAL_H)
+      const x2 = ((OUT_W - w) / 2 + offset.x) * escala
+      const y2 = ((OUT_H - h) / 2 + offset.y) * escala
+      ctx2.drawImage(img, x2, y2, w * escala, h * escala)
+    }
   }, [zoom, offset])
 
   useEffect(() => { if (listo) dibujar() }, [listo, dibujar])
@@ -120,6 +141,21 @@ export default function FirmaEditorModal({ file, onCancel, onConfirm }) {
             onChange={e => setZoom(parseFloat(e.target.value))}
             style={{ flex: 1 }}
           />
+        </div>
+
+        {/* Vista previa a tamaño real — así se ve en la planilla */}
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '0.5px solid #2a2d3a' }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>Así se va a ver en la planilla (tamaño real):</div>
+          <div style={{
+            display: 'inline-block', background: '#2a2d3a', padding: 10, borderRadius: 6
+          }}>
+            <canvas
+              ref={previewCanvasRef}
+              width={REAL_W}
+              height={REAL_H}
+              style={{ width: REAL_W, height: REAL_H, display: 'block', border: '1px solid #555' }}
+            />
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
