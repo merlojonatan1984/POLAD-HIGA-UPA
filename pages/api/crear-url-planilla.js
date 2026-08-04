@@ -10,13 +10,13 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
 
   try {
-    const { legajo, ext } = req.body
+    const { legajo, ext, lugar } = req.body
 
-    if (!legajo || !ext || !['xlsx', 'ods'].includes(ext)) {
+    if (!legajo || !ext || !['xlsx', 'ods'].includes(ext) || !lugar) {
       return res.status(400).json({ error: 'Datos inválidos' })
     }
 
-    const path = legajo + '.' + ext
+    const path = legajo + '-' + lugar + '.' + ext
     const { data, error } = await supabase.storage
       .from('planillas')
       .createSignedUploadUrl(path, { upsert: true })
