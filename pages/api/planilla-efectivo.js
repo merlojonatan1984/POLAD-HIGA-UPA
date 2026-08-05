@@ -34,6 +34,36 @@ export default async function handler(req, res) {
     UPA: 'Ortega y Gasset y R. Peña'
   }
   const domicilio = DOMICILIOS[lugar] || ''
+
+  // Abreviaturas de jerarquía (de más específica a más general, para no confundir
+  // p.ej. "Oficial Subinspector" con "Oficial"). Se preserva cualquier sufijo
+  // entre paréntesis que venga después, p.ej. "Oficial (S.G.)" -> "OFL (S.G.)".
+  const ABREVIATURAS_JERARQUIA = [
+    ['OFICIAL SUBINSPECTOR', 'OSI'],
+    ['OFICIAL SUBAYUDANTE', 'OSA'],
+    ['OFICIAL PRINCIPAL', 'OPPAL'],
+    ['OFICIAL INSPECTOR', 'OI'],
+    ['OFICIAL AYUDANTE', 'OA'],
+    ['TENIENTE 1RO', 'TTE 1º'],
+    ['TENIENTE 1º', 'TTE 1º'],
+    ['TENIENTE 1RA', 'TTE 1º'],
+    ['COMISARIO', 'CRIO.'],
+    ['SARGENTO', 'SGTO'],
+    ['TENIENTE', 'TTE'],
+    ['OFICIAL', 'OFL']
+  ]
+  function abreviarJerarquia(jerarquia) {
+    if (!jerarquia) return jerarquia
+    // Quitar cualquier sufijo entre paréntesis, p.ej. "(S.G.)", "(E.G.)", "(ADM)"
+    const texto = jerarquia.replace(/\s*\([^)]*\)\s*/g, '').trim()
+    const textoUpper = texto.toUpperCase()
+    for (const [nombreCompleto, abrev] of ABREVIATURAS_JERARQUIA) {
+      if (textoUpper.startsWith(nombreCompleto)) {
+        return abrev + texto.slice(nombreCompleto.length)
+      }
+    }
+    return texto
+  }
   if (!legajo || !mes || !anio || !lugar) return res.status(400).json({ error: 'Faltan parámetros' })
 
   const MES = parseInt(mes)
@@ -111,7 +141,7 @@ export default async function handler(req, res) {
       lugar,
       domicilio,
       mesAnio: NOMBRE_MES.toUpperCase(),
-      jerarquia: ef.jerarquia || '',
+      jerarquia: abreviarJerarquia(ef.jerarquia || ''),
       legajo: ef.legajo,
       dni: ef.dni || '',
       gdsMap,
@@ -188,7 +218,7 @@ export default async function handler(req, res) {
   ws.getCell('D5').value = domicilio
   ws.getCell('D7').value = lugar
   ws.getCell('B9').value = NOMBRE_MES.toUpperCase()
-  ws.getCell('C9').value = ef.jerarquia || ''
+  ws.getCell('C9').value = abreviarJerarquia(ef.jerarquia || '')
   ws.getCell('D9').value = ef.legajo
   ws.getCell('F9').value = ef.dni || ''
 
