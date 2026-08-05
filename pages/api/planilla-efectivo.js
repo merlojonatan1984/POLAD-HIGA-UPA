@@ -27,6 +27,13 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end()
 
   const { legajo, mes, anio, lugar } = req.query
+
+  const DOMICILIOS = {
+    HIGA: 'Juan B Justo 6701',
+    MODULAR: 'Juan B Justo 6701',
+    UPA: 'Ortega y Gasset y R. Peña'
+  }
+  const domicilio = DOMICILIOS[lugar] || ''
   if (!legajo || !mes || !anio || !lugar) return res.status(400).json({ error: 'Faltan parámetros' })
 
   const MES = parseInt(mes)
@@ -102,6 +109,7 @@ export default async function handler(req, res) {
     const datosParaRellenar = {
       nombre: ef.nombre || '',
       lugar,
+      domicilio,
       mesAnio: NOMBRE_MES.toUpperCase(),
       jerarquia: ef.jerarquia || '',
       legajo: ef.legajo,
@@ -124,6 +132,7 @@ export default async function handler(req, res) {
       const wsSubido = wbSubido.getWorksheet('PLANILLA INDIVIDUAL') || wbSubido.worksheets[0]
 
       wsSubido.getCell('A7').value = datosParaRellenar.nombre
+      wsSubido.getCell('D5').value = datosParaRellenar.domicilio
       wsSubido.getCell('D7').value = datosParaRellenar.lugar
       wsSubido.getCell('B9').value = datosParaRellenar.mesAnio
       wsSubido.getCell('C9').value = datosParaRellenar.jerarquia
@@ -176,6 +185,7 @@ export default async function handler(req, res) {
 
   // Rellenar datos del efectivo
   ws.getCell('A7').value = ef.nombre || ''
+  ws.getCell('D5').value = domicilio
   ws.getCell('D7').value = lugar
   ws.getCell('B9').value = NOMBRE_MES.toUpperCase()
   ws.getCell('C9').value = ef.jerarquia || ''
