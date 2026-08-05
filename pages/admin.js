@@ -2133,19 +2133,17 @@ export default function AdminApp() {
                         <span style={{ fontSize:14,fontWeight:500 }}>{ef.nombre}</span>
                         <span style={{ fontSize:11,color:'var(--text-muted)' }}>Leg. {ef.legajo} · {NOMBRE_MES_P} · {APP_LUGAR}</span>
                       </div>
-                      {ef.planilla_url ? (
-                        <a href={ef.planilla_url} download={`Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`}>
-                          <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}>⬇ Planilla Excel</button>
-                        </a>
-                      ) : (
-                        <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
-                          onClick={async () => {
-                            const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
-                            const res = await fetch(url); if (!res.ok) { alert('Error'); return }
-                            const blob = await res.blob(); const a = document.createElement('a')
-                            a.href = URL.createObjectURL(blob); a.download = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
-                          }}>⬇ Planilla Excel (auto)</button>
-                      )}
+                      <button className="btn btn-sm" style={{ background:'rgba(29,158,117,0.15)',color:'#1D9E75',border:'0.5px solid rgba(29,158,117,0.4)' }}
+                        onClick={async () => {
+                          const url = `/api/planilla-efectivo?legajo=${ef.legajo}&mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`
+                          const res = await fetch(url)
+                          if (!res.ok) { const d = await res.json().catch(()=>({})); alert('Error al generar: ' + (d.error || res.status)); return }
+                          const cd = res.headers.get('Content-Disposition') || ''
+                          const m = /filename="([^"]+)"/.exec(cd)
+                          const nombreArchivo = m ? m[1] : `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${APP_LUGAR}_${NOMBRE_MES}.xlsx`
+                          const blob = await res.blob(); const a = document.createElement('a')
+                          a.href = URL.createObjectURL(blob); a.download = nombreArchivo; a.click(); URL.revokeObjectURL(a.href)
+                        }}>⬇ Planilla Excel</button>
                     </div>
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 320px',gap:16 }}>
                       <div className="panel">
