@@ -14,9 +14,21 @@ function getHorario(turno, lugar) {
   if (lugar === 'MODULAR') {
     if (turno === 'm') return '08:00 a 16:00'
     if (turno === 't') return '16:00 a 24:00'
-    return '23:59 a 08:00'
+    // En la app se usa "23:59" para que el efectivo sepa cuándo presentarse,
+    // pero en la planilla impresa el turno se refleja como 00:00 a 08:00.
+    return '00:00 a 08:00'
   }
   return turno === 'd' ? '08:00 a 20:00' : '20:00 a 08:00'
+}
+
+// Combina en un solo texto/valor las guardias de un mismo día (para cuando hay 2 turnos
+// el mismo día, o cuando el turno noche del día anterior "heredó" horas hacia este día).
+function combinarDia(gs) {
+  if (!gs || gs.length === 0) return null
+  return {
+    horarioTexto: gs.map(g => g.horario).join(' y '),
+    horasTotal: gs.reduce((s, g) => s + (g.horas || 0), 0)
+  }
 }
 
 function getHoras(turno, lugar) {
@@ -96,14 +108,27 @@ export default async function handler(req, res) {
   ;(manualData || []).forEach(m => { manualMap[`${parseInt(m.dia)}-${m.horario}`] = parseInt(m.horas) || getHoras(null, lugar) })
 
   // Construir guardias por día — solo turnos con asistencia confirmada
+  const diasEnMes = new Date(ANIO, MES, 0).getDate()
+  function agregarGuardia(dia, horario, horas) {
+    if (dia < 1 || dia > diasEnMes) return // cae en el mes siguiente/anterior, no se puede reflejar en esta planilla
+    if (!gdsMap[dia]) gdsMap[dia] = []
+    if (gdsMap[dia].find(g => g.horario === horario)) return
+    gdsMap[dia].push({ horario, horas })
+  }
   const gdsMap = {}
   ;(turnosData || []).forEach(t => {
     if (!asistMap[`${t.dia}-${t.turno}`]) return
-    if (!gdsMap[t.dia]) gdsMap[t.dia] = []
+
+    if (lugar !== 'MODULAR' && t.turno === 'n') {
+      // Turno noche HIGA/UPA (20:00 a 08:00): cruza la medianoche, se corta en 2 días
+      agregarGuardia(t.dia, '20:00 a 24:00', 4)
+      agregarGuardia(t.dia + 1, '00:00 a 08:00', 8)
+      return
+    }
+
     const horario = getHorario(t.turno, lugar)
-    if (gdsMap[t.dia].find(g => g.horario === horario)) return
     const horas = manualMap[`${t.dia}-${horario}`] || getHoras(t.turno, lugar)
-    gdsMap[t.dia].push({ horario, horas })
+    agregarGuardia(t.dia, horario, horas)
   })
 
   // Agregar entradas manuales con asistencia confirmada
@@ -118,9 +143,7 @@ export default async function handler(req, res) {
       turnoKey = m.horario === '08:00 a 20:00' ? 'd' : 'n'
     }
     if (!asistMap[`${dia}-${turnoKey}`]) return
-    if (!gdsMap[dia]) gdsMap[dia] = []
-    if (gdsMap[dia].find(g => g.horario === m.horario)) return
-    gdsMap[dia].push({ horario: m.horario, horas: parseInt(m.horas) || getHoras(turnoKey, lugar) })
+    agregarGuardia(dia, m.horario, parseInt(m.horas) || getHoras(turnoKey, lugar))
   })
 
   // Total horas
@@ -170,17 +193,17 @@ export default async function handler(req, res) {
       wsSubido.getCell('F9').value = datosParaRellenar.dni
 
       for (let i = 0; i < 16; i++) {
-        const dia = i + 1, fila = 11 + i, gs = gdsMap[dia] || []
-        if (gs.length > 0) {
-          wsSubido.getCell(`B${fila}`).value = gs[0].horario
-          wsSubido.getCell(`C${fila}`).value = gs[0].horas
+        const dia = i + 1, fila = 11 + i, combo = combinarDia(gdsMap[dia])
+        if (combo) {
+          wsSubido.getCell(`B${fila}`).value = combo.horarioTexto
+          wsSubido.getCell(`C${fila}`).value = combo.horasTotal
         }
       }
       for (let i = 0; i < 15; i++) {
-        const dia = 17 + i, fila = 11 + i, gs = gdsMap[dia] || []
-        if (gs.length > 0) {
-          wsSubido.getCell(`E${fila}`).value = gs[0].horario
-          wsSubido.getCell(`G${fila}`).value = gs[0].horas
+        const dia = 17 + i, fila = 11 + i, combo = combinarDia(gdsMap[dia])
+        if (combo) {
+          wsSubido.getCell(`E${fila}`).value = combo.horarioTexto
+          wsSubido.getCell(`G${fila}`).value = combo.horasTotal
         }
       }
       wsSubido.getCell('G26').value = totalHoras
@@ -226,10 +249,10 @@ export default async function handler(req, res) {
   for (let i = 0; i < 16; i++) {
     const dia = i + 1
     const fila = 11 + i
-    const gs = gdsMap[dia] || []
-    if (gs.length > 0) {
-      ws.getCell(`B${fila}`).value = gs[0].horario
-      ws.getCell(`C${fila}`).value = gs[0].horas
+    const combo = combinarDia(gdsMap[dia])
+    if (combo) {
+      ws.getCell(`B${fila}`).value = combo.horarioTexto
+      ws.getCell(`C${fila}`).value = combo.horasTotal
     }
   }
 
@@ -237,10 +260,10 @@ export default async function handler(req, res) {
   for (let i = 0; i < 15; i++) {
     const dia = 17 + i
     const fila = 11 + i
-    const gs = gdsMap[dia] || []
-    if (gs.length > 0) {
-      ws.getCell(`E${fila}`).value = gs[0].horario
-      ws.getCell(`G${fila}`).value = gs[0].horas
+    const combo = combinarDia(gdsMap[dia])
+    if (combo) {
+      ws.getCell(`E${fila}`).value = combo.horarioTexto
+      ws.getCell(`G${fila}`).value = combo.horasTotal
     }
   }
 
