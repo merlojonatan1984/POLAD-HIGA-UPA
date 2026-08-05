@@ -90,6 +90,72 @@ export default async function handler(req, res) {
   const totalHoras = Object.values(gdsMap).flat().reduce((s, g) => s + (g.horas || 0), 0)
   const total90 = Math.round(totalHoras * 0.9)
 
+  // Si el efectivo tiene una planilla propia subida a mano (con sello, firma del
+  // referente y firma del efectivo ya incrustados), rellenamos ESA en vez de
+  // generar desde la plantilla embebida.
+  if (ef.planilla_url) {
+    const esOds = ef.planilla_url.toLowerCase().includes('.ods')
+    const respuestaArchivo = await fetch(ef.planilla_url)
+    if (!respuestaArchivo.ok) return res.status(500).json({ error: 'No se pudo descargar la planilla del efectivo' })
+    const bufferSubido = Buffer.from(await respuestaArchivo.arrayBuffer())
+
+    const datosParaRellenar = {
+      nombre: ef.nombre || '',
+      lugar,
+      mesAnio: NOMBRE_MES.toUpperCase(),
+      jerarquia: ef.jerarquia || '',
+      legajo: ef.legajo,
+      dni: ef.dni || '',
+      gdsMap,
+      totalHoras,
+      total90
+    }
+
+    if (esOds) {
+      const { rellenarPlanillaOds } = await import('../../lib/rellenarOds')
+      const outBuffer = await rellenarPlanillaOds(bufferSubido, datosParaRellenar)
+      const filename = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${lugar}_${NOMBRE_MES.replace(' ','_')}.ods`
+      res.setHeader('Content-Type', 'application/vnd.oasis.opendocument.spreadsheet')
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      return res.send(outBuffer)
+    } else {
+      const wbSubido = new ExcelJS.Workbook()
+      await wbSubido.xlsx.load(bufferSubido)
+      const wsSubido = wbSubido.getWorksheet('PLANILLA INDIVIDUAL') || wbSubido.worksheets[0]
+
+      wsSubido.getCell('A7').value = datosParaRellenar.nombre
+      wsSubido.getCell('D7').value = datosParaRellenar.lugar
+      wsSubido.getCell('B9').value = datosParaRellenar.mesAnio
+      wsSubido.getCell('C9').value = datosParaRellenar.jerarquia
+      wsSubido.getCell('D9').value = datosParaRellenar.legajo
+      wsSubido.getCell('F9').value = datosParaRellenar.dni
+
+      for (let i = 0; i < 16; i++) {
+        const dia = i + 1, fila = 11 + i, gs = gdsMap[dia] || []
+        if (gs.length > 0) {
+          wsSubido.getCell(`B${fila}`).value = gs[0].horario
+          wsSubido.getCell(`C${fila}`).value = gs[0].horas
+        }
+      }
+      for (let i = 0; i < 15; i++) {
+        const dia = 17 + i, fila = 11 + i, gs = gdsMap[dia] || []
+        if (gs.length > 0) {
+          wsSubido.getCell(`E${fila}`).value = gs[0].horario
+          wsSubido.getCell(`G${fila}`).value = gs[0].horas
+        }
+      }
+      wsSubido.getCell('G26').value = totalHoras
+      wsSubido.getCell('G27').value = total90
+      wsSubido.getCell('A29').value = `Declaro de conformidad, haber prestado ${totalHoras} horas de servicio de Policia Adicional, en el destino que figura la presente planilla.`
+
+      const outBuffer = await wbSubido.xlsx.writeBuffer()
+      const filename = `Planilla_${ef.nombre.replace(/,/g,'').replace(/\s+/g,'_')}_${lugar}_${NOMBRE_MES.replace(' ','_')}.xlsx`
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      return res.send(Buffer.from(outBuffer))
+    }
+  }
+
   // Cargar plantilla
   const buffer = Buffer.from(PLANTILLA_B64, 'base64')
   const wb = new ExcelJS.Workbook()
