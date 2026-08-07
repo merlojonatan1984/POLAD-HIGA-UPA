@@ -35,11 +35,13 @@ function rangoTurnoFecha(anio, mes, dia, turno, lugar) {
 
 const LABEL_TURNO = { d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }
 
-// Los webhooks entrantes de números argentinos a veces llegan sin el "9" móvil
-// (ej: 542235123456), pero para poder RESPONDER hay que incluirlo (549...).
+// Los webhooks entrantes de números argentinos llegan CON el "9" móvil
+// (ej: 5492236918690), pero para RESPONDER hay que sacarlo (54...), porque
+// así es como Meta tiene registrado el número en la lista de destinatarios
+// autorizados durante el modo de prueba.
 function normalizarParaEnviar(numero) {
-  if (numero.startsWith('54') && !numero.startsWith('549')) {
-    return '549' + numero.slice(2)
+  if (numero.startsWith('549')) {
+    return '54' + numero.slice(3)
   }
   return numero
 }
@@ -62,9 +64,9 @@ async function enviarWhatsapp(numero, texto) {
     })
     const cuerpo = await r.text()
     if (!r.ok) {
-      console.error('[whatsapp-webhook] Meta respondió error al enviar. Status:', r.status, 'Body:', cuerpo)
+      console.error('[whatsapp-webhook] Meta respondió error al enviar. Numero usado:', numero, 'Status:', r.status, 'Body:', cuerpo)
     } else {
-      console.log('[whatsapp-webhook] Mensaje enviado OK:', cuerpo)
+      console.log('[whatsapp-webhook] Mensaje enviado OK. Numero usado:', numero, 'Body:', cuerpo)
     }
   } catch (e) {
     console.error('[whatsapp-webhook] Error de red enviando mensaje:', e.message)
@@ -95,6 +97,8 @@ export default async function handler(req, res) {
     if (msg.type !== 'text') return res.status(200).end()
 
     const numeroOrigen = msg.from // ej: "5492235123456"
+    console.log('[whatsapp-webhook] numeroOrigen crudo recibido:', numeroOrigen)
+
     const texto = (msg.text?.body || '').trim()
     const textoNormalizado = texto
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // saca acentos
