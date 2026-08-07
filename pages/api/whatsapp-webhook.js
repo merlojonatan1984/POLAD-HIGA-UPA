@@ -35,6 +35,15 @@ function rangoTurnoFecha(anio, mes, dia, turno, lugar) {
 
 const LABEL_TURNO = { d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }
 
+// Los webhooks entrantes de números argentinos a veces llegan sin el "9" móvil
+// (ej: 542235123456), pero para poder RESPONDER hay que incluirlo (549...).
+function normalizarParaEnviar(numero) {
+  if (numero.startsWith('54') && !numero.startsWith('549')) {
+    return '549' + numero.slice(2)
+  }
+  return numero
+}
+
 async function enviarWhatsapp(numero, texto) {
   if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
     console.error('[whatsapp-webhook] Faltan WHATSAPP_TOKEN o PHONE_NUMBER_ID')
@@ -92,7 +101,7 @@ export default async function handler(req, res) {
       .toUpperCase()
 
     if (!textoNormalizado.includes('PRESENTE')) {
-      await enviarWhatsapp(numeroOrigen, 'Para registrar tu presencia, escribí: ESTOY PRESENTE')
+      await enviarWhatsapp(normalizarParaEnviar(numeroOrigen), 'Para registrar tu presencia, escribí: ESTOY PRESENTE')
       return res.status(200).end()
     }
 
@@ -106,7 +115,7 @@ export default async function handler(req, res) {
     })
 
     if (candidatos.length === 0) {
-      await enviarWhatsapp(numeroOrigen, 'No pude identificarte. Verificá que tu número esté cargado en el sistema, o contactate con el administrador.')
+      await enviarWhatsapp(normalizarParaEnviar(numeroOrigen), 'No pude identificarte. Verificá que tu número esté cargado en el sistema, o contactate con el administrador.')
       return res.status(200).end()
     }
     const efectivo = candidatos[0]
@@ -138,7 +147,7 @@ export default async function handler(req, res) {
     }
 
     if (!turnoVigente) {
-      await enviarWhatsapp(numeroOrigen, 'No tenés guardia asignada hoy. Si creés que es un error, contactate con el administrador.')
+      await enviarWhatsapp(normalizarParaEnviar(numeroOrigen), 'No tenés guardia asignada hoy. Si creés que es un error, contactate con el administrador.')
       await supabase.from('avisos_whatsapp').insert([{
         legajo: efectivo.legajo, nombre: efectivo.nombre, telefono: numeroOrigen,
         mensaje: texto, motivo: 'Sin guardia asignada para el horario actual', lugar: null
@@ -165,7 +174,7 @@ export default async function handler(req, res) {
     }
 
     const nombreCorto = efectivo.nombre.split(',')[0]
-    await enviarWhatsapp(numeroOrigen,
+    await enviarWhatsapp(normalizarParaEnviar(numeroOrigen),
       `✅ Presencia registrada — ${nombreCorto}, turno ${LABEL_TURNO[turnoVigente.turno] || turnoVigente.turno}, ${turnoVigente.lugar}, ${String(turnoVigente.dia).padStart(2, '0')}/${String(turnoVigente.mes).padStart(2, '0')}/${turnoVigente.anio}.`)
 
     return res.status(200).end()
