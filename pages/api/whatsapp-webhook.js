@@ -36,9 +36,12 @@ function rangoTurnoFecha(anio, mes, dia, turno, lugar) {
 const LABEL_TURNO = { d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }
 
 async function enviarWhatsapp(numero, texto) {
-  if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) return
+  if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+    console.error('[whatsapp-webhook] Faltan WHATSAPP_TOKEN o PHONE_NUMBER_ID')
+    return
+  }
   try {
-    await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
+    const r = await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${WHATSAPP_TOKEN}` },
       body: JSON.stringify({
@@ -48,8 +51,14 @@ async function enviarWhatsapp(numero, texto) {
         text: { body: texto }
       })
     })
+    const cuerpo = await r.text()
+    if (!r.ok) {
+      console.error('[whatsapp-webhook] Meta respondió error al enviar. Status:', r.status, 'Body:', cuerpo)
+    } else {
+      console.log('[whatsapp-webhook] Mensaje enviado OK:', cuerpo)
+    }
   } catch (e) {
-    console.error('[whatsapp-webhook] Error enviando mensaje:', e.message)
+    console.error('[whatsapp-webhook] Error de red enviando mensaje:', e.message)
   }
 }
 
