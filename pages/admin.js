@@ -286,6 +286,7 @@ export default function AdminApp() {
   const [rapidaProcesando, setRapidaProcesando] = useState(false)
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
+  const [rapida24hs, setRapida24hs] = useState(new Set())
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
   const [loginAdmin, setLoginAdmin] = useState(null) // null=verificando, false=logueado, {legajo,pass,error,loading}=mostrando form
@@ -389,6 +390,10 @@ export default function AdminApp() {
   }
 
   async function generarTurnos() {
+    const L0 = lugarDetectado
+    if (hayTurnos) {
+      if (!confirm(`Ya hay ${todosLosTurnos.length} guardia(s) cargadas en ${L0} para ${NOMBRE_MES}.\n\nEsto las va a BORRAR TODAS y las va a generar de nuevo desde cero. Esta acción no se puede deshacer.\n\n¿Confirmás que querés regenerar?`)) return
+    }
     setGenerando(true); setMsgGen(null)
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
@@ -409,7 +414,8 @@ export default function AdminApp() {
       dispMap[d.legajo][d.dia] = d.turno
     })
 
-    await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    const { error: errorBorrado } = await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    if (errorBorrado) { setGenerando(false); alert('❌ Error borrando guardias anteriores: ' + errorBorrado.message + '\n\nNo se generó nada nuevo, para evitar duplicar.'); return }
 
     const pool = efectivos.map(e => ({ ...e, hs: 0 }))
     const nuevos = []
@@ -443,7 +449,10 @@ export default function AdminApp() {
       }
     }
 
-    for (let i = 0; i < nuevos.length; i += 500) await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
+    for (let i = 0; i < nuevos.length; i += 500) {
+      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
+      if (error) { setGenerando(false); setMsgGen(null); alert('❌ Error guardando guardias: ' + error.message + '\n\nNo se terminó de generar. Revisá antes de seguir.'); return }
+    }
     setMsgGen(`Se generaron ${nuevos.length} asignaciones.`)
     await cargarTodo(L); setGenerando(false)
   }
@@ -659,7 +668,10 @@ export default function AdminApp() {
       return
     }
 
-    for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+    for (let i = 0; i < nuevos.length; i += 100) {
+      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+      if (error) { setAsignando(false); alert('❌ Error guardando: ' + error.message + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
+    }
     setModalAsignar(null)
     setAsignando(false)
     await cargarTodo(lugarDetectado)
@@ -766,7 +778,10 @@ export default function AdminApp() {
         return
       }
 
-      for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+      for (let i = 0; i < nuevos.length; i += 100) {
+        const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+        if (error) { setRellenandoDia(null); alert('❌ Error guardando: ' + error.message + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
+      }
       await cargarTodo(L)
 
       let m = `✓ Día ${dia}: se asignaron ${nuevos.length} guardias.`
@@ -809,7 +824,7 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
-  async function procesarRapida(targets) {
+  async function procesarRapida(targets, legajos24hs = new Set()) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
@@ -848,34 +863,64 @@ export default function AdminApp() {
       hsMap[t.legajo] = (hsMap[t.legajo] || 0) + hsT
     })
 
+    // Cargar turnos de los DOS otros lugares (no solo del "hermano") para detectar
+    // cruces de horario reales, no solo coincidencia de día.
+    const { data: turnosOtrosDetalle } = await supabase
+      .from('turnos').select('legajo, dia, turno, sector')
+      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros).limit(10000)
+
+    function lugarDeSector(sector) {
+      if (sectoresModular.includes(sector)) return 'MODULAR'
+      if (sectoresUPA.includes(sector)) return 'UPA'
+      return 'HIGA'
+    }
+
+    const turnosOtrosPorLegajo = {}
+    ;(turnosOtrosDetalle || []).forEach(t => {
+      if (!turnosOtrosPorLegajo[t.legajo]) turnosOtrosPorLegajo[t.legajo] = []
+      turnosOtrosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno, lugarOrigen: lugarDeSector(t.sector) })
+    })
+
+    // Rango horario real de un turno, en minutos absolutos (día 1 00:00 = minuto 0),
+    // para poder comparar franjas que cruzan la medianoche.
+    const MIN_DIA = 24 * 60
+    function rangoTurno(dia, turno, lugarTurno) {
+      const base = (dia - 1) * MIN_DIA
+      if (lugarTurno === 'MODULAR') {
+        if (turno === 'm') return [base + 8 * 60, base + 16 * 60]
+        if (turno === 't') return [base + 16 * 60, base + 24 * 60]
+        return [base, base + 8 * 60] // noche real: 00:00 a 08:00 (el "23:59" es solo para la app)
+      }
+      return turno === 'd' ? [base + 8 * 60, base + 20 * 60] : [base + 20 * 60, base + MIN_DIA + 8 * 60]
+    }
+    function seSuperponen(a, b) { return a[0] < b[1] && b[0] < a[1] }
+
+    function conflictoOtroLugar(legajo, dia, turno) {
+      const rangoCandidato = rangoTurno(dia, turno, L)
+      for (const o of (turnosOtrosPorLegajo[legajo] || [])) {
+        if (seSuperponen(rangoCandidato, rangoTurno(o.dia, o.turno, o.lugarOrigen))) return o
+      }
+      return null
+    }
+
     const dispMap = {}
     ;(dispAll || []).forEach(d => {
       if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
       dispMap[d.legajo][parseInt(d.dia)] = d.turno
     })
 
-    // Cargar turnos del lugar "hermano" para evitar cruces UPA↔MODULAR
-    const sectorHermano = L === 'MODULAR' ? 'UPA' : L === 'UPA' ? 'Modular' : null
-    let diasOcupadosEnHermano = {}
-
-    if (sectorHermano) {
-      const { data: turnosHermano } = await supabase
-        .from('turnos').select('legajo, dia')
-        .eq('mes', MES).eq('anio', ANIO).eq('sector', sectorHermano).limit(10000)
-      ;(turnosHermano || []).forEach(t => {
-        if (!diasOcupadosEnHermano[t.legajo]) diasOcupadosEnHermano[t.legajo] = new Set()
-        diasOcupadosEnHermano[t.legajo].add(parseInt(t.dia))
-      })
-    }
-
     const nuevos = []
     const reporte = []
+    const conflictos = []
 
     function cumpleDescanso(legajo, dia, turno) {
       const prev = turnosPorLegajo[legajo] || []
-      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día
-      // Verificar cruce con el lugar hermano (UPA↔MODULAR)
-      if (diasOcupadosEnHermano[legajo]?.has(dia)) return false
+      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día en este mismo lugar
+      const conflicto = conflictoOtroLugar(legajo, dia, turno)
+      if (conflicto) {
+        conflictos.push({ legajo, dia, turno, lugarOrigen: conflicto.lugarOrigen, turnoOrigen: conflicto.turno, diaOrigen: conflicto.dia })
+        return false
+      }
       if (L !== 'MODULAR') {
         const ayer = prev.find(a => a.dia === dia - 1)
         if (ayer && ayer.turno === 'n' && turno === 'd') return false
@@ -885,7 +930,60 @@ export default function AdminApp() {
       return true
     }
 
+    // ===== Fase 1: efectivos marcados para guardias de 24hs (día completo, con día de descanso después) =====
+    const diasBloqueados24hs = {} // legajo -> Set de días que deben quedar libres (descanso post-24hs)
     for (const { legajo, objetivo } of targets) {
+      if (!legajos24hs.has(legajo)) continue
+
+      const dmap = dispMap[legajo] || {}
+      const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
+        .filter(dia => turnosLugar.every(tk => (dmap[dia] || '').includes(tk))) // debe estar disponible para TODOS los turnos ese día
+
+      const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
+      function getSector24(dia, turno) {
+        const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
+        for (const s of orden) {
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
+        }
+        return null
+      }
+
+      if (!diasBloqueados24hs[legajo]) diasBloqueados24hs[legajo] = new Set()
+      const costoDia = horasTurno * turnosLugar.length // 24hs siempre (2×12 o 3×8)
+      let diasAsignados = 0
+      const metaDias = Math.floor(objetivo / turnosLugar.length)
+
+      for (const dia of diasCandidatos) {
+        if (diasAsignados >= metaDias) break
+        if ((hsMap[legajo] || 0) + costoDia > MAX_HS) continue
+        if ((turnosPorLegajo[legajo] || []).some(a => a.dia === dia)) continue
+        if (diasBloqueados24hs[legajo].has(dia)) continue // día reservado como descanso de una 24hs anterior
+
+        const conflicto = turnosLugar.map(tk => conflictoOtroLugar(legajo, dia, tk)).find(Boolean)
+        if (conflicto) {
+          conflictos.push({ legajo, dia, turno: '24hs', lugarOrigen: conflicto.lugarOrigen, turnoOrigen: conflicto.turno, diaOrigen: conflicto.dia })
+          continue
+        }
+
+        const sectoresDelDia = turnosLugar.map(tk => getSector24(dia, tk))
+        if (sectoresDelDia.some(s => !s)) continue // no hay cupo de sector para completar el día entero
+
+        turnosLugar.forEach((tk, i) => {
+          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: sectoresDelDia[i] })
+          if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+          turnosPorLegajo[legajo].push({ dia, turno: tk })
+          ocupacion[dia + '-' + tk + '-' + sectoresDelDia[i]] = (ocupacion[dia + '-' + tk + '-' + sectoresDelDia[i]] || 0) + 1
+        })
+        hsMap[legajo] = (hsMap[legajo] || 0) + costoDia
+        diasBloqueados24hs[legajo].add(dia + 1) // el día siguiente queda de descanso obligatorio
+        diasAsignados++
+      }
+      reporte.push({ legajo, objetivo, asignadas: diasAsignados * turnosLugar.length })
+    }
+
+    // ===== Fase 2: asignación normal (turno por turno) para el resto =====
+    for (const { legajo, objetivo } of targets) {
+      if (legajos24hs.has(legajo)) continue // ya se procesó en la fase de 24hs
       const hsActuales = hsMap[legajo] || 0
       const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
       const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
@@ -937,26 +1035,34 @@ export default function AdminApp() {
       reporte.push({ legajo, objetivo, asignadas })
     }
 
-    for (let i = 0; i < nuevos.length; i += 100) await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
-    return { total: nuevos.length, reporte }
+    for (let i = 0; i < nuevos.length; i += 100) {
+      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
+      if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
+    }
+    return { total: nuevos.length, reporte, conflictos }
   }
 
   async function asignarUnoRapida(item) {
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { reporte } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }])
+    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs)
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
     let m = `✓ ${nombre}: se asignaron ${r.asignadas} de ${r.objetivo}.`
     if (r.asignadas < r.objetivo) m += ` Faltaron ${r.objetivo - r.asignadas} (disponibilidad o tope).`
+    if (conflictos.length) {
+      m += `\n\n⚠ ${conflictos.length} día(s) no se asignaron por cruce de horario con otro lugar:\n` +
+        conflictos.map(c => `   • Día ${c.dia}: ya tiene turno "${c.turnoOrigen}" en ${c.lugarOrigen} (día ${c.diaOrigen})`).join('\n')
+    }
     setRapidaProcesando(false); alert(m)
   }
 
   async function asignarTodosRapida() {
     if (rapidaLista.length === 0) return
-    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?`)) return
+    const aviso24hs = rapida24hs.size > 0 ? `\n\n${rapida24hs.size} marcado(s) para guardias de 24hs.` : ''
+    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })))
+    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -985,6 +1091,14 @@ export default function AdminApp() {
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
     }
+    if (conflictos.length) {
+      m += `\n\n⚠ ${conflictos.length} guardia(s) NO se asignaron por cruce de horario con otro lugar:\n` +
+        conflictos.slice(0, 15).map(c => {
+          const n = (efectivos.find(e => e.legajo === c.legajo)?.nombre || c.legajo).split(',')[0]
+          return `   • ${n} - Día ${c.dia}: ya tiene turno "${c.turnoOrigen}" en ${c.lugarOrigen} (día ${c.diaOrigen})`
+        }).join('\n')
+      if (conflictos.length > 15) m += `\n   …y ${conflictos.length - 15} más.`
+    }
     setRapidaProcesando(false); alert(m)
   }
 
@@ -993,7 +1107,8 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     if (!confirm(`¿Borrar TODAS las guardias de ${L} de ${NOMBRE_MES}? (No afecta a los otros lugares)`)) return
     setRapidaProcesando(true)
-    await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    const { error } = await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    if (error) { setRapidaProcesando(false); alert('❌ Error borrando: ' + error.message); return }
     await cargarTodo(L); await cargarRapida()
     setRapidaProcesando(false)
     setRapidaMsg(`Se borraron las guardias de ${L} de ${NOMBRE_MES}.`)
@@ -1010,8 +1125,16 @@ export default function AdminApp() {
   }
 
   async function handleGuardarEdicion(t) { await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id); setModalTurno(null); await cargarTodo() }
-  async function handleEliminarTurno(t) { await supabase.from('turnos').delete().eq('id', t.id); setModalTurno(null); await cargarTodo() }
-  async function handleAgregarTurno(n) { await supabase.from('turnos').insert([n]); setModalTurno(null); await cargarTodo() }
+  async function handleEliminarTurno(t) {
+    const { error } = await supabase.from('turnos').delete().eq('id', t.id)
+    if (error) { alert('❌ Error eliminando: ' + error.message); return }
+    setModalTurno(null); await cargarTodo()
+  }
+  async function handleAgregarTurno(n) {
+    const { error } = await supabase.from('turnos').insert([n])
+    if (error) { alert('❌ Error guardando: ' + error.message); return }
+    setModalTurno(null); await cargarTodo()
+  }
 
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
@@ -1884,6 +2007,7 @@ export default function AdminApp() {
                       <table>
                         <thead>
                           <tr>
+                            <th style={{ width:50, textAlign:'center' }}>24hs</th>
                             <th>Efectivo</th>
                             <th style={{ width:110, textAlign:'center' }}>{nombrePrev}</th>
                             <th style={{ width:110, textAlign:'center' }}>Este mes</th>
@@ -1896,6 +2020,15 @@ export default function AdminApp() {
                             const completo = i.yaAsignadas >= i.objetivo
                             return (
                               <tr key={i.legajo}>
+                                <td style={{ textAlign:'center' }}>
+                                  <input type="checkbox" checked={rapida24hs.has(i.legajo)} disabled={rapidaProcesando}
+                                    onChange={() => setRapida24hs(prev => {
+                                      const next = new Set(prev)
+                                      next.has(i.legajo) ? next.delete(i.legajo) : next.add(i.legajo)
+                                      return next
+                                    })}
+                                    title="Cargar guardias de 24hs (día completo) a este efectivo" />
+                                </td>
                                 <td>
                                   <div style={{ fontSize:12, fontWeight:500 }}>{i.nombre}</div>
                                   <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {i.legajo}</div>
@@ -1916,6 +2049,7 @@ export default function AdminApp() {
                             )
                           })}
                           <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                            <td></td>
                             <td style={{ fontWeight:500 }}>Total ({rapidaLista.length})</td>
                             <td style={{ textAlign:'center', fontWeight:600, color:COLOR_APP }}>{totalObjetivo}</td>
                             <td colSpan={3}></td>
