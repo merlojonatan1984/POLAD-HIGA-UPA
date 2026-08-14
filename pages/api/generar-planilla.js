@@ -220,8 +220,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
     pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
     pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
-    addFirmas(wb, ws, pieRow, 1, 2, 3, 4, 5)
-    ws.pageSetup.printArea = `A1:E${pieRow + 3}`
+    ws.pageSetup.printArea = `A1:E${pieRow}`
   }
 }
 // ── UPA: 1 fila por día, turnos lado a lado ───────────────────────────
@@ -287,8 +286,7 @@ async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
   pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
   pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
   pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
-  addFirmas(wb, ws, pieRow, 1, 2, 3, 4, 5)
-  ws.pageSetup.printArea = `A1:E${pieRow + 3}`
+  ws.pageSetup.printArea = `A1:E${pieRow}`
 }
 
 // ── MODULAR: 1 fila por día, 3 turnos lado a lado ─────────────────────
@@ -357,8 +355,7 @@ async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
   pie.value = `POLAD · HIGA · UPA · MODULAR — Mar del Plata — ${NOMBRE_MES}`
   pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
   pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
-  addFirmas(wb, ws, pieRow, 1, 3, 4, 5, 7)
-  ws.pageSetup.printArea = `A1:G${pieRow + 3}`
+  ws.pageSetup.printArea = `A1:G${pieRow}`
 }
 
 // ── HANDLER ────────────────────────────────────────────────────────────
