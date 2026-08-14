@@ -54,11 +54,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // Insertar en lotes
+    // Insertar en lotes, saltando cualquier fila que ya exista (para no pisar
+    // disponibilidad real que algún efectivo ya haya cargado hoy)
     let insertados = 0
     for (let i = 0; i < filas.length; i += 500) {
       const lote = filas.slice(i, i + 500)
-      const { error } = await supabase.from('disponibilidad').insert(lote)
+      const { error } = await supabase.from('disponibilidad')
+        .upsert(lote, { onConflict: 'legajo,mes,anio,dia,lugar', ignoreDuplicates: true })
       if (error) {
         return res.status(500).json({ error: 'Error insertando: ' + error.message, insertadosAntesDelError: insertados })
       }
