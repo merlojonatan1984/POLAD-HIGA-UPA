@@ -18,6 +18,42 @@ const SECTORES_POR_LUGAR = {
   'UPA': ['UPA'],
   'MODULAR': ['Modular']
 }
+
+// ── Chequeo de cruce de horario entre lugares, reutilizable tanto por
+// Asignación rápida como por la edición manual de un turno individual ──
+function lugarDeSectorGlobal(sector) {
+  if (SECTORES_POR_LUGAR['MODULAR'].includes(sector)) return 'MODULAR'
+  if (SECTORES_POR_LUGAR['UPA'].includes(sector)) return 'UPA'
+  return 'HIGA'
+}
+const MIN_DIA_G = 24 * 60
+function rangoTurnoGlobal(dia, turno, lugar) {
+  const base = (dia - 1) * MIN_DIA_G
+  if (lugar === 'MODULAR') {
+    if (turno === 'm') return [base + 8 * 60, base + 16 * 60]
+    if (turno === 't') return [base + 16 * 60, base + 24 * 60]
+    return [base + MIN_DIA_G, base + MIN_DIA_G + 8 * 60] // noche real: 23:59 día X -> 08:00 día X+1
+  }
+  return turno === 'd' ? [base + 8 * 60, base + 20 * 60] : [base + 20 * 60, base + MIN_DIA_G + 8 * 60]
+}
+function seSuperponenGlobal(a, b) { return a[0] < b[1] && b[0] < a[1] }
+// Busca si el legajo ya tiene, en OTRO lugar, un turno que se superponga en horario real
+// con el turno candidato. idExcluir sirve para no comparar un turno contra sí mismo al editar.
+async function buscarCruceOtroLugar(legajo, dia, turno, lugarPropio, mes, anio, idExcluir) {
+  if (!legajo) return null
+  const { data: otros } = await supabase
+    .from('turnos').select('id, dia, turno, sector, legajo')
+    .eq('mes', mes).eq('anio', anio).eq('legajo', legajo)
+  const rangoCand = rangoTurnoGlobal(dia, turno, lugarPropio)
+  for (const o of (otros || [])) {
+    if (idExcluir && o.id === idExcluir) continue
+    const lugarO = lugarDeSectorGlobal(o.sector)
+    if (lugarO === lugarPropio) continue
+    const rangoO = rangoTurnoGlobal(parseInt(o.dia), o.turno, lugarO)
+    if (seSuperponenGlobal(rangoCand, rangoO)) return { dia: o.dia, turno: o.turno, sector: o.sector, lugar: lugarO }
+  }
+  return null
+}
 const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
 const ES_MODULAR = APP_LUGAR === 'MODULAR'
 const TURNOS_LUGAR = ES_MODULAR ? ['m', 't', 'n'] : ['d', 'n']
@@ -347,6 +383,9 @@ export default function AdminApp() {
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
   useEffect(() => { if (mounted && vista === 'rapida') cargarRapida() }, [vista, mesSeleccionado, anioSeleccionado, mounted])
+  // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
+  // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
+  useEffect(() => { if (mounted && adminLoggedIn.current && vista === 'disponibilidad') cargarTodo(lugarDetectado) }, [vista])
 
   useEffect(() => {
     if (!mounted) return
@@ -889,7 +928,11 @@ export default function AdminApp() {
       if (lugarTurno === 'MODULAR') {
         if (turno === 'm') return [base + 8 * 60, base + 16 * 60]
         if (turno === 't') return [base + 16 * 60, base + 24 * 60]
-        return [base, base + 8 * 60] // noche real: 00:00 a 08:00 (el "23:59" es solo para la app)
+        // noche real: 23:59 del día X a 08:00 del día X+1 (igual que en EfectivoApp.js
+        // y en la planilla impresa). Antes se calculaba como 00:00-08:00 del mismo día X,
+        // 24hs antes de lo real, y por eso no detectaba cruces reales con turnos noche
+        // de HIGA/UPA el mismo día.
+        return [base + MIN_DIA, base + MIN_DIA + 8 * 60]
       }
       return turno === 'd' ? [base + 8 * 60, base + 20 * 60] : [base + 20 * 60, base + MIN_DIA + 8 * 60]
     }
@@ -932,6 +975,7 @@ export default function AdminApp() {
 
     // ===== Fase 1: efectivos marcados para guardias de 24hs (día completo, con día de descanso después) =====
     const diasBloqueados24hs = {} // legajo -> Set de días que deben quedar libres (descanso post-24hs)
+    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en la fase de 24hs
     for (const { legajo, objetivo } of targets) {
       if (!legajos24hs.has(legajo)) continue
 
@@ -978,12 +1022,14 @@ export default function AdminApp() {
         diasBloqueados24hs[legajo].add(dia + 1) // el día siguiente queda de descanso obligatorio
         diasAsignados++
       }
-      reporte.push({ legajo, objetivo, asignadas: diasAsignados * turnosLugar.length })
+      asignadasFase1[legajo] = diasAsignados * turnosLugar.length
     }
 
-    // ===== Fase 2: asignación normal (turno por turno) para el resto =====
+    // ===== Fase 2: asignación normal (turno por turno) para completar lo que falte =====
+    // Incluye también a los marcados para 24hs: si la Fase 1 no les cubrió todo su objetivo
+    // (o no les armó ningún bloque, p.ej. por falta de disponibilidad de día completo),
+    // acá se completa con turnos sueltos en vez de dejarlos sin nada.
     for (const { legajo, objetivo } of targets) {
-      if (legajos24hs.has(legajo)) continue // ya se procesó en la fase de 24hs
       const hsActuales = hsMap[legajo] || 0
       const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
       const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
@@ -1003,10 +1049,10 @@ export default function AdminApp() {
         return null
       }
 
-      let asignadas = 0
+      let asignadas = asignadasFase1[legajo] || 0
       const intervalo = diasCandidatos.length > meta && meta > 0 ? Math.floor(diasCandidatos.length / meta) : 1
       let idx = 0; let vueltas = 0
-      while (asignadas < meta && vueltas < diasCandidatos.length * 2) {
+      while (asignadas - (asignadasFase1[legajo] || 0) < meta && vueltas < diasCandidatos.length * 2) {
         vueltas++
         if (idx >= diasCandidatos.length) idx = 0
         const { dia, turno: dispTurno } = diasCandidatos[idx]
@@ -1124,13 +1170,28 @@ export default function AdminApp() {
     } catch(e) { alert('Error: ' + e.message) }
   }
 
-  async function handleGuardarEdicion(t) { await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id); setModalTurno(null); await cargarTodo() }
+  async function handleGuardarEdicion(t) {
+    const cruce = await buscarCruceOtroLugar(t.legajo, parseInt(t.dia), t.turno, lugarDeSectorGlobal(t.sector), MES, ANIO, t.id)
+    if (cruce) {
+      const nombre = efectivos.find(e => e.legajo === t.legajo)?.nombre || t.legajo
+      const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
+      if (!ok) return
+    }
+    await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id)
+    setModalTurno(null); await cargarTodo()
+  }
   async function handleEliminarTurno(t) {
     const { error } = await supabase.from('turnos').delete().eq('id', t.id)
     if (error) { alert('❌ Error eliminando: ' + error.message); return }
     setModalTurno(null); await cargarTodo()
   }
   async function handleAgregarTurno(n) {
+    const cruce = await buscarCruceOtroLugar(n.legajo, parseInt(n.dia), n.turno, lugarDeSectorGlobal(n.sector), n.mes, n.anio, null)
+    if (cruce) {
+      const nombre = efectivos.find(e => e.legajo === n.legajo)?.nombre || n.legajo
+      const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
+      if (!ok) return
+    }
     const { error } = await supabase.from('turnos').insert([n])
     if (error) { alert('❌ Error guardando: ' + error.message); return }
     setModalTurno(null); await cargarTodo()
