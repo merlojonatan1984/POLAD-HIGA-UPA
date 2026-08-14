@@ -28,7 +28,9 @@ function rangoTurnoFecha(anio, mes, dia, turno, lugar) {
   if (lugar === 'MODULAR') {
     if (turno === 'm') return [fechaAr(dia, 8, 0), fechaAr(dia, 16, 0)]
     if (turno === 't') return [fechaAr(dia, 16, 0), fechaAr(dia + 1, 0, 0)]
-    return [fechaAr(dia, 0, 0), fechaAr(dia, 8, 0)]
+    // noche real: 23:59 del día X a 08:00 del día X+1 (igual que en EfectivoApp.js
+    // y en la planilla impresa) — antes quedaba 24hs corrido hacia el mismo día X.
+    return [fechaAr(dia + 1, 0, 0), fechaAr(dia + 1, 8, 0)]
   }
   return turno === 'd' ? [fechaAr(dia, 8, 0), fechaAr(dia, 20, 0)] : [fechaAr(dia, 20, 0), fechaAr(dia + 1, 8, 0)]
 }
