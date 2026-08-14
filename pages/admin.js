@@ -1869,13 +1869,16 @@ export default function AdminApp() {
                                       if (!ts || ts.length === 0) return (
                                         <span key={dia} style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:4, background:'var(--surface2)', fontSize:10, color:'var(--text-hint)', border:'0.5px solid rgba(255,255,255,0.05)' }}>{dia}</span>
                                       )
+                                      const esMultiple = ts.length > 1
                                       const ti = TURNOS_INFO.find(x => x.key === ts[0]?.turno) || TURNOS_INFO[0]
-                                      const color = ti?.color || '#5DCAA5'
-                                      const bg = ti?.bg || 'rgba(29,158,117,0.2)'
-                                      const label = (ts[0]?.turno || '?').toUpperCase()
+                                      const color = esMultiple ? '#c8a84b' : (ti?.color || '#5DCAA5')
+                                      const bg = esMultiple ? 'rgba(200,168,75,0.18)' : (ti?.bg || 'rgba(29,158,117,0.2)')
+                                      const label = esMultiple
+                                        ? ts.map(t => (t.turno || '?').toUpperCase()).join('+')
+                                        : (ts[0]?.turno || '?').toUpperCase()
                                       const tooltip = ts.map(t => `${t.sector || ''} (${t.turno || ''})`).join(', ')
                                       return (
-                                        <span key={dia} title={tooltip} style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background:bg, fontSize:9, color, border:`0.5px solid ${color}88`, fontWeight:700, cursor:'default' }}>
+                                        <span key={dia} title={tooltip} style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background:bg, fontSize:esMultiple?7:9, color, border:`0.5px solid ${color}88`, fontWeight:700, cursor:'default' }}>
                                           <span style={{ fontSize:8, fontWeight:400, opacity:0.8 }}>{dia}</span>
                                           <span>{label}</span>
                                         </span>
