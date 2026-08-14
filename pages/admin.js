@@ -37,6 +37,9 @@ function rangoTurnoGlobal(dia, turno, lugar) {
   return turno === 'd' ? [base + 8 * 60, base + 20 * 60] : [base + 20 * 60, base + MIN_DIA_G + 8 * 60]
 }
 function seSuperponenGlobal(a, b) { return a[0] < b[1] && b[0] < a[1] }
+// Normaliza un legajo para comparar entre tablas sin que un espacio de más o una
+// diferencia de mayúsculas/minúsculas rompa la comparación (p.ej. "340741 " vs "340741").
+function normLegajo(x) { return x === null || x === undefined ? '' : String(x).trim().toUpperCase() }
 // Busca si el legajo ya tiene, en OTRO lugar, un turno que se superponga en horario real
 // con el turno candidato. idExcluir sirve para no comparar un turno contra sí mismo al editar.
 async function buscarCruceOtroLugar(legajo, dia, turno, lugarPropio, mes, anio, idExcluir) {
@@ -382,7 +385,9 @@ export default function AdminApp() {
   }
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
-  useEffect(() => { if (mounted && vista === 'rapida') cargarRapida() }, [vista, mesSeleccionado, anioSeleccionado, mounted])
+  useEffect(() => {
+    if (mounted && vista === 'rapida') { cargarTodo(lugarDetectado).then(() => cargarRapida()) }
+  }, [vista, mesSeleccionado, anioSeleccionado, mounted])
   // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
   // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
   useEffect(() => { if (mounted && adminLoggedIn.current && vista === 'disponibilidad') cargarTodo(lugarDetectado) }, [vista])
@@ -390,7 +395,7 @@ export default function AdminApp() {
   useEffect(() => {
     if (!mounted) return
     async function cargarDispDia() {
-      const { data } = await supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', filtroDia).eq('lugar', lugarDetectado)
+      const { data } = await fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&dia=${filtroDia}&lugar=${lugarDetectado}`).then(r => r.json())
       setDispDelDia({ dia: filtroDia, data: data || [] })
     }
     cargarDispDia()
@@ -401,16 +406,18 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     setLoading(true)
     try {
-      const [{ data: efs }, { data: disp }, { data: turns }] = await Promise.all([
+      const [{ data: efs }, dispRes, { data: turns }] = await Promise.all([
         supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', L).order('nombre'),
-        supabase.from('disponibilidad').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
+        fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json()),
         supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
       ])
+      const disp = dispRes.data
       setEfectivos(efs || [])
       const dispMap = {}
       ;(disp || []).forEach(d => {
-        if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-        dispMap[d.legajo][d.dia] = { turno: d.turno }
+        const k = normLegajo(d.legajo)
+        if (!dispMap[k]) dispMap[k] = {}
+        dispMap[k][d.dia] = { turno: d.turno }
       })
       setDisponibilidad(dispMap)
       const turnosMap = {}; const hsMap = {}
@@ -441,16 +448,16 @@ export default function AdminApp() {
     const horasTurno = esMod ? 8 : 12
     const maxSlot = esMod ? 2 : 2
 
-    // Leer disponibilidad FRESCA desde Supabase
-    const { data: dispFresh } = await supabase.from('disponibilidad')
-      .select('legajo, dia, turno')
-      .eq('mes', MES).eq('anio', ANIO).eq('lugar', L)
+    // Leer disponibilidad FRESCA desde Supabase (vía endpoint con clave de servicio,
+    // para no depender de posibles políticas RLS de la clave pública)
+    const { data: dispFresh } = await fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json())
 
     // Construir mapa de disponibilidad
     const dispMap = {}
     ;(dispFresh || []).forEach(d => {
-      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-      dispMap[d.legajo][d.dia] = d.turno
+      const k = normLegajo(d.legajo)
+      if (!dispMap[k]) dispMap[k] = {}
+      dispMap[k][d.dia] = d.turno
     })
 
     const { error: errorBorrado } = await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
@@ -462,11 +469,11 @@ export default function AdminApp() {
     // Ordenar días por cantidad de candidatos disponibles (días difíciles primero)
     const diasOrdenados = Array.from({ length: DIAS_MES }, (_, i) => i + 1).sort((a, b) => {
       const candA = pool.filter(e => {
-        const avail = (dispMap[e.legajo] || {})[a] || ''
+        const avail = (dispMap[normLegajo(e.legajo)] || {})[a] || ''
         return turnosLugar.some(t => avail.includes(t))
       }).length
       const candB = pool.filter(e => {
-        const avail = (dispMap[e.legajo] || {})[b] || ''
+        const avail = (dispMap[normLegajo(e.legajo)] || {})[b] || ''
         return turnosLugar.some(t => avail.includes(t))
       }).length
       return candA - candB
@@ -476,7 +483,7 @@ export default function AdminApp() {
       for (const turno of turnosLugar) {
         for (const sector of sectores) {
           const candidatos = pool.filter(e => {
-            const avail = (dispMap[e.legajo] || {})[dia] || ''
+            const avail = (dispMap[normLegajo(e.legajo)] || {})[dia] || ''
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
             return avail.includes(turno) && !yaAsignado
           }).sort((a, b) => a.hs - b.hs)
@@ -518,11 +525,12 @@ export default function AdminApp() {
       alert(`⚠ Se ajustó la cantidad a ${cantidad} guardias para no superar el tope de ${MAX_HS}hs.\n(Tiene ${hsActuales}hs asignadas, le quedan ${hsDisponibles}hs disponibles)`)
     }
 
-    const [{ data: dispData }, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
-      supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).eq('lugar', lugarDetectado),
+    const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
+      fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
       supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000)
     ])
+    const dispData = dispDataRes.data
 
     const ocupacion = {}
     ;(turnosTodos || []).forEach(t => {
@@ -735,10 +743,11 @@ export default function AdminApp() {
       const horasTurno = L === 'MODULAR' ? 8 : 12
 
       // Datos frescos desde Supabase: disponibilidad del día + turnos del mes
-      const [{ data: dispDia }, { data: turnosMes }] = await Promise.all([
-        supabase.from('disponibilidad').select('legajo, turno').eq('mes', MES).eq('anio', ANIO).eq('dia', dia).eq('lugar', L),
+      const [dispDiaRes, { data: turnosMes }] = await Promise.all([
+        fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&dia=${dia}&lugar=${L}`).then(r => r.json()),
         supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
       ])
+      const dispDia = dispDiaRes.data
 
       const ocupacion = {}
       const hsMap = {}
@@ -752,7 +761,7 @@ export default function AdminApp() {
       })
 
       const dispMap = {}
-      ;(dispDia || []).forEach(d => { dispMap[d.legajo] = d.turno || '' })
+      ;(dispDia || []).forEach(d => { dispMap[normLegajo(d.legajo)] = d.turno || '' })
 
       const nuevos = []
       const nuevosPorLegajo = {}
@@ -776,7 +785,7 @@ export default function AdminApp() {
       // que cumplan descanso. Ordenados por MENOS guardias primero (equilibra la carga).
       function candidatosTurno(turno) {
         return efectivos.filter(e => {
-          const avail = dispMap[e.legajo] || ''
+          const avail = dispMap[normLegajo(e.legajo)] || ''
           if (!avail.includes(turno)) return false
           if (nuevos.some(n => n.legajo === e.legajo && n.dia === dia && n.turno === turno)) return false
           if ((turnosPorLegajo[e.legajo] || []).some(a => a.dia === dia && a.turno === turno)) return false
@@ -841,20 +850,26 @@ export default function AdminApp() {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const prev = mesAnteriorDe(MES, ANIO)
-    const [{ data: turnosPrev }, { data: dispAct }, { data: turnosAct }] = await Promise.all([
+    const [{ data: turnosPrev }, { data: turnosAct }] = await Promise.all([
       supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores).limit(10000),
-      supabase.from('disponibilidad').select('legajo').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
       supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
     ])
     const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
-    const cargaron = new Set((dispAct || []).map(d => d.legajo))
+    // "Cargó disponibilidad" se define acá EXACTAMENTE igual que en la grilla de Disponibilidad:
+    // mismo estado 'disponibilidad', mismo criterio (al menos 1 día cargado). Antes esta pantalla
+    // hacía su propia consulta aparte a la base, y aunque el filtro fuera el mismo en el papel,
+    // podían llegar a mostrar cosas distintas para un mismo efectivo. Ahora usan la misma fuente,
+    // así que no pueden divergir.
+    const cargaron = new Set(
+      Object.keys(disponibilidad).filter(legajo => Object.keys(disponibilidad[legajo] || {}).length > 0)
+    )
     const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
     const lista = efectivos
-      .filter(e => cargaron.has(e.legajo) && (countPrev[e.legajo] || 0) > 0)
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) > 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
       .sort((a, b) => b.objetivo - a.objetivo)
     const nuevos = efectivos
-      .filter(e => cargaron.has(e.legajo) && (countPrev[e.legajo] || 0) === 0)
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     setRapidaNuevos(nuevos)
@@ -870,10 +885,11 @@ export default function AdminApp() {
     const horasTurno = L === 'MODULAR' ? 8 : 12
     const MAX_HS = 180
 
-    const [{ data: dispAll }, { data: turnosMes }] = await Promise.all([
-      supabase.from('disponibilidad').select('legajo, dia, turno').eq('mes', MES).eq('anio', ANIO).eq('lugar', L),
+    const [dispAllRes, { data: turnosMes }] = await Promise.all([
+      fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json()),
       supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
     ])
+    const dispAll = dispAllRes.data
 
     const ocupacion = {}
     const hsMap = {}
@@ -948,8 +964,9 @@ export default function AdminApp() {
 
     const dispMap = {}
     ;(dispAll || []).forEach(d => {
-      if (!dispMap[d.legajo]) dispMap[d.legajo] = {}
-      dispMap[d.legajo][parseInt(d.dia)] = d.turno
+      const k = normLegajo(d.legajo)
+      if (!dispMap[k]) dispMap[k] = {}
+      dispMap[k][parseInt(d.dia)] = d.turno
     })
 
     const nuevos = []
@@ -979,7 +996,7 @@ export default function AdminApp() {
     for (const { legajo, objetivo } of targets) {
       if (!legajos24hs.has(legajo)) continue
 
-      const dmap = dispMap[legajo] || {}
+      const dmap = dispMap[normLegajo(legajo)] || {}
       const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
         .filter(dia => turnosLugar.every(tk => (dmap[dia] || '').includes(tk))) // debe estar disponible para TODOS los turnos ese día
 
@@ -1034,7 +1051,7 @@ export default function AdminApp() {
       const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
       const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
 
-      const dmap = dispMap[legajo] || {}
+      const dmap = dispMap[normLegajo(legajo)] || {}
       const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
         .map(dia => ({ dia, turno: dmap[dia] }))
         .filter(({ dia, turno }) => turnosLugar.some(tk => turno.includes(tk)))
@@ -1502,7 +1519,7 @@ export default function AdminApp() {
 
   const todosLosTurnos = Object.values(turnos).flat()
   const hayTurnos = todosLosTurnos.length > 0
-  const cargaron = efectivos.filter(e => disponibilidad[e.legajo] && Object.keys(disponibilidad[e.legajo]).length > 0).length
+  const cargaron = efectivos.filter(e => disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
   const nombreCompleto = leg => { const e = efectivos.find(x => x.legajo === leg); return e ? e.nombre : leg }
   const nombreCorto = leg => nombreCompleto(leg).split(',')[0]
 
@@ -1607,7 +1624,7 @@ export default function AdminApp() {
           const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
           const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
           const renderGrupo = lista => lista.map(e => {
-            const dias = Object.keys(disponibilidad[e.legajo] || {}).length
+            const dias = Object.keys(disponibilidad[normLegajo(e.legajo)] || {}).length
             const hs = horasAsig[e.legajo] || 0
             const pct = Math.round(hs / 180 * 100)
             const color = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
@@ -1761,13 +1778,13 @@ export default function AdminApp() {
               <div className="panel-header">
                 <h3>Disponibilidad cargada — {APP_LUGAR} · {NOMBRE_MES}</h3>
                 <span style={{ fontSize:11, color:'var(--text-muted)' }}>
-                  {efectivos.filter(e => Object.keys(disponibilidad[e.legajo]||{}).length > 0).length} de {efectivos.length} cargaron
+                  {efectivos.filter(e => Object.keys(disponibilidad[normLegajo(e.legajo)]||{}).length > 0).length} de {efectivos.length} cargaron
                 </span>
               </div>
               <div style={{ padding:14 }}>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:8 }}>
                   {efectivos.map(e => {
-                    const dias = disponibilidad[e.legajo] || {}
+                    const dias = disponibilidad[normLegajo(e.legajo)] || {}
                     const cantDias = Object.keys(dias).length
                     const cargo = cantDias > 0
                     const seleccionado = efDetalle === e.legajo
@@ -2016,9 +2033,9 @@ export default function AdminApp() {
                       <div style={{ padding:'8px 12px',borderTop:'0.5px solid var(--border)' }}>
                         <button className="btn btn-sm" style={{ width:'100%',justifyContent:'center',fontSize:11,background:'rgba(200,168,75,0.1)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.3)' }}
                           onClick={async () => {
-                            const { data } = await supabase.from('disponibilidad').select('legajo').eq('mes',MES).eq('anio',ANIO).eq('lugar',lugarDetectado)
-                            const legajos = new Set((data||[]).map(d=>d.legajo))
-                            setEfDisponibles(efectivos.filter(e=>legajos.has(e.legajo)))
+                            const { data } = await fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`).then(r => r.json())
+                            const legajos = new Set((data||[]).map(d=>normLegajo(d.legajo)))
+                            setEfDisponibles(efectivos.filter(e=>legajos.has(normLegajo(e.legajo))))
                             setModalAsignar({ legajo:'', cantidad:'', tipoTurno:TURNOS_LUGAR[0] })
                           }}>⚡ Asignar guardias rápido</button>
                       </div>
