@@ -77,8 +77,8 @@ const SEC_COLORS = { 'Salud Mental': '#378ADD', 'Giratoria': '#1D9E75', 'Llaves'
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
 const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'rapida', 'config', 'planillas', 'descarga']
-const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', rapida: '⚡ Asignación rápida', config: 'Configuración', planillas: 'Planillas', descarga: '⬇ Planilla Guardia' }
+const VISTAS = ['resumen', 'personal', 'disponibilidad', 'turnos', 'edicion', 'rapida', 'buscarLegajo', 'config', 'planillas', 'descarga']
+const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disponibilidad', turnos: 'Guardias', edicion: 'Edición manual', rapida: '⚡ Asignación rápida', buscarLegajo: '🔍 Buscar legajo', config: 'Configuración', planillas: 'Planillas', descarga: '⬇ Planilla Guardia' }
 
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 const BG_APP   = APP_LUGAR === 'HIGA' ? 'rgba(42,37,96,0.5)' : APP_LUGAR === 'UPA' ? 'rgba(80,30,10,0.5)' : 'rgba(10,50,60,0.5)'
@@ -326,6 +326,10 @@ export default function AdminApp() {
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
+  const [buscarLegajoInput, setBuscarLegajoInput] = useState('')
+  const [buscarLegajoResultado, setBuscarLegajoResultado] = useState(null)
+  const [buscarLegajoCargando, setBuscarLegajoCargando] = useState(false)
+  const [buscarLegajoError, setBuscarLegajoError] = useState(null)
   const [mounted, setMounted] = useState(false)
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
   const [loginAdmin, setLoginAdmin] = useState(null) // null=verificando, false=logueado, {legajo,pass,error,loading}=mostrando form
@@ -844,6 +848,23 @@ export default function AdminApp() {
 
   // ===== Solapa "Asignación rápida": iguala la cantidad de guardias del mes anterior =====
   function mesAnteriorDe(m, a) { return m === 1 ? { mes: 12, anio: a - 1 } : { mes: m - 1, anio: a } }
+
+  async function buscarPorLegajo() {
+    const legajo = buscarLegajoInput.trim()
+    if (!legajo) return
+    setBuscarLegajoCargando(true); setBuscarLegajoError(null); setBuscarLegajoResultado(null)
+    try {
+      const res = await fetch(`/api/buscar-legajo?legajo=${encodeURIComponent(legajo)}&mes=${MES}&anio=${ANIO}`)
+      const data = await res.json()
+      if (!res.ok) { setBuscarLegajoError(data.error || 'Error al buscar'); return }
+      if (!data.encontrado) { setBuscarLegajoError(`No se encontró ningún efectivo ni guardia con el legajo "${legajo}" en ${MES}/${ANIO}.`); return }
+      setBuscarLegajoResultado(data)
+    } catch (err) {
+      setBuscarLegajoError('Error de conexión: ' + err.message)
+    } finally {
+      setBuscarLegajoCargando(false)
+    }
+  }
 
   async function cargarRapida() {
     setRapidaCargando(true); setRapidaMsg(null)
@@ -2160,6 +2181,76 @@ export default function AdminApp() {
             </div>
           )
         })()}
+
+        {vista === 'buscarLegajo' && (
+          <div style={{ padding: 16, maxWidth: 700 }}>
+            <div style={{ fontSize: 13, color: '#8b90a0', marginBottom: 12 }}>
+              Buscá un legajo y vas a ver su nombre y TODAS las guardias que tiene asignadas este mes ({NOMBRE_MES}), sumando HIGA, UPA y MODULAR — sin importar en qué sitio estés parado ahora.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              <input
+                type="text"
+                placeholder="Número de legajo"
+                value={buscarLegajoInput}
+                onChange={e => setBuscarLegajoInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') buscarPorLegajo() }}
+                style={{ flex: 1, padding: '8px 12px', borderRadius: 6, border: '0.5px solid rgba(255,255,255,0.15)', background: '#1a1a2e', color: '#fff', fontSize: 14 }}
+              />
+              <button className="btn" disabled={buscarLegajoCargando} onClick={buscarPorLegajo}>
+                {buscarLegajoCargando ? 'Buscando...' : '🔍 Buscar'}
+              </button>
+            </div>
+
+            {buscarLegajoError && (
+              <div style={{ padding: 12, borderRadius: 6, background: 'rgba(226,75,74,0.12)', color: '#E24B4A', fontSize: 13, marginBottom: 16 }}>
+                {buscarLegajoError}
+              </div>
+            )}
+
+            {buscarLegajoResultado && (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{buscarLegajoResultado.nombre || '(sin nombre registrado)'}</div>
+                  <div style={{ fontSize: 12, color: '#8b90a0' }}>Leg. {buscarLegajoResultado.legajo}</div>
+                  {buscarLegajoResultado.lugares_donde_figura_como_efectivo.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#5DCAA5', marginTop: 4 }}>
+                      Registrado como efectivo en: {buscarLegajoResultado.lugares_donde_figura_como_efectivo.join(', ')}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13, color: '#c8a84b', marginTop: 8, fontWeight: 600 }}>
+                    Total: {buscarLegajoResultado.total_guardias} guardia{buscarLegajoResultado.total_guardias !== 1 ? 's' : ''} asignada{buscarLegajoResultado.total_guardias !== 1 ? 's' : ''} este mes
+                  </div>
+                </div>
+
+                {['HIGA', 'UPA', 'MODULAR'].map(lugar => {
+                  const lista = buscarLegajoResultado.turnos_por_lugar[lugar] || []
+                  const lugarTurnosInfo = lugar === 'MODULAR'
+                    ? { m: 'Mañana 08-16', t: 'Tarde 16-24', n: 'Noche 23:59-08' }
+                    : { d: 'Día 08-20', n: 'Noche 20-08' }
+                  return (
+                    <div key={lugar} style={{ marginBottom: 16, border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.04)', fontWeight: 700, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{lugar}</span>
+                        <span style={{ color: '#8b90a0', fontWeight: 400 }}>{lista.length} guardia{lista.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      {lista.length === 0 ? (
+                        <div style={{ padding: 12, fontSize: 12, color: '#5a5f70' }}>Sin guardias asignadas en {lugar} este mes.</div>
+                      ) : (
+                        <div style={{ padding: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {lista.map((t, i) => (
+                            <div key={i} title={`${t.sector} — ${lugarTurnosInfo[t.turno] || t.turno}`} style={{ padding: '4px 8px', borderRadius: 4, background: 'rgba(200,168,75,0.12)', fontSize: 11, color: '#c8a84b', border: '0.5px solid rgba(200,168,75,0.3)' }}>
+                              Día {t.dia} · {(t.turno || '?').toUpperCase()} · {t.sector}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {vista === 'config' && (() => {
           const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
