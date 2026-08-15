@@ -24,8 +24,8 @@ export default async function handler(req, res) {
   // Traemos TODOS los efectivos y turnos que matcheen el legajo (normalizando espacios/mayúsculas,
   // por si el legajo está guardado con formato levemente distinto en algún lado).
   const [{ data: efectivosAll, error: e1 }, { data: turnosAll, error: e2 }] = await Promise.all([
-    supabase.from('efectivos').select('legajo, nombre, lugar'),
-    supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', parseInt(mes)).eq('anio', parseInt(anio)),
+    supabase.from('efectivos').select('legajo, nombre, lugar').limit(10000),
+    supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', parseInt(mes)).eq('anio', parseInt(anio)).limit(10000),
   ])
   if (e1) return res.status(500).json({ error: e1.message })
   if (e2) return res.status(500).json({ error: e2.message })
