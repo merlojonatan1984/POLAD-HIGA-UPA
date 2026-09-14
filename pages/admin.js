@@ -891,7 +891,7 @@ export default function AdminApp() {
       legajo2: nuevoEspecialTipo === 'pareja' ? nuevoEspecialLeg2.trim() : null,
       activo: true
     })
-    if (error) return alert('Error: ' + error.message)
+    if (error) return alert('Error al guardar: ' + error.message + '\n\nVerificá los permisos de la tabla efectivos_especiales en Supabase.')
     setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('')
     await cargarEspeciales()
   }
@@ -2162,18 +2162,18 @@ export default function AdminApp() {
                             </div>
                             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
                               <select value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
-                                style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', flex:1, minWidth:200 }}>
-                                <option value="">— Seleccioná efectivo{nuevoEspecialTipo === 'pareja' ? ' 1' : ''} —</option>
+                                style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
+                                <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo{nuevoEspecialTipo === 'pareja' ? ' 1' : ''} —</option>
                                 {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
-                                  <option key={e.legajo} value={e.legajo}>{e.nombre} · Leg. {e.legajo}</option>
+                                  <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
                                 ))}
                               </select>
                               {nuevoEspecialTipo === 'pareja' && (
                                 <select value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
-                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', flex:1, minWidth:200 }}>
-                                  <option value="">— Seleccioná efectivo 2 —</option>
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo 2 —</option>
                                   {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
-                                    <option key={e.legajo} value={e.legajo}>{e.nombre} · Leg. {e.legajo}</option>
+                                    <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
                                   ))}
                                 </select>
                               )}
