@@ -327,7 +327,7 @@ export default function AdminApp() {
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
   const [especiales, setEspeciales] = useState([])
-  const [especialesModal, setEspecialesModal] = useState(false)
+  const [especialesModal, setEspecialesModal] = useState(true)
   const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
   const [nuevoEspecialLeg1, setNuevoEspecialLeg1] = useState('')
   const [nuevoEspecialLeg2, setNuevoEspecialLeg2] = useState('')
@@ -2121,7 +2121,7 @@ export default function AdminApp() {
                 </div>
                 <div style={{ padding:14 }}>
                   {APP_LUGAR === 'HIGA' && (
-                    <div style={{ marginBottom:14, border:'0.5px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+                    <div style={{ marginBottom:14, border:'1px solid rgba(29,158,117,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(29,158,117,0.05)' }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
                         onClick={() => setEspecialesModal(!especialesModal)}>
                         <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales HIGA ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
