@@ -326,6 +326,11 @@ export default function AdminApp() {
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
+  const [especiales, setEspeciales] = useState([])
+  const [especialesModal, setEspecialesModal] = useState(false)
+  const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
+  const [nuevoEspecialLeg1, setNuevoEspecialLeg1] = useState('')
+  const [nuevoEspecialLeg2, setNuevoEspecialLeg2] = useState('')
   const [buscarLegajoInput, setBuscarLegajoInput] = useState('')
   const [buscarLegajoResultado, setBuscarLegajoResultado] = useState(null)
   const [buscarLegajoCargando, setBuscarLegajoCargando] = useState(false)
@@ -390,7 +395,7 @@ export default function AdminApp() {
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
   useEffect(() => {
-    if (mounted && vista === 'rapida') { cargarTodo(lugarDetectado).then(() => cargarRapida()) }
+    if (mounted && vista === 'rapida') { cargarTodo(lugarDetectado).then(() => { cargarRapida(); cargarEspeciales() }) }
   }, [vista, mesSeleccionado, anioSeleccionado, mounted])
   // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
   // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
@@ -866,6 +871,36 @@ export default function AdminApp() {
     }
   }
 
+  async function cargarEspeciales() {
+    if (APP_LUGAR !== 'HIGA') return
+    const { data } = await supabase.from('efectivos_especiales').select('*').eq('lugar','HIGA').eq('activo',true)
+    const lista = data || []
+    setEspeciales(lista)
+    // Precargar 24hs en el estado rapida24hs
+    const set24 = new Set(lista.filter(e => e.tipo === '24hs').map(e => e.legajo1))
+    setRapida24hs(set24)
+  }
+
+  async function agregarEspecial() {
+    if (!nuevoEspecialLeg1.trim()) return alert('Ingresá el legajo')
+    if (nuevoEspecialTipo === 'pareja' && !nuevoEspecialLeg2.trim()) return alert('Ingresá el legajo del segundo efectivo')
+    const { error } = await supabase.from('efectivos_especiales').insert({
+      lugar: 'HIGA',
+      tipo: nuevoEspecialTipo,
+      legajo1: nuevoEspecialLeg1.trim(),
+      legajo2: nuevoEspecialTipo === 'pareja' ? nuevoEspecialLeg2.trim() : null,
+      activo: true
+    })
+    if (error) return alert('Error: ' + error.message)
+    setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('')
+    await cargarEspeciales()
+  }
+
+  async function quitarEspecial(id) {
+    await supabase.from('efectivos_especiales').update({ activo: false }).eq('id', id)
+    await cargarEspeciales()
+  }
+
   async function cargarRapida() {
     setRapidaCargando(true); setRapidaMsg(null)
     const L = lugarDetectado
@@ -1022,6 +1057,8 @@ export default function AdminApp() {
         .filter(dia => turnosLugar.every(tk => (dmap[dia] || '').includes(tk))) // debe estar disponible para TODOS los turnos ese día
 
       const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
+      let sectorRotIdx = 0
+      let sectorRotIdx = 0  // índice de rotación por efectivo
       function getSector24(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
@@ -2083,6 +2120,57 @@ export default function AdminApp() {
                   <span style={{ fontSize:11, color:'var(--text-muted)' }}>Iguala la cantidad de guardias de {nombrePrev}</span>
                 </div>
                 <div style={{ padding:14 }}>
+                  {APP_LUGAR === 'HIGA' && (
+                    <div style={{ marginBottom:14, border:'0.5px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
+                        onClick={() => setEspecialesModal(!especialesModal)}>
+                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales HIGA ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
+                        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{especialesModal ? '▲' : '▼'}</span>
+                      </div>
+                      {especialesModal && (
+                        <div style={{ padding:12 }}>
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>GUARDIAS DE 24HS</div>
+                            {especiales.filter(e => e.tipo === '24hs').map(e => {
+                              const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                              return (
+                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(29,158,117,0.08)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>PAREJAS</div>
+                            {especiales.filter(e => e.tipo === 'pareja').map(e => {
+                              const ef1 = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                              const ef2 = efectivos.find(x => String(x.legajo) === String(e.legajo2))
+                              return (
+                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(239,159,39,0.08)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef1?.nombre || e.legajo1} + {ef2?.nombre || e.legajo2}</span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center', paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
+                            <select value={nuevoEspecialTipo} onChange={e => setNuevoEspecialTipo(e.target.value)} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
+                              <option value="24hs">24hs</option>
+                              <option value="pareja">Pareja</option>
+                            </select>
+                            <input placeholder="Legajo 1" value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 8px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', width:90 }} />
+                            {nuevoEspecialTipo === 'pareja' && (
+                              <input placeholder="Legajo 2" value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
+                                style={{ fontSize:11, padding:'4px 8px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', width:90 }} />
+                            )}
+                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(29,158,117,0.15)', color:'#1D9E75' }} onClick={agregarEspecial}>+ Agregar</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
                     Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b>, y le asigna la <b>misma cantidad</b> usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
                   </p>
