@@ -2153,18 +2153,32 @@ export default function AdminApp() {
                               )
                             })}
                           </div>
-                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center', paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
-                            <select value={nuevoEspecialTipo} onChange={e => setNuevoEspecialTipo(e.target.value)} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
-                              <option value="24hs">24hs</option>
-                              <option value="pareja">Pareja</option>
-                            </select>
-                            <input placeholder="Legajo 1" value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 8px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', width:90 }} />
-                            {nuevoEspecialTipo === 'pareja' && (
-                              <input placeholder="Legajo 2" value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
-                                style={{ fontSize:11, padding:'4px 8px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', width:90 }} />
-                            )}
-                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(29,158,117,0.15)', color:'#1D9E75' }} onClick={agregarEspecial}>+ Agregar</button>
+                          <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
+                            <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                              <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
+                                <option value="24hs">24hs</option>
+                                <option value="pareja">Pareja</option>
+                              </select>
+                            </div>
+                            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                              <select value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
+                                style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', flex:1, minWidth:200 }}>
+                                <option value="">— Seleccioná efectivo{nuevoEspecialTipo === 'pareja' ? ' 1' : ''} —</option>
+                                {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                  <option key={e.legajo} value={e.legajo}>{e.nombre} · Leg. {e.legajo}</option>
+                                ))}
+                              </select>
+                              {nuevoEspecialTipo === 'pareja' && (
+                                <select value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', flex:1, minWidth:200 }}>
+                                  <option value="">— Seleccioná efectivo 2 —</option>
+                                  {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                    <option key={e.legajo} value={e.legajo}>{e.nombre} · Leg. {e.legajo}</option>
+                                  ))}
+                                </select>
+                              )}
+                              <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(29,158,117,0.15)', color:'#1D9E75' }} onClick={agregarEspecial}>+ Agregar</button>
+                            </div>
                           </div>
                         </div>
                       )}
