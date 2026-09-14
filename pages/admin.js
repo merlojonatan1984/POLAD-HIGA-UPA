@@ -1058,7 +1058,6 @@ export default function AdminApp() {
 
       const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
       let sectorRotIdx = 0
-      let sectorRotIdx = 0  // índice de rotación por efectivo
       function getSector24(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
