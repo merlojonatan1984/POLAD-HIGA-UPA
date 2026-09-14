@@ -326,6 +326,7 @@ export default function AdminApp() {
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
+  const [rapidaDoble, setRapidaDoble] = useState(new Set())
   const [especiales, setEspeciales] = useState([])
   const [especialesModal, setEspecialesModal] = useState(true)
   const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
@@ -872,20 +873,21 @@ export default function AdminApp() {
   }
 
   async function cargarEspeciales() {
-    if (APP_LUGAR !== 'HIGA') return
-    const { data } = await supabase.from('efectivos_especiales').select('*').eq('lugar','HIGA').eq('activo',true)
+    const { data } = await supabase.from('efectivos_especiales').select('*').eq('lugar', APP_LUGAR).eq('activo',true)
     const lista = data || []
     setEspeciales(lista)
-    // Precargar 24hs en el estado rapida24hs
+    // Precargar 24hs y doble turno en sus respectivos estados
     const set24 = new Set(lista.filter(e => e.tipo === '24hs').map(e => e.legajo1))
     setRapida24hs(set24)
+    const setDoble = new Set(lista.filter(e => e.tipo === 'doble').map(e => e.legajo1))
+    setRapidaDoble(setDoble)
   }
 
   async function agregarEspecial() {
     if (!nuevoEspecialLeg1.trim()) return alert('Ingresá el legajo')
     if (nuevoEspecialTipo === 'pareja' && !nuevoEspecialLeg2.trim()) return alert('Ingresá el legajo del segundo efectivo')
     const { error } = await supabase.from('efectivos_especiales').insert({
-      lugar: 'HIGA',
+      lugar: APP_LUGAR,
       tipo: nuevoEspecialTipo,
       legajo1: nuevoEspecialLeg1.trim(),
       legajo2: nuevoEspecialTipo === 'pareja' ? nuevoEspecialLeg2.trim() : null,
@@ -934,7 +936,7 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
-  async function procesarRapida(targets, legajos24hs = new Set()) {
+  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set()) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
@@ -1029,9 +1031,17 @@ export default function AdminApp() {
     const reporte = []
     const conflictos = []
 
+    // Días que cada legajo debe tener libres por descanso obligatorio post-24hs o post-doble
+    // turno. Se declaran acá (antes de cumpleDescanso) para que el descanso se respete tanto
+    // en la Fase 1/1.25 que los genera como en la Fase 2, que antes no los consultaba.
+    const diasBloqueados24hs = {} // legajo -> Set de días bloqueados por descanso post-24hs
+    const diasBloqueadosDoble = {} // legajo -> Set de días bloqueados por descanso post-doble turno
+
     function cumpleDescanso(legajo, dia, turno) {
       const prev = turnosPorLegajo[legajo] || []
       if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día en este mismo lugar
+      if ((diasBloqueados24hs[legajo] || new Set()).has(dia)) return false // descanso post-24hs
+      if ((diasBloqueadosDoble[legajo] || new Set()).has(dia)) return false // descanso post-doble turno
       const conflicto = conflictoOtroLugar(legajo, dia, turno)
       if (conflicto) {
         conflictos.push({ legajo, dia, turno, lugarOrigen: conflicto.lugarOrigen, turnoOrigen: conflicto.turno, diaOrigen: conflicto.dia })
@@ -1047,8 +1057,7 @@ export default function AdminApp() {
     }
 
     // ===== Fase 1: efectivos marcados para guardias de 24hs (día completo, con día de descanso después) =====
-    const diasBloqueados24hs = {} // legajo -> Set de días que deben quedar libres (descanso post-24hs)
-    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en la fase de 24hs
+    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en las fases 1 / 1.25
     for (const { legajo, objetivo } of targets) {
       if (!legajos24hs.has(legajo)) continue
 
@@ -1097,6 +1106,101 @@ export default function AdminApp() {
         diasAsignados++
       }
       asignadasFase1[legajo] = diasAsignados * turnosLugar.length
+    }
+
+    // ===== Fase 1.25: doble turno (solo MODULAR) — Mañana+Tarde o Tarde+Noche seguidas
+    // (16hs), con el día siguiente de descanso obligatorio, igual que el de 24hs. Un
+    // legajo marcado para 24hs no se procesa acá para no duplicar/pisar esa asignación.
+    const PARES_DOBLE = [['m', 't'], ['t', 'n']]
+    if (L === 'MODULAR') {
+      for (const { legajo, objetivo } of targets) {
+        if (!legajosDoble.has(legajo) || legajos24hs.has(legajo)) continue
+
+        const dmap = dispMap[normLegajo(legajo)] || {}
+        const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
+
+        if (!diasBloqueadosDoble[legajo]) diasBloqueadosDoble[legajo] = new Set()
+        const costoDia = horasTurno * 2 // 16hs
+        let diasAsignados = 0
+        const metaDias = Math.floor(objetivo / 2)
+
+        for (const dia of diasCandidatos) {
+          if (diasAsignados >= metaDias) break
+          if ((hsMap[legajo] || 0) + costoDia > MAX_HS) continue
+          if ((turnosPorLegajo[legajo] || []).some(a => a.dia === dia)) continue
+          if (diasBloqueadosDoble[legajo].has(dia)) continue // día reservado como descanso de un doble turno anterior
+
+          const dispDia = dmap[dia] || ''
+          const par = PARES_DOBLE.find(([t1, t2]) =>
+            dispDia.includes(t1) && dispDia.includes(t2) &&
+            cumpleDescanso(legajo, dia, t1) && cumpleDescanso(legajo, dia, t2)
+          )
+          if (!par) continue
+
+          const sector = sectores.find(s =>
+            (ocupacion[dia + '-' + par[0] + '-' + s] || 0) < MAX_POR_SLOT &&
+            (ocupacion[dia + '-' + par[1] + '-' + s] || 0) < MAX_POR_SLOT
+          )
+          if (!sector) continue
+
+          par.forEach(tk => {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector })
+            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+            turnosPorLegajo[legajo].push({ dia, turno: tk })
+            ocupacion[dia + '-' + tk + '-' + sector] = (ocupacion[dia + '-' + tk + '-' + sector] || 0) + 1
+          })
+          hsMap[legajo] = (hsMap[legajo] || 0) + costoDia
+          diasBloqueadosDoble[legajo].add(dia + 1) // el día siguiente queda de descanso obligatorio
+          diasAsignados++
+        }
+        asignadasFase1[legajo] = (asignadasFase1[legajo] || 0) + diasAsignados * 2
+      }
+    }
+
+    // ===== Fase 1.5: parejas — a los marcados como "pareja" en Casos especiales se les
+    // asigna siempre el mismo día + mismo turno + mismo sector, ocupando entre los dos
+    // el puesto completo (MAX_POR_SLOT = 2). Solo se emparejan si AMBOS integrantes están
+    // en esta misma tanda (targets); si falta alguno, cada uno sigue el circuito normal
+    // de la Fase 2 sin coordinación con su pareja.
+    const objetivoPorLegajo = {}
+    targets.forEach(t => { objetivoPorLegajo[t.legajo] = t.objetivo })
+    const parejasActivas = (especiales || []).filter(e => e.tipo === 'pareja')
+    const yaEmparejado = new Set()
+    for (const pareja of parejasActivas) {
+      const a = String(pareja.legajo1), b = String(pareja.legajo2)
+      if (yaEmparejado.has(a) || yaEmparejado.has(b)) continue
+      if (!(a in objetivoPorLegajo) || !(b in objetivoPorLegajo)) continue // ambos deben estar en esta tanda
+      yaEmparejado.add(a); yaEmparejado.add(b)
+
+      const metaPareja = Math.min(objetivoPorLegajo[a], objetivoPorLegajo[b])
+      const dmapA = dispMap[normLegajo(a)] || {}
+      const dmapB = dispMap[normLegajo(b)] || {}
+      const diasComunes = Object.keys(dmapA).map(d => parseInt(d)).filter(d => dmapB[d]).sort((x, y) => x - y)
+
+      let asignadasPareja = 0
+      for (const dia of diasComunes) {
+        if (asignadasPareja >= metaPareja) break
+        if ((hsMap[a] || 0) + horasTurno > MAX_HS || (hsMap[b] || 0) + horasTurno > MAX_HS) continue
+        const turnoOk = turnosLugar.find(tk =>
+          (dmapA[dia] || '').includes(tk) && (dmapB[dia] || '').includes(tk) &&
+          cumpleDescanso(a, dia, tk) && cumpleDescanso(b, dia, tk)
+        )
+        if (!turnoOk) continue
+        // Necesitan un puesto completamente libre para entrar juntos los dos
+        const sectorLibre = sectores.find(s => (ocupacion[dia + '-' + turnoOk + '-' + s] || 0) === 0)
+        if (!sectorLibre) continue
+
+        ;[a, b].forEach(legajo => {
+          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: turnoOk, sector: sectorLibre })
+          if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+          turnosPorLegajo[legajo].push({ dia, turno: turnoOk })
+          hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
+        })
+        ocupacion[dia + '-' + turnoOk + '-' + sectorLibre] = 2
+        asignadasFase1[a] = (asignadasFase1[a] || 0) + 1
+        asignadasFase1[b] = (asignadasFase1[b] || 0) + 1
+        asignadasPareja++
+      }
     }
 
     // ===== Fase 2: asignación normal (turno por turno) para completar lo que falte =====
@@ -1164,7 +1268,7 @@ export default function AdminApp() {
 
   async function asignarUnoRapida(item) {
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs)
+    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs, rapidaDoble)
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
@@ -1180,9 +1284,10 @@ export default function AdminApp() {
   async function asignarTodosRapida() {
     if (rapidaLista.length === 0) return
     const aviso24hs = rapida24hs.size > 0 ? `\n\n${rapida24hs.size} marcado(s) para guardias de 24hs.` : ''
-    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}`)) return
+    const avisoDoble = rapidaDoble.size > 0 ? `\n${rapidaDoble.size} marcado(s) para doble turno.` : ''
+    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs)
+    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -2119,11 +2224,11 @@ export default function AdminApp() {
                   <span style={{ fontSize:11, color:'var(--text-muted)' }}>Iguala la cantidad de guardias de {nombrePrev}</span>
                 </div>
                 <div style={{ padding:14 }}>
-                  {APP_LUGAR === 'HIGA' && (
+                  {(
                     <div style={{ marginBottom:14, border:'1px solid rgba(29,158,117,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(29,158,117,0.05)' }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
                         onClick={() => setEspecialesModal(!especialesModal)}>
-                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales HIGA ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
+                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales {APP_LUGAR} ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
                         <span style={{ fontSize:11, color:'var(--text-muted)' }}>{especialesModal ? '▲' : '▼'}</span>
                       </div>
                       {especialesModal && (
@@ -2153,11 +2258,26 @@ export default function AdminApp() {
                               )
                             })}
                           </div>
+                          {APP_LUGAR === 'MODULAR' && (
+                            <div style={{ marginBottom:10 }}>
+                              <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>DOBLE TURNO (Mañana+Tarde o Tarde+Noche)</div>
+                              {especiales.filter(e => e.tipo === 'doble').map(e => {
+                                const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                                return (
+                                  <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(123,111,216,0.08)', borderRadius:6, marginBottom:4 }}>
+                                    <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
+                                    <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                           <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
                             <div style={{ display:'flex', gap:6, marginBottom:6 }}>
                               <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
                                 <option value="24hs">24hs</option>
                                 <option value="pareja">Pareja</option>
+                                {APP_LUGAR === 'MODULAR' && <option value="doble">Doble turno</option>}
                               </select>
                             </div>
                             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
@@ -2211,6 +2331,7 @@ export default function AdminApp() {
                         <thead>
                           <tr>
                             <th style={{ width:50, textAlign:'center' }}>24hs</th>
+                            {APP_LUGAR === 'MODULAR' && <th style={{ width:60, textAlign:'center' }}>Doble</th>}
                             <th>Efectivo</th>
                             <th style={{ width:110, textAlign:'center' }}>{nombrePrev}</th>
                             <th style={{ width:110, textAlign:'center' }}>Este mes</th>
@@ -2232,6 +2353,17 @@ export default function AdminApp() {
                                     })}
                                     title="Cargar guardias de 24hs (día completo) a este efectivo" />
                                 </td>
+                                {APP_LUGAR === 'MODULAR' && (
+                                  <td style={{ textAlign:'center' }}>
+                                    <input type="checkbox" checked={rapidaDoble.has(i.legajo)} disabled={rapidaProcesando}
+                                      onChange={() => setRapidaDoble(prev => {
+                                        const next = new Set(prev)
+                                        next.has(i.legajo) ? next.delete(i.legajo) : next.add(i.legajo)
+                                        return next
+                                      })}
+                                      title="Cargar doble turno (Mañana+Tarde o Tarde+Noche, 16hs) a este efectivo" />
+                                  </td>
+                                )}
                                 <td>
                                   <div style={{ fontSize:12, fontWeight:500 }}>{i.nombre}</div>
                                   <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {i.legajo}</div>
