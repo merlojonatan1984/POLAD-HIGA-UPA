@@ -888,7 +888,7 @@ export default function AdminApp() {
     const lista = efectivos
       .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) > 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
-      .sort((a, b) => b.objetivo - a.objetivo)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
     const nuevos = efectivos
       .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
