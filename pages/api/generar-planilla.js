@@ -73,39 +73,20 @@ function addFirmas(wb, ws, pieRow, colIzq1, colIzq2, colMedalla, colFirma1, colF
 
 function fmtNombre(ef) {
   let nombre = (ef.nombre || '').trim()
-  let jer = (ef.jerarquia || '').trim()
 
   // Limpiar paréntesis de escalafón
   nombre = nombre.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
-  jer    = jer.replace(/\(E\.G\.\)|\(S\.G\.\)|\(ADM\.?\)|\(CDO\)/gi, '').replace(/\s+/g, ' ').trim()
 
-  // Extraer jerarquía del campo nombre si viene pegada
-  if (!jer) {
-    const m = nombre.match(/^(OFICIAL\s*SUB\s*AYUDANTE|OFICIAL\s*AYUDANTE|SUB\s*COMISARIO|COMISARIO|SUBINSPECTOR|INSPECTOR|SARGENTO|TENIENTE|CAPITAN|MAYOR|OFICIAL)\s+(.+)$/i)
-    if (m) { jer = m[1].trim(); nombre = m[2].trim() }
-  }
+  // Quitar jerarquía si viene pegada al nombre
+  nombre = nombre.replace(/^(OFICIAL\s*SUB\s*AYUDANTE|OFICIAL\s*AYUDANTE|SUB\s*COMISARIO|COMISARIO|SUBINSPECTOR|INSPECTOR|SARGENTO|TENIENTE|CAPITAN|MAYOR|OFICIAL)\s+/i, '').trim()
 
-  // Nombres sin coma: palabras[0] = apellido, palabras[1] = primer nombre
+  // Apellido + primer nombre + segundo nombre (para distinguir homónimos)
   const palabras = nombre.split(/\s+/).filter(Boolean)
-  const apellido     = palabras[0] || ''
-  const primerNombre = palabras[1] || ''
+  const apellido      = palabras[0] || ''
+  const primerNombre  = palabras[1] || ''
+  const segundoNombre = palabras[2] || ''
 
-  const abreviar = j => j
-    .replace(/OFICIAL\s*SUB\s*AYUDANTE/i, 'OSA')
-    .replace(/OFICIAL\s*AYUDANTE/i,       'OA')
-    .replace(/SUB\s*COMISARIO/i,          'Scrio.')
-    .replace(/COMISARIO/i,                'Crio.')
-    .replace(/CAPITAN/i,                  'Cap.')
-    .replace(/MAYOR/i,                    'May.')
-    .replace(/TENIENTE/i,                 'Tte.')
-    .replace(/SARGENTO/i,                 'Sgto.')
-    .replace(/SUBINSPECTOR/i,             'SubInsp.')
-    .replace(/INSPECTOR/i,                'Insp.')
-    .replace(/OFICIAL/i,                  'Ofl.')
-  const jerAbrev = jer ? abreviar(jer) : ''
-  return jerAbrev
-    ? `${jerAbrev} ${apellido} ${primerNombre}`.trim()
-    : `${apellido} ${primerNombre}`.trim()
+  return [apellido, primerNombre, segundoNombre].filter(Boolean).join(' ')
 }
 
 function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
