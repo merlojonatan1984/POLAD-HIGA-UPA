@@ -327,6 +327,8 @@ export default function AdminApp() {
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
   const [rapidaDoble, setRapidaDoble] = useState(new Set())
+  const [rapidaMaxHoras, setRapidaMaxHoras] = useState(new Set())
+  const [rapidaSectorFijo, setRapidaSectorFijo] = useState({}) // legajo -> sector
   const [especiales, setEspeciales] = useState([])
   const [especialesModal, setEspecialesModal] = useState(true)
   const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
@@ -881,16 +883,22 @@ export default function AdminApp() {
     setRapida24hs(set24)
     const setDoble = new Set(lista.filter(e => e.tipo === 'doble').map(e => e.legajo1))
     setRapidaDoble(setDoble)
+    const setMaxHoras = new Set(lista.filter(e => e.tipo === 'max_horas').map(e => e.legajo1))
+    setRapidaMaxHoras(setMaxHoras)
+    const mapSectorFijo = {}
+    lista.filter(e => e.tipo === 'sector_fijo').forEach(e => { mapSectorFijo[e.legajo1] = e.legajo2 })
+    setRapidaSectorFijo(mapSectorFijo)
   }
 
   async function agregarEspecial() {
     if (!nuevoEspecialLeg1.trim()) return alert('Ingresá el legajo')
     if (nuevoEspecialTipo === 'pareja' && !nuevoEspecialLeg2.trim()) return alert('Ingresá el legajo del segundo efectivo')
+    if (nuevoEspecialTipo === 'sector_fijo' && !nuevoEspecialLeg2.trim()) return alert('Elegí el sector fijo')
     const { error } = await supabase.from('efectivos_especiales').insert({
       lugar: APP_LUGAR,
       tipo: nuevoEspecialTipo,
       legajo1: nuevoEspecialLeg1.trim(),
-      legajo2: nuevoEspecialTipo === 'pareja' ? nuevoEspecialLeg2.trim() : null,
+      legajo2: (nuevoEspecialTipo === 'pareja' || nuevoEspecialTipo === 'sector_fijo') ? nuevoEspecialLeg2.trim() : null,
       activo: true
     })
     if (error) return alert('Error al guardar: ' + error.message + '\n\nVerificá los permisos de la tabla efectivos_especiales en Supabase.')
@@ -922,12 +930,22 @@ export default function AdminApp() {
       Object.keys(disponibilidad).filter(legajo => Object.keys(disponibilidad[legajo] || {}).length > 0)
     )
     const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
+    // Efectivos marcados "Siempre máximo (180hs)" en Casos especiales: el objetivo no sale
+    // de lo que hicieron el mes anterior, sino directo del tope de 180hs (independientemente
+    // de si el mes anterior tuvieron guardias o no).
+    const horasTurnoL = L === 'MODULAR' ? 8 : 12
+    const objetivoMax = Math.floor(180 / horasTurnoL)
     const lista = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) > 0)
-      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && ((countPrev[e.legajo] || 0) > 0 || rapidaMaxHoras.has(e.legajo)))
+      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: rapidaMaxHoras.has(e.legajo) ? objetivoMax : countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
+      // Orden por objetivo (cantidad de guardias a cubrir) descendente: los que necesitan
+      // cubrir MÁS guardias entran primero a la asignación rápida, cuando todavía hay más
+      // cupos/días libres compartidos disponibles. Los que necesitan menos guardias quedan
+      // para el final, compitiendo por lo que sobre, pero como necesitan menos les alcanza
+      // más fácil. Desempate alfabético para que el orden sea estable y predecible en la UI.
+      .sort((a, b) => (b.objetivo - a.objetivo) || a.nombre.localeCompare(b.nombre))
     const nuevos = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0)
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0 && !rapidaMaxHoras.has(e.legajo))
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     setRapidaNuevos(nuevos)
@@ -936,7 +954,7 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
-  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set()) {
+  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set(), sectorFijo = {}) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
@@ -1068,6 +1086,10 @@ export default function AdminApp() {
       const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
       let sectorRotIdx = 0
       function getSector24(dia, turno) {
+        if (sectorFijo[legajo]) {
+          const s = sectorFijo[legajo]
+          return (ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT ? s : null
+        }
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
           if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
@@ -1220,6 +1242,10 @@ export default function AdminApp() {
       const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
       const conteoTurnos = {}; turnosLugar.forEach(tk => { conteoTurnos[tk] = 0 })
       function getSector(dia, turno) {
+        if (sectorFijo[legajo]) {
+          const s = sectorFijo[legajo]
+          return (ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT ? s : null
+        }
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
           if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
@@ -1268,7 +1294,7 @@ export default function AdminApp() {
 
   async function asignarUnoRapida(item) {
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs, rapidaDoble)
+    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs, rapidaDoble, rapidaSectorFijo)
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
@@ -1287,7 +1313,7 @@ export default function AdminApp() {
     const avisoDoble = rapidaDoble.size > 0 ? `\n${rapidaDoble.size} marcado(s) para doble turno.` : ''
     if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble)
+    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble, rapidaSectorFijo)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -2272,12 +2298,38 @@ export default function AdminApp() {
                               })}
                             </div>
                           )}
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>SIEMPRE MÁXIMO (180HS)</div>
+                            {especiales.filter(e => e.tipo === 'max_horas').map(e => {
+                              const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                              return (
+                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(200,168,75,0.1)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div style={{ marginBottom:10 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>SECTOR FIJO</div>
+                            {especiales.filter(e => e.tipo === 'sector_fijo').map(e => {
+                              const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                              return (
+                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(56,138,221,0.1)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} → {e.legajo2} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
                           <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
                             <div style={{ display:'flex', gap:6, marginBottom:6 }}>
                               <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
                                 <option value="24hs">24hs</option>
                                 <option value="pareja">Pareja</option>
                                 {APP_LUGAR === 'MODULAR' && <option value="doble">Doble turno</option>}
+                                <option value="max_horas">Siempre máximo (180hs)</option>
+                                <option value="sector_fijo">Sector fijo</option>
                               </select>
                             </div>
                             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
@@ -2294,6 +2346,15 @@ export default function AdminApp() {
                                   <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo 2 —</option>
                                   {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
                                     <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                                  ))}
+                                </select>
+                              )}
+                              {nuevoEspecialTipo === 'sector_fijo' && (
+                                <select value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná sector —</option>
+                                  {(SECTORES_POR_LUGAR[APP_LUGAR] || []).map(s => (
+                                    <option key={s} value={s} style={{ color:'#111', background:'#fff' }}>{s}</option>
                                   ))}
                                 </select>
                               )}
