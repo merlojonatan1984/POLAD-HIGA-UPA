@@ -108,7 +108,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
     ws.pageSetup = {
-      orientation: 'portrait', paperSize: 9,
+      orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
       margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
     }
 
@@ -356,7 +356,7 @@ export default async function handler(req, res) {
   wb.creator = 'POLAD HIGA UPA'
 
   if (lugar === 'HIGA') {
-    const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+    const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','Rondin Externo']
     const { data: turnosData } = await supabase.from('turnos').select('*')
       .eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
     const gds = {}
