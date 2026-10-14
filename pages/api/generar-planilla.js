@@ -101,6 +101,19 @@ function borde(top, bot, left, right) {
   return { top: s(top), bottom: s(bot), left: s(left), right: s(right) }
 }
 
+// Cupo real por sector y turno en HIGA (debe coincidir con SLOTS_POR_SECTOR_TURNO
+// de pages/admin.js). Donde no hay override, el cupo normal es 2 (Ef.1 y Ef.2).
+const CUPO_POR_SECTOR_TURNO = {
+  'Salud Mental':   { d: 2, n: 1 },
+  'Llaves':         { d: 2, n: 1 },
+  'Rondin Externo': { d: 0, n: 2 },
+}
+function cupoHIGA(sector, turno) {
+  const porTurno = CUPO_POR_SECTOR_TURNO[sector]
+  if (porTurno && turno in porTurno) return porTurno[turno]
+  return 2
+}
+
 // ── HIGA: portrait, vertical, 10 días por hoja, alturas exactas ─────
 async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
   const rangos = [[1,10],[11,20],[21,DIAS_MES]]
@@ -181,13 +194,20 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
         cSec.border = borde('thin', isLast?'medium':'thin', 'medium', 'thin')
 
         ;[[0,2,'FFFBF0','FFF0C0','d'],[1,4,'EDF4FF','C8DEFF','n']].forEach(([ei0, colStart, C1, C2, key]) => {
+          const cupo = cupoHIGA(sec, key)
           [0,1].forEach(ei => {
+            // Slots que superan el cupo real de este sector+turno (p.ej. Rondín Externo
+            // de día: cupo 0, o Salud Mental/Llaves de noche: cupo 1, por lo que el Ef.2
+            // nunca corresponde) se muestran en gris neutro en vez de rojo de alerta, para
+            // no dar la falsa impresión de un puesto descubierto.
+            const noAplica = ei >= cupo
             const col = colStart + ei
             const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
             const c = ws.getCell(row, col)
-            c.value = nm; c.font = { name:'Arial', size:7, color:{argb:'FF000000'} }
+            c.value = noAplica ? (ei === 0 ? '—' : '') : nm
+            c.font = { name:'Arial', size:7, italic: noAplica, color:{argb: noAplica ? 'FF999999' : 'FF000000'} }
             c.alignment = { horizontal:'center', vertical:'middle', wrapText:false }
-            c.fill = fill(nm ? (ei===0?C1:C2) : 'E84040')
+            c.fill = fill(noAplica ? 'D9D9D9' : (nm ? (ei===0?C1:C2) : 'E84040'))
             c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
           })
         })
