@@ -62,9 +62,20 @@ const ES_MODULAR = APP_LUGAR === 'MODULAR'
 const TURNOS_LUGAR = ES_MODULAR ? ['m', 't', 'n'] : ['d', 'n']
 const HORAS_TURNO = ES_MODULAR ? 8 : 12
 const MAX_POR_SLOT = ES_MODULAR ? 2 : 2
-// Slots máximos por sector (override del global — HIGA: Salud Mental y Llaves tienen 1 por turno)
-const SLOTS_POR_SECTOR = APP_LUGAR === 'HIGA' ? { 'Salud Mental': 1, 'Llaves': 1 } : {}
-function maxSlot(sector) { return SLOTS_POR_SECTOR[sector] ?? MAX_POR_SLOT }
+// Slots máximos por sector y turno (override del global). En HIGA:
+//  - Salud Mental: 2 efectivos de día, 1 de noche
+//  - Llaves: 2 efectivos de día, 1 de noche
+//  - Rondin Externo: 0 de día (no se cubre ese turno), 2 de noche
+const SLOTS_POR_SECTOR_TURNO = APP_LUGAR === 'HIGA' ? {
+  'Salud Mental':   { d: 2, n: 1 },
+  'Llaves':         { d: 2, n: 1 },
+  'Rondin Externo': { d: 0, n: 2 },
+} : {}
+function maxSlot(sector, turno) {
+  const porTurno = SLOTS_POR_SECTOR_TURNO[sector]
+  if (porTurno && turno in porTurno) return porTurno[turno]
+  return MAX_POR_SLOT
+}
 const TURNOS_INFO = ES_MODULAR
   ? [
       { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
@@ -497,7 +508,7 @@ export default function AdminApp() {
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
             return avail.includes(turno) && !yaAsignado
           }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, maxSlot(sector)).forEach(e => {
+          candidatos.slice(0, maxSlot(sector, turno)).forEach(e => {
             e.hs += horasTurno
             nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
           })
@@ -574,7 +585,7 @@ export default function AdminApp() {
       // Ordenar sectores por los menos usados primero para distribuir parejo
       const sectoresOrdenados = [...SECTORES_APP].sort((a, b) => conteoSector[a] - conteoSector[b])
       for (const s of sectoresOrdenados) {
-        if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < maxSlot(s)) {
+        if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < maxSlot(s, turno)) {
           conteoSector[s]++
           return s
         }
@@ -810,7 +821,7 @@ export default function AdminApp() {
         const slots = []
         for (const sector of sectores) {
           const ocup = ocupacion[dia + '-' + turno + '-' + sector] || 0
-          for (let k = ocup; k < maxSlot(sector); k++) slots.push(sector)
+          for (let k = ocup; k < maxSlot(sector, turno); k++) slots.push(sector)
         }
         for (const sector of slots) {
           const cands = candidatosTurno(turno)
@@ -1062,7 +1073,7 @@ export default function AdminApp() {
       function getSector24(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s)) { conteoSector[s]++; return s }
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s, turno)) { conteoSector[s]++; return s }
         }
         return null
       }
@@ -1119,7 +1130,7 @@ export default function AdminApp() {
       function getSector(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s)) { conteoSector[s]++; return s }
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s, turno)) { conteoSector[s]++; return s }
         }
         return null
       }
@@ -2037,7 +2048,8 @@ export default function AdminApp() {
                           return (
                             <div key={ti.key} style={{ marginBottom:idx<TURNOS_INFO.length-1?8:0,paddingBottom:idx<TURNOS_INFO.length-1?8:0,borderBottom:idx<TURNOS_INFO.length-1?'0.5px solid var(--border)':'' }}>
                               <div style={{ fontSize:10,color:ti.color,fontWeight:500,marginBottom:5 }}>{ti.label.toUpperCase()}</div>
-                              {list.length===0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
+                              {list.length===0 && maxSlot(sector, ti.key) === 0 && <span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>No corresponde este turno</span>}
+                              {list.length===0 && maxSlot(sector, ti.key) > 0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
                               {list.map(item => (
                                 <div key={item.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3 }}>
                                   <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
@@ -2047,7 +2059,7 @@ export default function AdminApp() {
                                   </div>
                                 </div>
                               ))}
-                              {list.length>0&&list.length<maxSlot(sector) && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color:ti.color,borderColor:`${ti.color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Agregar</button>}
+                              {list.length>0&&list.length<maxSlot(sector, ti.key) && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color:ti.color,borderColor:`${ti.color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Agregar</button>}
                             </div>
                           )
                         })}
@@ -2070,7 +2082,7 @@ export default function AdminApp() {
                         const yaAsignados = new Set(todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).map(t => t.legajo))
                         const ocupSlots = {}
                         todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).forEach(t => { ocupSlots[t.sector]=(ocupSlots[t.sector]||0)+1 })
-                        const hayLugar = SECTORES_APP.some(s => (ocupSlots[s]||0) < maxSlot(s))
+                        const hayLugar = SECTORES_APP.some(s => (ocupSlots[s]||0) < maxSlot(s, ti.key))
                         const dispTurno = dispDia.filter(e => e.disp && e.disp.includes(ti.key) && !yaAsignados.has(e.legajo) && e.hs<180 && hayLugar)
                         return (
                           <div key={ti.key} style={{ padding:'8px 12px 4px' }}>
