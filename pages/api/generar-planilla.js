@@ -194,7 +194,7 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
         cSec.border = borde('thin', isLast?'medium':'thin', 'medium', 'thin')
 
         ;[[0,2,'FFFBF0','FFF0C0','d'],[1,4,'EDF4FF','C8DEFF','n']].forEach(([ei0, colStart, C1, C2, key]) => {
-          const cupo = cupoHIGA(sec, key)
+          const cupo = cupoHIGA(sec, key);
           [0,1].forEach(ei => {
             // Slots que superan el cupo real de este sector+turno (p.ej. Rondín Externo
             // de día: cupo 0, o Salud Mental/Llaves de noche: cupo 1, por lo que el Ef.2
