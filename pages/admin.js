@@ -884,8 +884,7 @@ export default function AdminApp() {
   }
 
   async function cargarEspeciales() {
-    if (APP_LUGAR !== 'HIGA') return
-    const { data } = await supabase.from('efectivos_especiales').select('*').eq('lugar','HIGA').eq('activo',true)
+    const { data } = await supabase.from('efectivos_especiales').select('*').eq('lugar', APP_LUGAR).eq('activo',true)
     const lista = data || []
     setEspeciales(lista)
     // Precargar 24hs en el estado rapida24hs
@@ -897,7 +896,7 @@ export default function AdminApp() {
     if (!nuevoEspecialLeg1.trim()) return alert('Ingresá el legajo')
     if (nuevoEspecialTipo === 'pareja' && !nuevoEspecialLeg2.trim()) return alert('Ingresá el legajo del segundo efectivo')
     const { error } = await supabase.from('efectivos_especiales').insert({
-      lugar: 'HIGA',
+      lugar: APP_LUGAR,
       tipo: nuevoEspecialTipo,
       legajo1: nuevoEspecialLeg1.trim(),
       legajo2: nuevoEspecialTipo === 'pareja' ? nuevoEspecialLeg2.trim() : null,
@@ -1109,6 +1108,73 @@ export default function AdminApp() {
         diasAsignados++
       }
       asignadasFase1[legajo] = diasAsignados * turnosLugar.length
+    }
+
+    // ===== Fase 1.5: parejas (dos efectivos que siempre deben coincidir en el mismo
+    // día, turno y sector) — usa la lista "especiales" (tipo 'pareja') cargada para
+    // este lugar. Generalizada para HIGA/UPA/MODULAR: en MODULAR, como solo hay un
+    // sector ("Modular"), en la práctica alcanza con que coincidan día y turno. =====
+    // Indexado por String(legajo) para no fallar si algún lado viene como número y
+    // el otro como texto (ya pasa en otras partes del archivo, p.ej. el match de
+    // pareja en la UI usa String(...) por la misma razón). El valor guarda el
+    // legajo CON SU TIPO ORIGINAL de targets, para escribirlo igual que el resto
+    // del algoritmo al insertar turnos.
+    const objetivoPorLegajo = {}
+    targets.forEach(t => { objetivoPorLegajo[String(t.legajo)] = { legajo: t.legajo, objetivo: t.objetivo } })
+    const parejasActivas = (especiales || []).filter(e => e.tipo === 'pareja')
+    const yaEmparejado = new Set()
+    for (const pareja of parejasActivas) {
+      const keyA = String(pareja.legajo1), keyB = String(pareja.legajo2)
+      if (yaEmparejado.has(keyA) || yaEmparejado.has(keyB)) continue
+      const tA = objetivoPorLegajo[keyA], tB = objetivoPorLegajo[keyB]
+      if (!tA || !tB) continue // no participan de esta corrida
+      const a = tA.legajo, b = tB.legajo
+      if (legajos24hs.has(a) || legajos24hs.has(b)) continue // las 24hs ya los cubre todo el día
+      yaEmparejado.add(keyA); yaEmparejado.add(keyB)
+
+      const dmapA = dispMap[normLegajo(a)] || {}
+      const dmapB = dispMap[normLegajo(b)] || {}
+      const diasComunes = Object.keys(dmapA).map(d => parseInt(d))
+        .filter(d => dmapB[d])
+        .sort((x, y) => x - y)
+
+      const metaPar = Math.min(
+        tA.objetivo - (turnosPorLegajo[a] || []).length,
+        tB.objetivo - (turnosPorLegajo[b] || []).length
+      )
+      if (metaPar <= 0) continue
+
+      const conteoSectorPar = {}; sectores.forEach(s => { conteoSectorPar[s] = 0 })
+      let asignadasPar = 0
+      for (const dia of diasComunes) {
+        if (asignadasPar >= metaPar) break
+        if ((turnosPorLegajo[a] || []).some(x => x.dia === dia)) continue
+        if ((turnosPorLegajo[b] || []).some(x => x.dia === dia)) continue
+
+        const turnosComunes = turnosLugar.filter(tk => (dmapA[dia] || '').includes(tk) && (dmapB[dia] || '').includes(tk))
+        for (const tk of turnosComunes) {
+          if (!cumpleDescanso(a, dia, tk) || !cumpleDescanso(b, dia, tk)) continue
+          if ((hsMap[a] || 0) + horasTurno > MAX_HS || (hsMap[b] || 0) + horasTurno > MAX_HS) continue
+
+          const ordenS = [...sectores].sort((x, y) => conteoSectorPar[x] - conteoSectorPar[y])
+          const sec = ordenS.find(s => (ocupacion[dia + '-' + tk + '-' + s] || 0) + 2 <= maxSlot(s, tk))
+          if (!sec) continue
+
+          ;[a, b].forEach(legajo => {
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: sec })
+            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+            turnosPorLegajo[legajo].push({ dia, turno: tk })
+            hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
+          })
+          ocupacion[dia + '-' + tk + '-' + sec] = (ocupacion[dia + '-' + tk + '-' + sec] || 0) + 2
+          conteoSectorPar[sec]++
+          asignadasPar++
+          break // un turno por día para esta pareja
+        }
+      }
+      // Que Fase 2 no vuelva a contar estos turnos como "faltantes" al reportar el total
+      asignadasFase1[a] = (asignadasFase1[a] || 0) + asignadasPar
+      asignadasFase1[b] = (asignadasFase1[b] || 0) + asignadasPar
     }
 
     // ===== Fase 2: asignación normal (turno por turno) para completar lo que falte =====
@@ -2132,11 +2198,11 @@ export default function AdminApp() {
                   <span style={{ fontSize:11, color:'var(--text-muted)' }}>Iguala la cantidad de guardias de {nombrePrev}</span>
                 </div>
                 <div style={{ padding:14 }}>
-                  {APP_LUGAR === 'HIGA' && (
+                  {(
                     <div style={{ marginBottom:14, border:'1px solid rgba(29,158,117,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(29,158,117,0.05)' }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
                         onClick={() => setEspecialesModal(!especialesModal)}>
-                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales HIGA ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
+                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales {APP_LUGAR} ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
                         <span style={{ fontSize:11, color:'var(--text-muted)' }}>{especialesModal ? '▲' : '▼'}</span>
                       </div>
                       {especialesModal && (
