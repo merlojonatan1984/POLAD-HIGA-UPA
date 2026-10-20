@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdminSession } from '../../lib/authServer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -13,6 +14,10 @@ const MES = 9
 const ANIO = 2026
 
 export default async function handler(req, res) {
+  // Endpoint de prueba que escribe datos ficticios masivamente. Antes era
+  // accesible por cualquiera con la URL + el parámetro de confirmación.
+  // Ahora exige sesión de admin, además del parámetro de confirmación.
+  if (!requireAdminSession(req, res)) return
   if (req.query.confirmar !== 'SI') {
     return res.status(400).json({ error: 'Agregá ?confirmar=SI a la URL para ejecutar esto (es una medida de seguridad).' })
   }

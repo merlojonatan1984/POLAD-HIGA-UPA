@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import FirmaEditorModal from '../components/FirmaEditorModal'
+import { ejecutarGeneracionDeTurnos } from '../lib/generarTurnosFlujo'
+import { resolverObjetivoGuardias, turnosPermitidosPorObjetivo, resumenObjetivo } from '../lib/objetivosEfectivos'
+import { ejecutarAsignacionRapida } from '../lib/asignacionRapidaFlujo'
 
 function _detectLugar() {
   try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA','UPA','MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch(e) {}
@@ -44,9 +47,12 @@ function normLegajo(x) { return x === null || x === undefined ? '' : String(x).t
 // con el turno candidato. idExcluir sirve para no comparar un turno contra sí mismo al editar.
 async function buscarCruceOtroLugar(legajo, dia, turno, lugarPropio, mes, anio, idExcluir) {
   if (!legajo) return null
-  const { data: otros } = await supabase
-    .from('turnos').select('id, dia, turno, sector, legajo')
-    .eq('mes', mes).eq('anio', anio).eq('legajo', legajo)
+  // Punto 1 de la revisión: antes esto leía la tabla turnos directo con la
+  // clave anon. Ahora pasa por un endpoint con sesión de administrador
+  // (service role) — scope=todas porque este chequeo es deliberadamente
+  // cruzado entre lugares (un mismo legajo puede tener turnos en otro
+  // lugar, y hace falta verlos para detectar superposiciones de horario).
+  const { turnos: otros } = await fetch(`/api/admin-turnos?mes=${mes}&anio=${anio}&legajo=${encodeURIComponent(legajo)}&scope=todas`).then(r => r.json())
   const rangoCand = rangoTurnoGlobal(dia, turno, lugarPropio)
   for (const o of (otros || [])) {
     if (idExcluir && o.id === idExcluir) continue
@@ -75,6 +81,26 @@ function maxSlot(sector, turno) {
   const porTurno = SLOTS_POR_SECTOR_TURNO[sector]
   if (porTurno && turno in porTurno) return porTurno[turno]
   return MAX_POR_SLOT
+}
+// Corrección de esta ronda ("Confirmación de WhatsApp"): calcula, EN EL
+// NAVEGADOR, el mismo fingerprint que calcula el servidor
+// (fn_whatsapp_sincronizar_tras_publicar, supabase/migrations/
+// 0005_correcciones_ronda_bugs.sql: `string_agg(dia::text || '-' || turno
+// || '-' || sector, ',' order by dia, turno, sector)`, '' si no hay
+// ninguno) a partir de los turnos publicados que el navegador tiene
+// cargados para un efectivo (turnosPublicadosPorLegajo[legajo]). Se manda
+// este valor al abrir y al confirmar el aviso de WhatsApp (ver
+// abrirAviso/confirmarAviso más abajo) para que el servidor pueda
+// verificar que el contenido que la pantalla preparó es EXACTAMENTE el
+// vigente — nunca fotografiar a ciegas lo que el servidor tenía guardado.
+function fingerprintTurnos(ts) {
+  const ordenado = [...(ts || [])].sort((a, b) => {
+    if (a.dia !== b.dia) return a.dia - b.dia
+    if (a.turno !== b.turno) return a.turno < b.turno ? -1 : 1
+    if (a.sector !== b.sector) return a.sector < b.sector ? -1 : 1
+    return 0
+  })
+  return ordenado.map(t => `${t.dia}-${t.turno}-${t.sector}`).join(',')
 }
 const TURNOS_INFO = ES_MODULAR
   ? [
@@ -204,8 +230,83 @@ function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onElimina
 }
 
 function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }) {
-  const [form, setForm] = useState({ ...datos, lugar: datos.lugar || APP_LUGAR })
+  const [form, setForm] = useState({ ...datos, lugar: datos.lugar || APP_LUGAR, sexo: datos.sexo || 'sin_informar' })
   const esNuevo = !datos.id
+  // Punto 2/3 de esta ronda ("Puestos específicos" / "Objetivos
+  // individuales"): paneles aparte, con su propio guardado (no pasan por
+  // onGuardar/fn_admin_guardar_efectivo) — ver pages/api/admin-reglas-puesto.js
+  // y pages/api/admin-reglas-objetivo.js. Solo tienen sentido para un
+  // efectivo que YA existe (necesitan su legajo+lugar ya guardado).
+  const [puestoFijo, setPuestoFijo] = useState(null) // { id, sector, turno } | null
+  const [puestoFijoForm, setPuestoFijoForm] = useState({ sector: '', turno: '' })
+  const [puestoFijoMsg, setPuestoFijoMsg] = useState(null)
+  const [puestoFijoGuardando, setPuestoFijoGuardando] = useState(false)
+  const [objetivoCfg, setObjetivoCfg] = useState(null) // { id, tipo, cantidad, turno_objetivo } | null
+  const [objetivoForm, setObjetivoForm] = useState({ tipo: 'guardias', cantidad: '', turno_objetivo: 'ambos' })
+  const [objetivoMsg, setObjetivoMsg] = useState(null)
+  const [objetivoGuardando, setObjetivoGuardando] = useState(false)
+
+  useEffect(() => {
+    if (esNuevo) return
+    fetch(`/api/admin-reglas-puesto?legajo=${encodeURIComponent(datos.legajo)}`).then(r => r.json()).then(({ reglas }) => {
+      const r = (reglas || [])[0]
+      if (r) { setPuestoFijo(r); setPuestoFijoForm({ sector: r.sector, turno: r.turno || '' }) }
+    }).catch(() => {})
+    fetch(`/api/admin-reglas-objetivo?legajo=${encodeURIComponent(datos.legajo)}`).then(r => r.json()).then(({ objetivos }) => {
+      const o = (objetivos || [])[0]
+      if (o) { setObjetivoCfg(o); setObjetivoForm({ tipo: o.tipo, cantidad: String(o.cantidad), turno_objetivo: o.turno_objetivo }) }
+    }).catch(() => {})
+  }, [])
+
+  async function guardarPuestoFijo() {
+    if (!puestoFijoForm.sector) return setPuestoFijoMsg('Elegí un sector.')
+    setPuestoFijoGuardando(true); setPuestoFijoMsg(null)
+    const { ok, error, regla } = await fetch('/api/admin-reglas-puesto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'guardar', legajo: datos.legajo, sector: puestoFijoForm.sector, turno: puestoFijoForm.turno || null }),
+    }).then(r => r.json())
+    setPuestoFijoGuardando(false)
+    if (!ok) return setPuestoFijoMsg('Error: ' + error)
+    setPuestoFijo(regla); setPuestoFijoMsg('Guardado.')
+  }
+  async function quitarPuestoFijo() {
+    if (!puestoFijo) return
+    setPuestoFijoGuardando(true); setPuestoFijoMsg(null)
+    const { ok, error } = await fetch('/api/admin-reglas-puesto', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'desactivar', id: puestoFijo.id }),
+    }).then(r => r.json())
+    setPuestoFijoGuardando(false)
+    if (!ok) return setPuestoFijoMsg('Error: ' + error)
+    setPuestoFijo(null); setPuestoFijoForm({ sector: '', turno: '' }); setPuestoFijoMsg('Puesto fijo quitado.')
+  }
+
+  async function guardarObjetivo() {
+    const cant = Number(objetivoForm.cantidad)
+    if (!Number.isFinite(cant) || cant < 0) return setObjetivoMsg('Cantidad inválida.')
+    setObjetivoGuardando(true); setObjetivoMsg(null)
+    const { ok, error, objetivo } = await fetch('/api/admin-reglas-objetivo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'guardar', legajo: datos.legajo, tipo: objetivoForm.tipo, cantidad: cant, turno_objetivo: objetivoForm.turno_objetivo }),
+    }).then(r => r.json())
+    setObjetivoGuardando(false)
+    if (!ok) return setObjetivoMsg('Error: ' + error)
+    setObjetivoCfg(objetivo); setObjetivoMsg('Guardado.')
+  }
+  async function quitarObjetivo() {
+    if (!objetivoCfg) return
+    setObjetivoGuardando(true); setObjetivoMsg(null)
+    const { ok, error } = await fetch('/api/admin-reglas-objetivo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'desactivar', id: objetivoCfg.id }),
+    }).then(r => r.json())
+    setObjetivoGuardando(false)
+    if (!ok) return setObjetivoMsg('Error: ' + error)
+    setObjetivoCfg(null); setObjetivoForm({ tipo: 'guardias', cantidad: '', turno_objetivo: 'ambos' }); setObjetivoMsg('Objetivo quitado.')
+  }
+
+  const sectoresDeEsteApp = SECTORES_POR_LUGAR[APP_LUGAR] || []
+  const turnosDeEsteApp = TURNOS_INFO.map(t => t.key)
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
       <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.2)',width:'100%',maxWidth:560,maxHeight:'90vh',display:'flex',flexDirection:'column',overflow:'hidden' }}>
@@ -256,6 +357,20 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               </select>
             </div>
           </div>
+          {/* Punto 1 de esta ronda ("Identificación por sexo"): femenino/
+              masculino/sin informar. Nunca se infiere del nombre — queda en
+              "Sin informar" hasta que se elija explícitamente acá. No
+              introduce ninguna restricción de asignación (ver pages/admin.js,
+              procesarRapida: no se lee este campo en ningún lado del
+              algoritmo). */}
+          <div style={{ marginBottom:8 }}>
+            <label>Sexo</label>
+            <select value={form.sexo||'sin_informar'} onChange={e => setForm({...form,sexo:e.target.value})} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+              <option value="sin_informar">Sin informar</option>
+              <option value="femenino">Femenino</option>
+              <option value="masculino">Masculino</option>
+            </select>
+          </div>
           <div style={{ marginBottom:4 }}>
             <label>📝 Nota / Recordatorio</label>
             <textarea value={form.notas||''} onChange={e => setForm({...form,notas:e.target.value})} rows={2} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:12,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'none' }} />
@@ -271,6 +386,55 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
                   onClick={() => { if(confirm('¿Resetear la clave de ' + form.nombre + '? Volverá a usar su legajo.')) setForm({...form, password: null}) }}>
                   Resetear clave
                 </button>
+              </div>
+            </div>
+          )}
+          {/* Punto 2 de esta ronda: puesto específico configurable — se
+              guarda aparte (pages/api/admin-reglas-puesto.js), no modifica
+              fn_admin_guardar_efectivo ni el resto de la ficha. */}
+          {!esNuevo && (
+            <div style={{ marginTop:10,padding:'10px 12px',background:'rgba(127,119,221,0.06)',borderRadius:8,border:'0.5px solid rgba(127,119,221,0.2)' }}>
+              <div style={{ fontSize:11,color:'#AFA9EC',fontWeight:500,marginBottom:6 }}>📍 Puesto fijo (opcional)</div>
+              <p style={{ fontSize:10,color:'var(--text-muted)',marginTop:0,marginBottom:8 }}>Si se configura, "⚡ Asignación rápida" intenta asignarlo preferentemente a este sector/turno, respetando siempre su disponibilidad y el cupo real.</p>
+              <div style={{ display:'grid',gridTemplateColumns:'2fr 1fr',gap:8,marginBottom:8 }}>
+                <select value={puestoFijoForm.sector} onChange={e => setPuestoFijoForm({...puestoFijoForm,sector:e.target.value})} style={{ padding:'6px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }}>
+                  <option value="">— Sector —</option>
+                  {sectoresDeEsteApp.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select value={puestoFijoForm.turno} onChange={e => setPuestoFijoForm({...puestoFijoForm,turno:e.target.value})} style={{ padding:'6px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }}>
+                  <option value="">Cualquier turno</option>
+                  {turnosDeEsteApp.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              {puestoFijoMsg && <div style={{ fontSize:10,color:puestoFijoMsg.startsWith('Error')?'#F09595':'#5DCAA5',marginBottom:6 }}>{puestoFijoMsg}</div>}
+              <div style={{ display:'flex',gap:8 }}>
+                <button className="btn btn-sm" disabled={puestoFijoGuardando} onClick={guardarPuestoFijo} style={{ fontSize:11 }}>{puestoFijo ? 'Actualizar' : 'Configurar'}</button>
+                {puestoFijo && <button className="btn btn-sm" disabled={puestoFijoGuardando} onClick={quitarPuestoFijo} style={{ fontSize:11,color:'#F09595' }}>Quitar puesto fijo</button>}
+              </div>
+            </div>
+          )}
+          {/* Punto 3 de esta ronda: objetivo individual configurable — ídem,
+              guardado aparte (pages/api/admin-reglas-objetivo.js). */}
+          {!esNuevo && (
+            <div style={{ marginTop:10,padding:'10px 12px',background:'rgba(29,158,117,0.06)',borderRadius:8,border:'0.5px solid rgba(29,158,117,0.2)' }}>
+              <div style={{ fontSize:11,color:'#5DCAA5',fontWeight:500,marginBottom:6 }}>🎯 Objetivo mensual (opcional)</div>
+              <p style={{ fontSize:10,color:'var(--text-muted)',marginTop:0,marginBottom:8 }}>Si se configura, reemplaza al objetivo derivado automáticamente del mes anterior en "⚡ Asignación rápida". Editar la cantidad no borra el historial anterior.</p>
+              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8 }}>
+                <select value={objetivoForm.tipo} onChange={e => setObjetivoForm({...objetivoForm,tipo:e.target.value})} style={{ padding:'6px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }}>
+                  <option value="guardias">Guardias</option>
+                  <option value="horas">Horas</option>
+                </select>
+                <input type="number" min="0" placeholder="Cantidad" value={objetivoForm.cantidad} onChange={e => setObjetivoForm({...objetivoForm,cantidad:e.target.value})} style={{ padding:'6px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }} />
+                <select value={objetivoForm.turno_objetivo} onChange={e => setObjetivoForm({...objetivoForm,turno_objetivo:e.target.value})} style={{ padding:'6px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }}>
+                  <option value="ambos">Día y noche</option>
+                  <option value="dia">Solo día</option>
+                  <option value="noche">Solo noche</option>
+                </select>
+              </div>
+              {objetivoMsg && <div style={{ fontSize:10,color:objetivoMsg.startsWith('Error')?'#F09595':'#5DCAA5',marginBottom:6 }}>{objetivoMsg}</div>}
+              <div style={{ display:'flex',gap:8 }}>
+                <button className="btn btn-sm" disabled={objetivoGuardando} onClick={guardarObjetivo} style={{ fontSize:11 }}>{objetivoCfg ? 'Actualizar' : 'Configurar'}</button>
+                {objetivoCfg && <button className="btn btn-sm" disabled={objetivoGuardando} onClick={quitarObjetivo} style={{ fontSize:11,color:'#F09595' }}>Quitar objetivo</button>}
               </div>
             </div>
           )}
@@ -306,7 +470,6 @@ export default function AdminApp() {
   const [turnos, setTurnos] = useState({})
   const [horasAsig, setHorasAsig] = useState({})
   const [loading, setLoading] = useState(true)
-  const [notificados, setNotificados] = useState(new Map()) // legajo → timestamp ISO
   const [generando, setGenerando] = useState(false)
   const [msgGen, setMsgGen] = useState(null)
   const [modalTurno, setModalTurno] = useState(null)
@@ -321,6 +484,29 @@ export default function AdminApp() {
   const [configGuardada, setConfigGuardada] = useState(false)
   const [planillaEf, setPlanillaEf] = useState(null)
   const [planillaManual, setPlanillaManual] = useState({})
+  // ── Carga administrativa de disponibilidad fuera de término (sin reabrir
+  // la inscripción general) y publicación de guardias ──
+  const [modalDispAdmin, setModalDispAdmin] = useState(null) // { legajo, nombre } | null
+  const [dispAdminCargando, setDispAdminCargando] = useState(false)
+  const [dispAdminDiasOriginal, setDispAdminDiasOriginal] = useState({})
+  const [dispAdminDias, setDispAdminDias] = useState({})
+  const [dispAdminTurnosAsignados, setDispAdminTurnosAsignados] = useState([])
+  const [dispAdminMotivo, setDispAdminMotivo] = useState('')
+  const [dispAdminGuardando, setDispAdminGuardando] = useState(false)
+  const [dispAdminResultado, setDispAdminResultado] = useState(null)
+  const [dispAdminPaso, setDispAdminPaso] = useState('editar') // 'editar' | 'confirmar'
+  const [turnosPublicadosPorLegajo, setTurnosPublicadosPorLegajo] = useState({})
+  const [publicacionVigenteInfo, setPublicacionVigenteInfo] = useState({ publicado: false })
+  // Punto 9 de esta ronda ("WhatsApp por destino"): seguimiento persistente
+  // en el servidor (pages/api/whatsapp-avisos.js) — reemplaza al Map en
+  // localStorage (notificados/marcarNotificado) que era por navegador y no
+  // sobrevivía un recargo/relogin en otro dispositivo. Keyed por legajo:
+  // { estado: 'pendiente'|'confirmado', abierto_en, confirmado_en, ... }.
+  const [whatsappAvisos, setWhatsappAvisos] = useState({})
+  const [mostrarModalPublicar, setMostrarModalPublicar] = useState(false)
+  const [publicarResumen, setPublicarResumen] = useState(null)
+  const [publicarCargando, setPublicarCargando] = useState(false)
+  const [publicarResultado, setPublicarResultado] = useState(null)
   const [firmas, setFirmas] = useState({})
   const [firmaEditando, setFirmaEditando] = useState(null) // { legajo, file } o null
   const [cargandoPlanilla, setCargandoPlanilla] = useState(false)
@@ -340,6 +526,9 @@ export default function AdminApp() {
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   const [rapida24hs, setRapida24hs] = useState(new Set())
+  // Punto 1 de esta ronda ("Identificación por sexo"): filtro de la
+  // pantalla de Personal — 'todos' no filtra nada (comportamiento anterior).
+  const [filtroSexo, setFiltroSexo] = useState('todos')
   const [especiales, setEspeciales] = useState([])
   const [especialesModal, setEspecialesModal] = useState(true)
   const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
@@ -364,48 +553,25 @@ export default function AdminApp() {
     if (!parsed.es_admin) { setLoginAdmin({ legajo: '', pass: '', error: '', loading: false }); return }
     adminLoggedIn.current = true
     setLoginAdmin(false)
-    // Cargar notificados del mes actual
-    try {
-      const nKey = `polad_notif_${MES}_${ANIO}_${lugar}`
-      const saved = localStorage.getItem(nKey)
-      if (saved) setNotificados(new Map(JSON.parse(saved)))
-    } catch(e) {}
+    // Punto 9 de esta ronda: el seguimiento de avisos de WhatsApp ya NO se
+    // lee de localStorage acá — ver whatsappAvisos / cargarWhatsappAvisos
+    // (persistente en el servidor, se carga cuando se entra a la pestaña
+    // Personal).
     const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
     const now = new Date()
-    supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
+    // La configuración de ventana ahora se lee por un endpoint propio
+    // (requiere sesión), no directo a Supabase con la clave anon — ver
+    // pages/api/configuracion.js.
+    fetch('/api/configuracion?lugar=' + encodeURIComponent(lugar)).then(r => r.json()).then(({ cfg }) => {
       if (cfg) {
         const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
         setVentanas(v2)
         localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
       }
-    })
+    }).catch(() => {})
     setTimeout(() => cargarTodo(lugar), 0)
   }, [])
-
-  function marcarNotificado(legajo) {
-    setNotificados(prev => {
-      const next = new Map(prev)
-      next.set(legajo, new Date().toISOString())
-      try {
-        const nKey = `polad_notif_${MES}_${ANIO}_${APP_LUGAR}`
-        localStorage.setItem(nKey, JSON.stringify([...next]))
-      } catch(e) {}
-      return next
-    })
-  }
-
-  function desmarcarNotificado(legajo) {
-    setNotificados(prev => {
-      const next = new Map(prev)
-      next.delete(legajo)
-      try {
-        const nKey = `polad_notif_${MES}_${ANIO}_${APP_LUGAR}`
-        localStorage.setItem(nKey, JSON.stringify([...next]))
-      } catch(e) {}
-      return next
-    })
-  }
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
   useEffect(() => {
@@ -414,6 +580,110 @@ export default function AdminApp() {
   // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
   // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
   useEffect(() => { if (mounted && adminLoggedIn.current && vista === 'disponibilidad') cargarTodo(lugarDetectado) }, [vista])
+  // Guardias PUBLICADAS (no el borrador) — se usan para armar el mensaje de
+  // WhatsApp en la pestaña Personal, para no mandar nunca el borrador.
+  useEffect(() => {
+    if (!mounted || !adminLoggedIn.current || vista !== 'personal') return
+    fetch(`/api/guardias-publicadas?lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`)
+      .then(r => r.json())
+      .then(body => {
+        setTurnosPublicadosPorLegajo(body.turnos_por_legajo || {})
+        setPublicacionVigenteInfo({ publicado: !!body.publicado, version: body.version, publicado_en: body.publicado_en })
+      })
+      .catch(() => { setTurnosPublicadosPorLegajo({}); setPublicacionVigenteInfo({ publicado: false }) })
+  }, [vista, lugarDetectado, MES, ANIO, mounted])
+
+  // Punto 9 de esta ronda: estado de aviso de WhatsApp, persistente en el
+  // servidor — independiente por lugar/mes/año (lugarDetectado/MES/ANIO en
+  // las dependencias), nunca leído de localStorage como fuente de verdad.
+  async function cargarWhatsappAvisos() {
+    try {
+      const { avisos } = await fetch(`/api/whatsapp-avisos?mes=${MES}&anio=${ANIO}`).then(r => r.json())
+      setWhatsappAvisos(avisos || {})
+    } catch (e) { setWhatsappAvisos({}) }
+  }
+  useEffect(() => {
+    if (!mounted || !adminLoggedIn.current || vista !== 'personal') return
+    cargarWhatsappAvisos()
+  }, [vista, lugarDetectado, MES, ANIO, mounted])
+
+  async function abrirAviso(legajo, fingerprintCliente) {
+    // "Abrir no es enviar": solo registra que se hizo click en el link de
+    // wa.me — nunca cambia a 'confirmado' por sí solo.
+    //
+    // Corrección de esta ronda: antes esto se quedaba con el estado
+    // optimista local y nunca volvía a leer el servidor — si la escritura
+    // fallaba (red, sesión vencida), la pantalla seguía mostrando "abierto"
+    // aunque el servidor nunca haya guardado la foto del fingerprint
+    // (fingerprint_en_apertura) que fn_whatsapp_confirmar_envio exige para
+    // poder confirmar después. Ahora se informa el error si lo hay, y
+    // SIEMPRE se refresca desde el servidor al terminar, para que la
+    // pantalla refleje el estado real (incluido si "confirmar" va a
+    // aceptarse o no).
+    //
+    // Corrección de esta ronda ("Confirmación de WhatsApp"): se manda
+    // `fingerprintCliente` — el fingerprint del contenido que ESTA
+    // pantalla efectivamente preparó (calculado con fingerprintTurnos
+    // sobre turnosPublicadosPorLegajo, justo donde se armó el link de
+    // wa.me más abajo). El servidor lo compara contra el fingerprint
+    // vigente (fn_whatsapp_marcar_abierto, migración 0006) y RECHAZA la
+    // apertura si no coincide — la pantalla está desactualizada, hay que
+    // recargarla antes de reintentar; nunca se registra el contenido
+    // nuevo como comunicado mediante un mensaje viejo.
+    setWhatsappAvisos(prev => ({ ...prev, [legajo]: { ...(prev[legajo]||{}), abierto_en: new Date().toISOString(), abierto_por_legajo: 'yo' } }))
+    // Corrección de esta ronda ("enlace de WhatsApp espera la validación"):
+    // esta función ahora devuelve si la apertura se validó/registró con
+    // éxito (true) o no (false) — el único uso de ese valor es el link de
+    // WhatsApp más abajo, que ya NO navega a wa.me si la validación falla.
+    let exito = true
+    try {
+      const r = await fetch('/api/whatsapp-avisos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'abrir', legajo, mes: MES, anio: ANIO, fingerprint_cliente: fingerprintCliente }),
+      }).then(r => r.json())
+      if (r.error) {
+        exito = false
+        alert((r.contenido_desactualizado
+          ? '⚠ ' + r.error
+          : 'No se pudo registrar la apertura del mensaje: ' + r.error))
+      }
+    } catch (e) {
+      exito = false
+      alert('No se pudo registrar la apertura del mensaje (error de red). Si confirmás el envío, puede rechazarse por no tener guardado que se abrió con el contenido actual.')
+    } finally {
+      await cargarWhatsappAvisos()
+    }
+    return exito
+  }
+  async function confirmarAviso(legajo, fingerprintCliente) {
+    // Corrección de esta ronda ("Confirmación de WhatsApp"): se manda el
+    // mismo `fingerprintCliente` que al abrir — el servidor exige que
+    // coincida con el fingerprint vigente, además de con lo que se abrió
+    // (fn_whatsapp_confirmar_envio, migración 0006), y hace las dos
+    // validaciones bajo el lock de la fila para quedar coordinado con una
+    // publicación simultánea.
+    const r = await fetch('/api/whatsapp-avisos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'confirmar', legajo, mes: MES, anio: ANIO, fingerprint_cliente: fingerprintCliente }),
+    }).then(r => r.json())
+    // Corrección de esta ronda: antes, si el servidor rechazaba la
+    // confirmación (p.ej. porque el cronograma cambió desde que se abrió
+    // el mensaje — ver fn_whatsapp_confirmar_envio), la pantalla se quedaba
+    // SIN refrescar y seguía mostrando el estado optimista/viejo. Ahora
+    // también se refresca desde el servidor cuando hay error, para que el
+    // administrador vea de inmediato que tiene que volver a abrir el
+    // mensaje con el contenido vigente antes de poder confirmar.
+    if (r.error) { alert('No se pudo confirmar el envío: ' + r.error); await cargarWhatsappAvisos(); return }
+    await cargarWhatsappAvisos()
+  }
+  async function desmarcarAviso(legajo) {
+    const r = await fetch('/api/whatsapp-avisos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'desmarcar', legajo, mes: MES, anio: ANIO }),
+    }).then(r => r.json())
+    if (r.error) { alert('No se pudo desmarcar: ' + r.error); return }
+    await cargarWhatsappAvisos()
+  }
 
   useEffect(() => {
     if (!mounted) return
@@ -429,12 +699,14 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     setLoading(true)
     try {
-      const [{ data: efs }, dispRes, { data: turns }] = await Promise.all([
-        supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', L).order('nombre'),
+      const [efsRes, dispRes, turnsRes] = await Promise.all([
+        fetch('/api/admin-efectivos').then(r => r.json()),
         fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json()),
-        supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
+        fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}`).then(r => r.json())
       ])
+      const efs = efsRes.efectivos
       const disp = dispRes.data
+      const turns = turnsRes.turnos
       setEfectivos(efs || [])
       const dispMap = {}
       ;(disp || []).forEach(d => {
@@ -463,65 +735,119 @@ export default function AdminApp() {
     if (hayTurnos) {
       if (!confirm(`Ya hay ${todosLosTurnos.length} guardia(s) cargadas en ${L0} para ${NOMBRE_MES}.\n\nEsto las va a BORRAR TODAS y las va a generar de nuevo desde cero. Esta acción no se puede deshacer.\n\n¿Confirmás que querés regenerar?`)) return
     }
+    // Capturados ANTES de la llamada asincrónica: reflejan el estado real
+    // del borrador en el momento en que se decidió regenerar, no lo que
+    // haya quedado en el estado del componente mientras la lectura de
+    // disponibilidad está en vuelo.
+    const habiaBorrador = hayTurnos
+    const cantidadBorradorAnterior = todosLosTurnos.length
+
     setGenerando(true); setMsgGen(null)
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const esMod = L === 'MODULAR'
     const turnosLugar = esMod ? ['m','t','n'] : ['d','n']
     const horasTurno = esMod ? 8 : 12
-    // Leer disponibilidad FRESCA desde Supabase (vía endpoint con clave de servicio,
-    // para no depender de posibles políticas RLS de la clave pública)
-    const { data: dispFresh } = await fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json())
 
-    // Construir mapa de disponibilidad
-    const dispMap = {}
-    ;(dispFresh || []).forEach(d => {
-      const k = normLegajo(d.legajo)
-      if (!dispMap[k]) dispMap[k] = {}
-      dispMap[k][d.dia] = d.turno
-    })
+    // Punto 1 de esta ronda de revisión ("Detener la regeneración si falla
+    // la lectura de disponibilidad"): la orquestación completa (leer
+    // disponibilidad FRESCA con manejo real de errores HTTP/red/JSON/
+    // estructura, correr el algoritmo solo si la lectura fue válida, y
+    // recién guardar si corresponde) vive en lib/generarTurnosFlujo.js —
+    // ver ese archivo para el detalle completo y
+    // tests/node/02_generar_turnos_flujo.js para la prueba real de este
+    // flujo (mockeando fetch, sin SQL) que confirma que una lectura
+    // fallida NUNCA llega a llamar a reemplazar_scope.
+    //
+    // El algoritmo de asignación en sí —todo lo que sigue dentro de
+    // `calcularAsignaciones`— es exactamente el mismo que antes, carácter
+    // por carácter: candidatos, orden de días difíciles primero, maxSlot,
+    // tanteo de horas. Esta ronda no le cambia ningún criterio; solo decide
+    // CUÁNDO se lo llama y CUÁNDO se guarda lo que devuelve.
+    const resultado = await ejecutarGeneracionDeTurnos({
+      fetchFn: fetch,
+      mes: MES,
+      anio: ANIO,
+      lugar: L,
+      habiaBorrador,
+      cantidadBorradorAnterior,
+      calcularAsignaciones: (dispFresh) => {
+        const dispMap = {}
+        dispFresh.forEach(d => {
+          const k = normLegajo(d.legajo)
+          if (!dispMap[k]) dispMap[k] = {}
+          dispMap[k][d.dia] = d.turno
+        })
 
-    const { error: errorBorrado } = await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
-    if (errorBorrado) { setGenerando(false); alert('❌ Error borrando guardias anteriores: ' + errorBorrado.message + '\n\nNo se generó nada nuevo, para evitar duplicar.'); return }
+        const pool = efectivos.map(e => ({ ...e, hs: 0 }))
+        const nuevos = []
 
-    const pool = efectivos.map(e => ({ ...e, hs: 0 }))
-    const nuevos = []
+        // Ordenar días por cantidad de candidatos disponibles (días difíciles primero)
+        const diasOrdenados = Array.from({ length: DIAS_MES }, (_, i) => i + 1).sort((a, b) => {
+          const candA = pool.filter(e => {
+            const avail = (dispMap[normLegajo(e.legajo)] || {})[a] || ''
+            return turnosLugar.some(t => avail.includes(t))
+          }).length
+          const candB = pool.filter(e => {
+            const avail = (dispMap[normLegajo(e.legajo)] || {})[b] || ''
+            return turnosLugar.some(t => avail.includes(t))
+          }).length
+          return candA - candB
+        })
 
-    // Ordenar días por cantidad de candidatos disponibles (días difíciles primero)
-    const diasOrdenados = Array.from({ length: DIAS_MES }, (_, i) => i + 1).sort((a, b) => {
-      const candA = pool.filter(e => {
-        const avail = (dispMap[normLegajo(e.legajo)] || {})[a] || ''
-        return turnosLugar.some(t => avail.includes(t))
-      }).length
-      const candB = pool.filter(e => {
-        const avail = (dispMap[normLegajo(e.legajo)] || {})[b] || ''
-        return turnosLugar.some(t => avail.includes(t))
-      }).length
-      return candA - candB
-    })
-
-    for (const dia of diasOrdenados) {
-      for (const turno of turnosLugar) {
-        for (const sector of sectores) {
-          const candidatos = pool.filter(e => {
-            const avail = (dispMap[normLegajo(e.legajo)] || {})[dia] || ''
-            const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
-            return avail.includes(turno) && !yaAsignado
-          }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, maxSlot(sector, turno)).forEach(e => {
-            e.hs += horasTurno
-            nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
-          })
+        for (const dia of diasOrdenados) {
+          for (const turno of turnosLugar) {
+            for (const sector of sectores) {
+              const candidatos = pool.filter(e => {
+                const avail = (dispMap[normLegajo(e.legajo)] || {})[dia] || ''
+                const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
+                return avail.includes(turno) && !yaAsignado
+              }).sort((a, b) => a.hs - b.hs)
+              candidatos.slice(0, maxSlot(sector, turno)).forEach(e => {
+                e.hs += horasTurno
+                nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
+              })
+            }
+          }
         }
+
+        return nuevos
+      },
+      // Punto 2 de la ronda anterior, sin cambios: fn_turnos_borrador_
+      // reemplazar_scope borra el scope anterior e inserta el lote nuevo
+      // en UNA sola transacción, bajo el mismo lock que la publicación —
+      // si falla, el borrador anterior queda intacto, nunca a medias.
+      reemplazarScope: (nuevos) => fetch('/api/admin-turnos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reemplazar_scope', mes: MES, anio: ANIO, sectores, turnos: nuevos }),
+      }).then(r => r.json()),
+    })
+
+    setGenerando(false)
+
+    if (!resultado.ok) {
+      setMsgGen(null)
+      if (resultado.vacioConBorradorPrevio) {
+        // Punto 1 de esta ronda: un resultado válido (disponibilidad leída
+        // sin error) que da 0 asignaciones, con un borrador previo ya
+        // cargado, NO se guarda automáticamente — se muestra la situación
+        // y se deja el borrador anterior intacto. Si el administrador de
+        // verdad quiere vaciarlo, existe la opción explícita de borrar
+        // guardias (más abajo en esta misma pantalla), separada de
+        // "Generar turnos".
+        alert(
+          '⚠ ' + resultado.motivo + '.\n\n' +
+          'Para no vaciar el borrador automáticamente ante un resultado así, no se modificó nada: el borrador anterior se conserva completo.\n\n' +
+          'Revisá la disponibilidad cargada para este mes/lugar antes de reintentar. Si de verdad querés vaciar el borrador, usá la opción de borrar guardias explícitamente.'
+        )
+      } else {
+        alert('❌ Error generando guardias: ' + resultado.motivo + '\n\nNo se modificó nada: el borrador anterior (si había) se conserva completo.')
       }
+      return
     }
 
-    for (let i = 0; i < nuevos.length; i += 500) {
-      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
-      if (error) { setGenerando(false); setMsgGen(null); alert('❌ Error guardando guardias: ' + error.message + '\n\nNo se terminó de generar. Revisá antes de seguir.'); return }
-    }
-    setMsgGen(`Se generaron ${nuevos.length} asignaciones.`)
-    await cargarTodo(L); setGenerando(false)
+    setMsgGen(`Se generaron ${resultado.nuevos.length} asignaciones.`)
+    await cargarTodo(L)
   }
 
   async function asignarGuardiasAuto(legajo, cantidad, tipoTurno) {
@@ -546,12 +872,14 @@ export default function AdminApp() {
       alert(`⚠ Se ajustó la cantidad a ${cantidad} guardias para no superar el tope de ${MAX_HS}hs.\n(Tiene ${hsActuales}hs asignadas, le quedan ${hsDisponibles}hs disponibles)`)
     }
 
-    const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
+    const [dispDataRes, turnosEfRes, turnosTodosRes] = await Promise.all([
       fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
-      supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
-      supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000)
+      fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
+      fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}`).then(r => r.json())
     ])
     const dispData = dispDataRes.data
+    const turnosEfData = turnosEfRes.turnos
+    const turnosTodos = turnosTodosRes.turnos
 
     const ocupacion = {}
     ;(turnosTodos || []).forEach(t => {
@@ -736,9 +1064,12 @@ export default function AdminApp() {
       return
     }
 
-    for (let i = 0; i < nuevos.length; i += 100) {
-      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
-      if (error) { setAsignando(false); alert('❌ Error guardando: ' + error.message + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
+    {
+      const { error } = await fetch('/api/admin-turnos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'insertar', mes: MES, anio: ANIO, turnos: nuevos }),
+      }).then(r => r.json())
+      if (error) { setAsignando(false); alert('❌ Error guardando: ' + error + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
     }
     setModalAsignar(null)
     setAsignando(false)
@@ -763,12 +1094,13 @@ export default function AdminApp() {
       const turnosLugar = L === 'MODULAR' ? ['m','t','n'] : ['d','n']
       const horasTurno = L === 'MODULAR' ? 8 : 12
 
-      // Datos frescos desde Supabase: disponibilidad del día + turnos del mes
-      const [dispDiaRes, { data: turnosMes }] = await Promise.all([
+      // Datos frescos: disponibilidad del día + turnos del mes
+      const [dispDiaRes, turnosMesRes] = await Promise.all([
         fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&dia=${dia}&lugar=${L}`).then(r => r.json()),
-        supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
+        fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}`).then(r => r.json())
       ])
       const dispDia = dispDiaRes.data
+      const turnosMes = turnosMesRes.turnos
 
       const ocupacion = {}
       const hsMap = {}
@@ -847,9 +1179,12 @@ export default function AdminApp() {
         return
       }
 
-      for (let i = 0; i < nuevos.length; i += 100) {
-        const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
-        if (error) { setRellenandoDia(null); alert('❌ Error guardando: ' + error.message + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
+      {
+        const { error } = await fetch('/api/admin-turnos', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'insertar', mes: MES, anio: ANIO, turnos: nuevos }),
+        }).then(r => r.json())
+        if (error) { setRellenandoDia(null); alert('❌ Error guardando: ' + error + '\n\nEs posible que no se hayan guardado todas las guardias.'); return }
       }
       await cargarTodo(L)
 
@@ -916,12 +1251,29 @@ export default function AdminApp() {
     setRapidaCargando(true); setRapidaMsg(null)
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
+    const horasTurnoL = L === 'MODULAR' ? 8 : 12
     const prev = mesAnteriorDe(MES, ANIO)
-    const [{ data: turnosPrev }, { data: turnosAct }] = await Promise.all([
-      supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores).limit(10000),
-      supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
+    const [turnosPrevRes, turnosActRes, objetivosCfgRes] = await Promise.all([
+      fetch(`/api/admin-turnos?mes=${prev.mes}&anio=${prev.anio}`).then(r => r.json()),
+      fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}`).then(r => r.json()),
+      // Punto 3 de esta ronda: un objetivo configurado reemplaza al derivado
+      // del mes anterior (ver lib/objetivosEfectivos.resolverObjetivoGuardias)
+      // — sin configuración, el número que se muestra/usa es exactamente el
+      // de antes (cantidad de guardias del mes anterior).
+      fetch('/api/admin-reglas-objetivo').then(r => r.json()).catch(() => ({ objetivos: [] })),
     ])
+    const turnosPrev = turnosPrevRes.turnos
+    const turnosAct = turnosActRes.turnos
     const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
+    const objetivoCfgPorLegajo = {}
+    ;(objetivosCfgRes.objetivos || []).forEach(o => { objetivoCfgPorLegajo[normLegajo(o.legajo)] = o })
+    function objetivoDeEfectivo(legajo) {
+      return resolverObjetivoGuardias({
+        objetivoConfigurado: objetivoCfgPorLegajo[normLegajo(legajo)],
+        objetivoDerivado: countPrev[legajo] || 0,
+        horasTurno: horasTurnoL,
+      })
+    }
     // "Cargó disponibilidad" se define acá EXACTAMENTE igual que en la grilla de Disponibilidad:
     // mismo estado 'disponibilidad', mismo criterio (al menos 1 día cargado). Antes esta pantalla
     // hacía su propia consulta aparte a la base, y aunque el filtro fuera el mismo en el papel,
@@ -932,11 +1284,16 @@ export default function AdminApp() {
     )
     const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
     const lista = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) > 0)
-      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && objetivoDeEfectivo(e.legajo) > 0)
+      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: objetivoDeEfectivo(e.legajo), yaAsignadas: countAct[e.legajo] || 0 }))
+      // Orden por objetivo (cantidad de guardias a cubrir — del mes anterior,
+      // o la configurada si existe) descendente: al correr "Asignar todos",
+      // los que tienen que cubrir MÁS guardias entran primero a la
+      // asignación rápida, mientras todavía hay más días/turnos
+      // compartidos libres. Desempate alfabético para que el orden sea estable en la UI.
+      .sort((a, b) => (b.objetivo - a.objetivo) || a.nombre.localeCompare(b.nombre))
     const nuevos = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0)
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && objetivoDeEfectivo(e.legajo) === 0)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     setRapidaNuevos(nuevos)
@@ -945,314 +1302,104 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
+  //
+  // Ronda de corrección de errores: el algoritmo en sí (fases, orden,
+  // criterio de reparto) vive ahora en lib/asignacionRapidaFlujo.js
+  // (calcularAsignacionRapida + ejecutarAsignacionRapida), con los 6 errores
+  // reproducidos corregidos ahí — esta función es un wrapper fino que solo
+  // junta los parámetros de la pantalla (lugar/mes/año/sectores/turnos) y
+  // delega. Se extrajo así para poder probar la LÓGICA REAL con un test de
+  // Node (no una reimplementación aparte) — ver tests/node/04_asignacion_rapida_flujo.js.
   async function procesarRapida(targets, legajos24hs = new Set()) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
     const horasTurno = L === 'MODULAR' ? 8 : 12
-    const MAX_HS = 180
 
-    const [dispAllRes, { data: turnosMes }] = await Promise.all([
-      fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json()),
-      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
-    ])
-    const dispAll = dispAllRes.data
-
-    const ocupacion = {}
-    const hsMap = {}
-    const turnosPorLegajo = {}
-    ;(turnosMes || []).forEach(t => {
-      ocupacion[t.dia + '-' + t.turno + '-' + t.sector] = (ocupacion[t.dia + '-' + t.turno + '-' + t.sector] || 0) + 1
-      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + horasTurno
-      if (!turnosPorLegajo[t.legajo]) turnosPorLegajo[t.legajo] = []
-      turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
+    const resultado = await ejecutarAsignacionRapida({
+      fetchFn: (url) => fetch(url),
+      mes: MES, anio: ANIO, lugar: L,
+      sectores, turnosLugar, horasTurno, maxHs: 180,
+      targets, legajos24hs,
+      especiales,
+      maxSlot,
+      normLegajo,
+      insertarFn: (nuevos) => fetch('/api/admin-turnos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'insertar', mes: MES, anio: ANIO, turnos: nuevos }),
+      }).then(r => r.json()),
     })
 
-    // Cargar horas de los OTROS lugares para respetar el tope global de 180hs
-    const sectoresModular = ['Modular']
-    const sectoresUPA     = ['UPA']
-    const sectoresHIGA    = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
-    const sectoresOtros   = L === 'MODULAR' ? [...sectoresUPA, ...sectoresHIGA]
-                          : L === 'UPA'     ? [...sectoresModular, ...sectoresHIGA]
-                          : [...sectoresModular, ...sectoresUPA]
-
-    const { data: turnosOtrosLugares } = await supabase
-      .from('turnos').select('legajo, sector')
-      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros).limit(10000)
-
-    ;(turnosOtrosLugares || []).forEach(t => {
-      const hsT = sectoresModular.includes(t.sector) ? 8 : 12
-      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + hsT
-    })
-
-    // Cargar turnos de los DOS otros lugares (no solo del "hermano") para detectar
-    // cruces de horario reales, no solo coincidencia de día.
-    const { data: turnosOtrosDetalle } = await supabase
-      .from('turnos').select('legajo, dia, turno, sector')
-      .eq('mes', MES).eq('anio', ANIO).in('sector', sectoresOtros).limit(10000)
-
-    function lugarDeSector(sector) {
-      if (sectoresModular.includes(sector)) return 'MODULAR'
-      if (sectoresUPA.includes(sector)) return 'UPA'
-      return 'HIGA'
+    if (!resultado.ok) {
+      alert('❌ No se pudo completar la asignación: ' + resultado.motivo + '\n\nNo se guardó ninguna guardia nueva (o se detuvo antes de intentar guardar más).')
+      return { total: 0, reporte: resultado.reporte || [], conflictos: resultado.conflictos || [], puestoFijoReporte: resultado.puestoFijoReporte || [], incompatibilidades: resultado.incompatibilidades || [], error: true }
     }
-
-    const turnosOtrosPorLegajo = {}
-    ;(turnosOtrosDetalle || []).forEach(t => {
-      if (!turnosOtrosPorLegajo[t.legajo]) turnosOtrosPorLegajo[t.legajo] = []
-      turnosOtrosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno, lugarOrigen: lugarDeSector(t.sector) })
-    })
-
-    // Rango horario real de un turno, en minutos absolutos (día 1 00:00 = minuto 0),
-    // para poder comparar franjas que cruzan la medianoche.
-    const MIN_DIA = 24 * 60
-    function rangoTurno(dia, turno, lugarTurno) {
-      const base = (dia - 1) * MIN_DIA
-      if (lugarTurno === 'MODULAR') {
-        if (turno === 'm') return [base + 8 * 60, base + 16 * 60]
-        if (turno === 't') return [base + 16 * 60, base + 24 * 60]
-        // noche real: 23:59 del día X a 08:00 del día X+1 (igual que en EfectivoApp.js
-        // y en la planilla impresa). Antes se calculaba como 00:00-08:00 del mismo día X,
-        // 24hs antes de lo real, y por eso no detectaba cruces reales con turnos noche
-        // de HIGA/UPA el mismo día.
-        return [base + MIN_DIA, base + MIN_DIA + 8 * 60]
-      }
-      return turno === 'd' ? [base + 8 * 60, base + 20 * 60] : [base + 20 * 60, base + MIN_DIA + 8 * 60]
-    }
-    function seSuperponen(a, b) { return a[0] < b[1] && b[0] < a[1] }
-
-    function conflictoOtroLugar(legajo, dia, turno) {
-      const rangoCandidato = rangoTurno(dia, turno, L)
-      for (const o of (turnosOtrosPorLegajo[legajo] || [])) {
-        if (seSuperponen(rangoCandidato, rangoTurno(o.dia, o.turno, o.lugarOrigen))) return o
-      }
-      return null
-    }
-
-    const dispMap = {}
-    ;(dispAll || []).forEach(d => {
-      const k = normLegajo(d.legajo)
-      if (!dispMap[k]) dispMap[k] = {}
-      dispMap[k][parseInt(d.dia)] = d.turno
-    })
-
-    const nuevos = []
-    const reporte = []
-    const conflictos = []
-
-    function cumpleDescanso(legajo, dia, turno) {
-      const prev = turnosPorLegajo[legajo] || []
-      if (prev.some(a => a.dia === dia)) return false // ya tiene algo ese día en este mismo lugar
-      const conflicto = conflictoOtroLugar(legajo, dia, turno)
-      if (conflicto) {
-        conflictos.push({ legajo, dia, turno, lugarOrigen: conflicto.lugarOrigen, turnoOrigen: conflicto.turno, diaOrigen: conflicto.dia })
-        return false
-      }
-      if (L !== 'MODULAR') {
-        const ayer = prev.find(a => a.dia === dia - 1)
-        if (ayer && ayer.turno === 'n' && turno === 'd') return false
-        const manana = prev.find(a => a.dia === dia + 1)
-        if (manana && turno === 'n' && manana.turno === 'd') return false
-      }
-      return true
-    }
-
-    // ===== Fase 1: efectivos marcados para guardias de 24hs (día completo, con día de descanso después) =====
-    const diasBloqueados24hs = {} // legajo -> Set de días que deben quedar libres (descanso post-24hs)
-    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en la fase de 24hs
-    for (const { legajo, objetivo } of targets) {
-      if (!legajos24hs.has(legajo)) continue
-
-      const dmap = dispMap[normLegajo(legajo)] || {}
-      const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
-        .filter(dia => turnosLugar.every(tk => (dmap[dia] || '').includes(tk))) // debe estar disponible para TODOS los turnos ese día
-
-      const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
-      let sectorRotIdx = 0
-      function getSector24(dia, turno) {
-        const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
-        for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s, turno)) { conteoSector[s]++; return s }
-        }
-        return null
-      }
-
-      if (!diasBloqueados24hs[legajo]) diasBloqueados24hs[legajo] = new Set()
-      const costoDia = horasTurno * turnosLugar.length // 24hs siempre (2×12 o 3×8)
-      let diasAsignados = 0
-      const metaDias = Math.floor(objetivo / turnosLugar.length)
-
-      for (const dia of diasCandidatos) {
-        if (diasAsignados >= metaDias) break
-        if ((hsMap[legajo] || 0) + costoDia > MAX_HS) continue
-        if ((turnosPorLegajo[legajo] || []).some(a => a.dia === dia)) continue
-        if (diasBloqueados24hs[legajo].has(dia)) continue // día reservado como descanso de una 24hs anterior
-
-        const conflicto = turnosLugar.map(tk => conflictoOtroLugar(legajo, dia, tk)).find(Boolean)
-        if (conflicto) {
-          conflictos.push({ legajo, dia, turno: '24hs', lugarOrigen: conflicto.lugarOrigen, turnoOrigen: conflicto.turno, diaOrigen: conflicto.dia })
-          continue
-        }
-
-        const sectoresDelDia = turnosLugar.map(tk => getSector24(dia, tk))
-        if (sectoresDelDia.some(s => !s)) continue // no hay cupo de sector para completar el día entero
-
-        turnosLugar.forEach((tk, i) => {
-          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: sectoresDelDia[i] })
-          if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
-          turnosPorLegajo[legajo].push({ dia, turno: tk })
-          ocupacion[dia + '-' + tk + '-' + sectoresDelDia[i]] = (ocupacion[dia + '-' + tk + '-' + sectoresDelDia[i]] || 0) + 1
-        })
-        hsMap[legajo] = (hsMap[legajo] || 0) + costoDia
-        diasBloqueados24hs[legajo].add(dia + 1) // el día siguiente queda de descanso obligatorio
-        diasAsignados++
-      }
-      asignadasFase1[legajo] = diasAsignados * turnosLugar.length
-    }
-
-    // ===== Fase 1.5: parejas (dos efectivos que siempre deben coincidir en el mismo
-    // día, turno y sector) — usa la lista "especiales" (tipo 'pareja') cargada para
-    // este lugar. Generalizada para HIGA/UPA/MODULAR: en MODULAR, como solo hay un
-    // sector ("Modular"), en la práctica alcanza con que coincidan día y turno. =====
-    // Indexado por String(legajo) para no fallar si algún lado viene como número y
-    // el otro como texto (ya pasa en otras partes del archivo, p.ej. el match de
-    // pareja en la UI usa String(...) por la misma razón). El valor guarda el
-    // legajo CON SU TIPO ORIGINAL de targets, para escribirlo igual que el resto
-    // del algoritmo al insertar turnos.
-    const objetivoPorLegajo = {}
-    targets.forEach(t => { objetivoPorLegajo[String(t.legajo)] = { legajo: t.legajo, objetivo: t.objetivo } })
-    const parejasActivas = (especiales || []).filter(e => e.tipo === 'pareja')
-    const yaEmparejado = new Set()
-    for (const pareja of parejasActivas) {
-      const keyA = String(pareja.legajo1), keyB = String(pareja.legajo2)
-      if (yaEmparejado.has(keyA) || yaEmparejado.has(keyB)) continue
-      const tA = objetivoPorLegajo[keyA], tB = objetivoPorLegajo[keyB]
-      if (!tA || !tB) continue // no participan de esta corrida
-      const a = tA.legajo, b = tB.legajo
-      if (legajos24hs.has(a) || legajos24hs.has(b)) continue // las 24hs ya los cubre todo el día
-      yaEmparejado.add(keyA); yaEmparejado.add(keyB)
-
-      const dmapA = dispMap[normLegajo(a)] || {}
-      const dmapB = dispMap[normLegajo(b)] || {}
-      const diasComunes = Object.keys(dmapA).map(d => parseInt(d))
-        .filter(d => dmapB[d])
-        .sort((x, y) => x - y)
-
-      const metaPar = Math.min(
-        tA.objetivo - (turnosPorLegajo[a] || []).length,
-        tB.objetivo - (turnosPorLegajo[b] || []).length
-      )
-      if (metaPar <= 0) continue
-
-      const conteoSectorPar = {}; sectores.forEach(s => { conteoSectorPar[s] = 0 })
-      let asignadasPar = 0
-      for (const dia of diasComunes) {
-        if (asignadasPar >= metaPar) break
-        if ((turnosPorLegajo[a] || []).some(x => x.dia === dia)) continue
-        if ((turnosPorLegajo[b] || []).some(x => x.dia === dia)) continue
-
-        const turnosComunes = turnosLugar.filter(tk => (dmapA[dia] || '').includes(tk) && (dmapB[dia] || '').includes(tk))
-        for (const tk of turnosComunes) {
-          if (!cumpleDescanso(a, dia, tk) || !cumpleDescanso(b, dia, tk)) continue
-          if ((hsMap[a] || 0) + horasTurno > MAX_HS || (hsMap[b] || 0) + horasTurno > MAX_HS) continue
-
-          const ordenS = [...sectores].sort((x, y) => conteoSectorPar[x] - conteoSectorPar[y])
-          const sec = ordenS.find(s => (ocupacion[dia + '-' + tk + '-' + s] || 0) + 2 <= maxSlot(s, tk))
-          if (!sec) continue
-
-          ;[a, b].forEach(legajo => {
-            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: sec })
-            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
-            turnosPorLegajo[legajo].push({ dia, turno: tk })
-            hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
-          })
-          ocupacion[dia + '-' + tk + '-' + sec] = (ocupacion[dia + '-' + tk + '-' + sec] || 0) + 2
-          conteoSectorPar[sec]++
-          asignadasPar++
-          break // un turno por día para esta pareja
-        }
-      }
-      // Que Fase 2 no vuelva a contar estos turnos como "faltantes" al reportar el total
-      asignadasFase1[a] = (asignadasFase1[a] || 0) + asignadasPar
-      asignadasFase1[b] = (asignadasFase1[b] || 0) + asignadasPar
-    }
-
-    // ===== Fase 2: asignación normal (turno por turno) para completar lo que falte =====
-    // Incluye también a los marcados para 24hs: si la Fase 1 no les cubrió todo su objetivo
-    // (o no les armó ningún bloque, p.ej. por falta de disponibilidad de día completo),
-    // acá se completa con turnos sueltos en vez de dejarlos sin nada.
-    for (const { legajo, objetivo } of targets) {
-      const hsActuales = hsMap[legajo] || 0
-      const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
-      const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
-
-      const dmap = dispMap[normLegajo(legajo)] || {}
-      const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
-        .map(dia => ({ dia, turno: dmap[dia] }))
-        .filter(({ dia, turno }) => turnosLugar.some(tk => turno.includes(tk)))
-
-      const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
-      const conteoTurnos = {}; turnosLugar.forEach(tk => { conteoTurnos[tk] = 0 })
-      function getSector(dia, turno) {
-        const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
-        for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < maxSlot(s, turno)) { conteoSector[s]++; return s }
-        }
-        return null
-      }
-
-      let asignadas = asignadasFase1[legajo] || 0
-      const intervalo = diasCandidatos.length > meta && meta > 0 ? Math.floor(diasCandidatos.length / meta) : 1
-      let idx = 0; let vueltas = 0
-      while (asignadas - (asignadasFase1[legajo] || 0) < meta && vueltas < diasCandidatos.length * 2) {
-        vueltas++
-        if (idx >= diasCandidatos.length) idx = 0
-        const { dia, turno: dispTurno } = diasCandidatos[idx]
-        const turnosOk = turnosLugar.filter(tk =>
-          dispTurno.includes(tk) &&
-          !(turnosPorLegajo[legajo] || []).some(a => a.dia === dia && a.turno === tk) &&
-          cumpleDescanso(legajo, dia, tk)
-        )
-        if (turnosOk.length > 0) {
-          const tk = turnosOk.sort((a, b) => conteoTurnos[a] - conteoTurnos[b])[0]
-          const s = getSector(dia, tk)
-          if (s) {
-            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
-            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
-            turnosPorLegajo[legajo].push({ dia, turno: tk })
-            ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
-            conteoTurnos[tk]++
-            hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
-            asignadas++
-            idx += intervalo
-            continue
-          }
-        }
-        idx++
-      }
-      reporte.push({ legajo, objetivo, asignadas })
-    }
-
-    for (let i = 0; i < nuevos.length; i += 100) {
-      const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
-      if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
-    }
-    return { total: nuevos.length, reporte, conflictos }
+    return { total: resultado.total, reporte: resultado.reporte, conflictos: resultado.conflictos, puestoFijoReporte: resultado.puestoFijoReporte, incompatibilidades: resultado.incompatibilidades }
   }
 
   async function asignarUnoRapida(item) {
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs)
+    const { reporte, conflictos, puestoFijoReporte, incompatibilidades, error } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs)
+    // Bug 6: si procesarRapida se detuvo por un error de lectura o de
+    // guardado, ya mostró el motivo — no hay un reporte válido para
+    // destructurar (reporte[0] podría no existir), así que no se sigue.
+    if (error) { setRapidaProcesando(false); return }
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
-    let m = `✓ ${nombre}: se asignaron ${r.asignadas} de ${r.objetivo}.`
-    if (r.asignadas < r.objetivo) m += ` Faltaron ${r.objetivo - r.asignadas} (disponibilidad o tope).`
+    // Corrección de esta ronda ("Reporte de objetivo"): se informan
+    // anteriores/nuevas/total/pendiente por separado — antes se comparaban
+    // solo las guardias NUEVAS de esta corrida contra el objetivo
+    // completo, lo que hacía ver "faltan 2" aunque el total ya estuviera
+    // cubierto (p.ej. objetivo 3, 2 anteriores + 1 nueva).
+    let m = `✓ ${nombre}: ${r.nuevas} guardia(s) nueva(s) esta vez` +
+      (r.anteriores > 0 ? ` (+ ${r.anteriores} ya cargada${r.anteriores === 1 ? '' : 's'} este mes)` : '') +
+      ` — total ${r.total} de ${r.objetivo}.`
+    if (r.pendiente > 0) m += ` Pendiente: ${r.pendiente} (disponibilidad o tope).`
     if (conflictos.length) {
       m += `\n\n⚠ ${conflictos.length} día(s) no se asignaron por cruce de horario con otro lugar:\n` +
         conflictos.map(c => `   • Día ${c.dia}: ya tiene turno "${c.turnoOrigen}" en ${c.lugarOrigen} (día ${c.diaOrigen})`).join('\n')
     }
+    // Punto 2 de esta ronda: si tiene puesto fijo configurado y no se pudo
+    // cubrir todo desde ahí, se informa explícitamente (nunca en silencio).
+    m += mensajePuestoFijo(puestoFijoReporte)
+    m += mensajeIncompatibilidades(incompatibilidades)
     setRapidaProcesando(false); alert(m)
+  }
+
+  // Punto 2 de esta ronda ("Puestos específicos por efectivo"): arma un
+  // mensaje legible cuando un efectivo con puesto fijo configurado no pudo
+  // cubrir todo su objetivo desde ese puesto (por disponibilidad o cupo) —
+  // "informarlo" en vez de dejarlo en silencio o fingir que se cumplió.
+  // Bug 5 de esta ronda: ahora SIEMPRE describe "pendiente, no se completa
+  // en otro sector" (antes decía que el resto se intentaba en el resto de
+  // sectores, que es justo el comportamiento que se corrigió).
+  function mensajePuestoFijo(puestoFijoReporte) {
+    // Corrección de esta ronda ("Reporte de objetivo"): se filtra y se
+    // muestra por `pendiente` (objetivo - total), no por "asignadas de
+    // esta corrida < objetivo" — eso hacía ver pendiente algo que ya
+    // estaba cubierto por guardias anteriores + nuevas.
+    const incompletos = (puestoFijoReporte || []).filter(p => !p.incompatible && p.pendiente > 0)
+    if (!incompletos.length) return ''
+    return `\n\n📍 Puesto fijo — no se cubrió todo el objetivo desde el puesto configurado. Queda PENDIENTE (no se completa automáticamente en otro sector):\n` +
+      incompletos.map(p => {
+        const n = (efectivos.find(e => e.legajo === p.legajo)?.nombre || p.legajo).split(',')[0]
+        return `   • ${n} (${p.sector}${p.turno ? ' · ' + p.turno : ''}): ${p.total} de ${p.objetivo} desde su puesto fijo (pendiente ${p.pendiente})`
+      }).join('\n')
+  }
+
+  // Corrección de esta ronda (bug 2 — "configuraciones incompatibles deben
+  // informarse, nunca ignorarse silenciosamente"): arma un mensaje legible
+  // para cada incompatibilidad detectada por el algoritmo (puesto fijo vs.
+  // turno objetivo, 24hs vs. turno objetivo, o pareja sin turno en común).
+  function mensajeIncompatibilidades(incompatibilidades) {
+    const lista = incompatibilidades || []
+    if (!lista.length) return ''
+    return `\n\n⚠ ${lista.length} configuración(es) incompatible(s) detectada(s) — no se asignó nada en ese caso:\n` +
+      lista.map(i => {
+        const nombres = (i.legajos || []).map(lg => (efectivos.find(e => e.legajo === lg)?.nombre || lg).split(',')[0]).join(' y ')
+        return `   • ${nombres}: ${i.motivo}`
+      }).join('\n')
   }
 
   async function asignarTodosRapida() {
@@ -1260,21 +1407,24 @@ export default function AdminApp() {
     const aviso24hs = rapida24hs.size > 0 ? `\n\n${rapida24hs.size} marcado(s) para guardias de 24hs.` : ''
     if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs)
+    const { total, reporte, conflictos, puestoFijoReporte, incompatibilidades, error } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs)
+    // Bug 6: idem asignarUnoRapida — si se detuvo por un error, el motivo ya
+    // se mostró y no hay reporte válido para seguir con la verificación.
+    if (error) { setRapidaProcesando(false); return }
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
     const sectoresV = SECTORES_POR_LUGAR[lugarDetectado] || SECTORES_POR_LUGAR['HIGA']
     const diasMes = new Date(ANIO, MES, 0).getDate()
-    const { data: verificacion } = await supabase
-      .from('turnos').select('dia')
-      .eq('mes', MES).eq('anio', ANIO)
-      .in('sector', sectoresV).limit(10000)
+    const { turnos: verificacion } = await fetch(`/api/admin-turnos?mes=${MES}&anio=${ANIO}`).then(r => r.json())
     const diasCubiertos = new Set((verificacion || []).map(t => parseInt(t.dia)))
     const diasFaltantes = []
     for (let d = 1; d <= diasMes; d++) { if (!diasCubiertos.has(d)) diasFaltantes.push(d) }
 
-    const incompletos = reporte.filter(r => r.asignadas < r.objetivo)
+    // Corrección de esta ronda ("Reporte de objetivo"): se filtra y se
+    // muestra por `pendiente` (objetivo - total real), no por "nuevas de
+    // esta corrida < objetivo".
+    const incompletos = reporte.filter(r => r.pendiente > 0)
     let m = `✓ Se asignaron ${total} guardias en total.\n\n`
     if (diasFaltantes.length === 0) {
       m += `✅ ${diasMes}/${diasMes} días del mes tienen turnos asignados.`
@@ -1285,7 +1435,7 @@ export default function AdminApp() {
       m += `\n\n⚠ ${incompletos.length} efectivo(s) no llegaron al número:\n` +
         incompletos.slice(0, 12).map(r => {
           const n = (efectivos.find(e => e.legajo === r.legajo)?.nombre || r.legajo).split(',')[0]
-          return `   • ${n}: ${r.asignadas} de ${r.objetivo}`
+          return `   • ${n}: ${r.total} de ${r.objetivo} (pendiente ${r.pendiente})`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
     }
@@ -1297,6 +1447,8 @@ export default function AdminApp() {
         }).join('\n')
       if (conflictos.length > 15) m += `\n   …y ${conflictos.length - 15} más.`
     }
+    m += mensajePuestoFijo(puestoFijoReporte)
+    m += mensajeIncompatibilidades(incompatibilidades)
     setRapidaProcesando(false); alert(m)
   }
 
@@ -1305,8 +1457,11 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     if (!confirm(`¿Borrar TODAS las guardias de ${L} de ${NOMBRE_MES}? (No afecta a los otros lugares)`)) return
     setRapidaProcesando(true)
-    const { error } = await supabase.from('turnos').delete().eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
-    if (error) { setRapidaProcesando(false); alert('❌ Error borrando: ' + error.message); return }
+    const { error } = await fetch('/api/admin-turnos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'borrar_scope', mes: MES, anio: ANIO, sectores }),
+    }).then(r => r.json())
+    if (error) { setRapidaProcesando(false); alert('❌ Error borrando: ' + error); return }
     await cargarTodo(L); await cargarRapida()
     setRapidaProcesando(false)
     setRapidaMsg(`Se borraron las guardias de ${L} de ${NOMBRE_MES}.`)
@@ -1329,12 +1484,19 @@ export default function AdminApp() {
       const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
       if (!ok) return
     }
-    await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id)
+    const { error } = await fetch('/api/admin-turnos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'actualizar_uno', mes: MES, anio: ANIO, id: t.id, legajo: t.legajo, turno: t.turno, sector: t.sector }),
+    }).then(r => r.json())
+    if (error) { alert('❌ Error guardando: ' + error); return }
     setModalTurno(null); await cargarTodo()
   }
   async function handleEliminarTurno(t) {
-    const { error } = await supabase.from('turnos').delete().eq('id', t.id)
-    if (error) { alert('❌ Error eliminando: ' + error.message); return }
+    const { error } = await fetch('/api/admin-turnos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'borrar_uno', mes: MES, anio: ANIO, id: t.id }),
+    }).then(r => r.json())
+    if (error) { alert('❌ Error eliminando: ' + error); return }
     setModalTurno(null); await cargarTodo()
   }
   async function handleAgregarTurno(n) {
@@ -1344,34 +1506,81 @@ export default function AdminApp() {
       const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
       if (!ok) return
     }
-    const { error } = await supabase.from('turnos').insert([n])
-    if (error) { alert('❌ Error guardando: ' + error.message); return }
+    const { error } = await fetch('/api/admin-turnos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'insertar', mes: n.mes, anio: n.anio, turnos: [n] }),
+    }).then(r => r.json())
+    if (error) { alert('❌ Error guardando: ' + error); return }
     setModalTurno(null); await cargarTodo()
   }
 
   async function handleGuardarPersonal(datos) {
     setGuardandoPersonal(true)
     if (datos.id) {
-      const efOriginal = efectivos.find(e => e.id === datos.id); const legajoViejo = efOriginal?.legajo
-      if (legajoViejo && legajoViejo !== datos.legajo) {
-        await Promise.all([
-          supabase.from('disponibilidad').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
-          supabase.from('turnos').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
-          supabase.from('asistencia').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
-          supabase.from('planilla_manual').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
-          supabase.from('firmas').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
-        ])
+      // Punto 3 de la ronda anterior + punto 2 de esta ronda ("Completar la
+      // coherencia del cambio de legajo"): el renombrado de los turnos del
+      // borrador, Y AHORA TAMBIÉN de disponibilidad/asistencia/
+      // planilla_manual/firmas, ya NO se piden acá por separado — antes
+      // esto disparaba, con Promise.allSettled (en paralelo, ANTES de
+      // llamar a admin-efectivos), un pedido a /api/admin-disponibilidad
+      // (rename_legajo) y dos escrituras directas con la clave anon
+      // (asistencia, planilla_manual, firmas). Si la llamada principal
+      // (fn_admin_guardar_efectivo, más abajo) fallaba después —por
+      // ejemplo por legajo duplicado—, esas cuatro escrituras ya habían
+      // ocurrido igual, sin ninguna forma de revertirlas: quedaba una
+      // parte modificada (las relaciones históricas) y otra no (el
+      // efectivo, que seguía con el legajo viejo). Ahora todo —efectivo,
+      // turnos, disponibilidad, asistencia, planilla_manual y firmas
+      // (cuando es inequívoco)— se renombra en UNA sola llamada, dentro de
+      // UNA sola transacción de servidor: si cualquier parte falla,
+      // ninguna relación queda modificada. Ver el detalle completo (por
+      // qué firmas es un caso aparte, sin columna lugar) en
+      // fn_admin_guardar_efectivo, supabase/migrations/0001_borrador_publicacion.sql.
+      const { error, ...resto } = await fetch('/api/admin-efectivos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'guardar', id: datos.id, legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, password: datos.password || null }),
+      }).then(r => r.json())
+      if (error) { setMsgPersonal(error); setGuardandoPersonal(false); return }
+      // Punto 1 de esta ronda ("Identificación por sexo"): llamada SEPARADA
+      // a propósito — fn_admin_guardar_efectivo (arriba) es la función que
+      // esta ronda no debe modificar. Si esto fallara, el resto de la
+      // edición YA se guardó igual (no se revierte: son dos datos
+      // independientes) — se avisa en el mensaje, nunca en silencio.
+      let errorSexo = null
+      if (datos.sexo) {
+        const r = await fetch('/api/admin-efectivos', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_sexo', id: datos.id, sexo: datos.sexo }),
+        }).then(r => r.json())
+        errorSexo = r.error || null
       }
-      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR, password: datos.password || null }).eq('id', datos.id)
-      setMsgPersonal('Efectivo actualizado.')
+      // Si firmas se omitió por ambigüedad (el legajo viejo o el nuevo
+      // podrían pertenecer a más de un efectivo entre todos los lugares),
+      // se avisa explícitamente en vez de dejarlo pasar en silencio — el
+      // administrador puede revisarlo a mano si corresponde.
+      let msg = 'Efectivo actualizado.'
+      if (resto?.firmas_omitidas_por_ambiguedad) {
+        msg += ' ⚠ La firma NO se renombró automáticamente: el legajo viejo o el nuevo podría corresponder a más de un efectivo (firmas no distingue por lugar) — revisarlo manualmente si corresponde.'
+      }
+      if (errorSexo) msg += ' ⚠ No se pudo guardar el sexo: ' + errorSexo
+      setMsgPersonal(msg)
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
-      if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
-      setMsgPersonal('Efectivo dado de alta. Clave inicial: ' + datos.legajo)
+      const { error, mensaje } = await fetch('/api/admin-efectivos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'guardar', legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', telefono: datos.telefono || '', sexo: datos.sexo || 'sin_informar' }),
+      }).then(r => r.json())
+      if (error) { setMsgPersonal(error); setGuardandoPersonal(false); return }
+      setMsgPersonal(mensaje || ('Efectivo dado de alta. Clave inicial: ' + datos.legajo))
     }
     setGuardandoPersonal(false); await cargarTodo()
   }
-  async function handleEliminarPersonal(ef) { await supabase.from('efectivos').delete().eq('id', ef.id); setModalPersonal(null); await cargarTodo() }
+  async function handleEliminarPersonal(ef) {
+    await fetch('/api/admin-efectivos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'eliminar', id: ef.id }),
+    })
+    setModalPersonal(null); await cargarTodo()
+  }
 
   async function cargarPlanillaEf(ef) {
     setCargandoPlanilla(true)
@@ -1436,7 +1645,10 @@ export default function AdminApp() {
   }
 
   async function subirFirmaAdmin(id, legajo, base64) {
-    await supabase.from('efectivos').update({ firma_url: base64 }).eq('id', id)
+    await fetch('/api/admin-efectivos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_firma_url', id, firma_url: base64 }),
+    })
     const existeFirma = firmas[legajo]
     if (existeFirma) await supabase.from('firmas').update({ firma_url: base64 }).eq('id', existeFirma.id)
     else await supabase.from('firmas').insert([{ legajo, mes: MES, anio: ANIO, firma_url: base64 }])
@@ -1445,7 +1657,10 @@ export default function AdminApp() {
   }
 
   async function eliminarFirmaAdmin(id, legajo) {
-    await supabase.from('efectivos').update({ firma_url: null }).eq('id', id)
+    await fetch('/api/admin-efectivos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_firma_url', id, firma_url: null }),
+    })
     const existeFirma = firmas[legajo]
     if (existeFirma) await supabase.from('firmas').update({ firma_url: null }).eq('id', existeFirma.id)
     setFirmas(prev => ({ ...prev, [legajo]: { ...prev[legajo], firma_url: null } }))
@@ -1547,8 +1762,11 @@ export default function AdminApp() {
       const { data: pub } = supabase.storage.from('planillas').getPublicUrl(urlData.path)
       const publicUrl = pub.publicUrl
 
-      const { error: updateError } = await supabase.from('efectivos').update({ planilla_url: publicUrl }).eq('id', id)
-      if (updateError) { alert('Error actualizando: ' + updateError.message); return }
+      const { error: updateError } = await fetch('/api/admin-efectivos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_planilla_url', id, planilla_url: publicUrl }),
+      }).then(r => r.json())
+      if (updateError) { alert('Error actualizando: ' + updateError); return }
 
       setEfectivos(prev => prev.map(e => e.id === id ? { ...e, planilla_url: publicUrl } : e))
       setPlanillaEf(prev => (prev && prev.id === id) ? { ...prev, planilla_url: publicUrl } : prev)
@@ -1559,10 +1777,15 @@ export default function AdminApp() {
   }
 
   async function eliminarPlanillaAdmin(id, legajo) {
-    const actual = efectivos.find(e => e.id === id)
-    const extActual = actual?.planilla_url?.toLowerCase().endsWith('.ods') ? 'ods' : 'xlsx'
-    await supabase.storage.from('planillas').remove([`${legajo}-${APP_LUGAR}.${extActual}`])
-    await supabase.from('efectivos').update({ planilla_url: null }).eq('id', id)
+    // Punto 5 de esta ronda: antes esto borraba el archivo en Supabase
+    // Storage DIRECTO desde el navegador con la clave anon (ver el
+    // comentario en pages/api/admin-efectivos.js, acción
+    // 'set_planilla_url') — ahora ese borrado lo hace el servidor, con la
+    // service role, scopeado al lugar de la sesión del administrador.
+    await fetch('/api/admin-efectivos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_planilla_url', id, planilla_url: null }),
+    })
     setEfectivos(prev => prev.map(e => e.id === id ? { ...e, planilla_url: null } : e))
     setPlanillaEf(prev => (prev && prev.id === id) ? { ...prev, planilla_url: null } : prev)
   }
@@ -1571,32 +1794,40 @@ export default function AdminApp() {
     e.preventDefault()
     setLoginAdmin(prev => ({ ...prev, error: '', loading: true }))
     try {
-      const { data } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', loginAdmin.legajo.trim())
-        .eq('es_admin', true)
-        .maybeSingle()
-      if (!data) {
-        setLoginAdmin(prev => ({ ...prev, error: 'Legajo no encontrado o sin permisos de admin.', loading: false }))
+      // Antes esto comparaba la contraseña contra 'admin2025' escrito en el
+      // código del cliente (visible para cualquiera). Ahora se verifica en
+      // el servidor (pages/api/auth-login.js), que además deja la sesión
+      // firmada en una cookie — eso es lo que de verdad protege los
+      // endpoints de administración, no esta pantalla.
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: loginAdmin.legajo.trim(), password: loginAdmin.pass }),
+      })
+      const body = await resp.json()
+      if (!resp.ok) {
+        setLoginAdmin(prev => ({ ...prev, error: body.error || 'No se pudo iniciar sesión.', loading: false }))
         return
       }
-      if (loginAdmin.pass !== 'admin2025') {
-        setLoginAdmin(prev => ({ ...prev, error: 'Contraseña incorrecta.', loading: false }))
+      if (!body.usuario?.es_admin) {
+        setLoginAdmin(prev => ({ ...prev, error: 'Ese legajo no tiene permisos de administrador.', loading: false }))
         return
       }
+      const data = body.usuario
       localStorage.setItem('polad_user', JSON.stringify(data))
       adminLoggedIn.current = true
       setLoginAdmin(false)
       const lugar = _detectLugar()
       const now = new Date()
-      supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
+      // Igual que en el otro punto de carga de la ventana: por endpoint
+      // propio, no directo a Supabase (ver pages/api/configuracion.js).
+      fetch('/api/configuracion?lugar=' + encodeURIComponent(lugar)).then(r => r.json()).then(({ cfg }) => {
         if (cfg) {
           const v2 = { dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mesVentana: cfg.mes||now.getMonth()+1, anioVentana: cfg.anio||now.getFullYear(), mesApertura: cfg.mes_apertura||now.getMonth()+1, anioApertura: cfg.anio_apertura||now.getFullYear() }
           setVentanas(v2)
           localStorage.setItem(`polad_ventanas_${lugar}`, JSON.stringify(v2))
         }
-      })
+      }).catch(() => {})
       setTimeout(() => cargarTodo(lugar), 0)
     } catch (err) {
       setLoginAdmin(prev => ({ ...prev, error: 'Error de conexión.', loading: false }))
@@ -1658,6 +1889,157 @@ export default function AdminApp() {
   const nombreCompleto = leg => { const e = efectivos.find(x => x.legajo === leg); return e ? e.nombre : leg }
   const nombreCorto = leg => nombreCompleto(leg).split(',')[0]
 
+  // ── Carga administrativa de disponibilidad fuera de término ──
+  // No reabre la ventana de inscripción general (eso seguiría afectando a
+  // todos los demás efectivos): este flujo guarda SOLO la disponibilidad de
+  // un efectivo/lugar/mes/año puntual, a través de un endpoint propio que
+  // deja registro de auditoría y nunca toca la tabla de turnos.
+  async function abrirDispAdmin(e) {
+    setDispAdminResultado(null)
+    setDispAdminMotivo('')
+    setDispAdminPaso('editar')
+    setModalDispAdmin({ legajo: e.legajo, nombre: e.nombre })
+    setDispAdminCargando(true)
+    try {
+      const resp = await fetch(`/api/admin-disponibilidad-override?legajo=${encodeURIComponent(e.legajo)}&lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`)
+      const body = await resp.json()
+      if (!resp.ok) {
+        setDispAdminResultado({ ok: false, error: body.error || 'No se pudo cargar.' })
+        setDispAdminCargando(false)
+        return
+      }
+      setDispAdminDiasOriginal(body.dias_actuales || {})
+      setDispAdminDias(body.dias_actuales || {})
+      setDispAdminTurnosAsignados(body.turnos_asignados || [])
+    } catch (err) {
+      setDispAdminResultado({ ok: false, error: 'Error de conexión.' })
+    }
+    setDispAdminCargando(false)
+  }
+
+  function toggleDispAdminDia(dia, key) {
+    setDispAdminDias(prev => {
+      const actual = prev[dia] || ''
+      const keys = actual.split('').filter(Boolean)
+      const idx = keys.indexOf(key)
+      const nuevasKeys = idx >= 0 ? keys.filter(k => k !== key) : [...keys, key].sort((a, b) => TURNOS_LUGAR.indexOf(a) - TURNOS_LUGAR.indexOf(b))
+      const nuevo = nuevasKeys.join('')
+      const next = { ...prev }
+      if (!nuevo) delete next[dia]; else next[dia] = nuevo
+      return next
+    })
+  }
+
+  // Advertencias calculadas en pantalla (antes de guardar) comparando lo que
+  // se está por guardar contra las guardias YA asignadas — el servidor
+  // vuelve a calcularlas igual al guardar, esto es solo para que el
+  // encargado las vea antes de confirmar.
+  function advertenciasDispAdminPreview() {
+    return dispAdminTurnosAsignados.filter(t => {
+      const disp = dispAdminDias[t.dia] || ''
+      return !disp.includes(t.turno)
+    })
+  }
+
+  async function confirmarDispAdmin() {
+    if (!modalDispAdmin) return
+    setDispAdminGuardando(true)
+    setDispAdminResultado(null)
+    try {
+      const resp = await fetch('/api/admin-disponibilidad-override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          legajo: modalDispAdmin.legajo, lugar: lugarDetectado, mes: MES, anio: ANIO,
+          dias: dispAdminDias, motivo: dispAdminMotivo || null, confirmar: true,
+          // Lo que este formulario tenía al abrirse — si ya no coincide con
+          // lo guardado en este momento (otro admin lo cambió mientras
+          // tanto), el servidor rechaza el guardado en vez de pisarlo.
+          dias_antes_esperado: dispAdminDiasOriginal,
+        }),
+      })
+      const body = await resp.json()
+      if (resp.status === 409 && body.conflicto) {
+        setDispAdminDiasOriginal(body.dias_actuales || {})
+        setDispAdminResultado({ ok: false, error: body.error, conflicto: true })
+        setDispAdminPaso('editar')
+      } else if (!resp.ok) {
+        setDispAdminResultado({ ok: false, error: body.error || 'No se pudo guardar.' })
+      } else {
+        setDispAdminResultado({ ok: true, ...body })
+        // Refleja el cambio en la vista de Disponibilidad sin esperar a
+        // recargar todo.
+        setDisponibilidad(prev => ({
+          ...prev,
+          [normLegajo(modalDispAdmin.legajo)]: Object.fromEntries(Object.entries(dispAdminDias).map(([dia, turno]) => [dia, { turno }]))
+        }))
+      }
+    } catch (err) {
+      setDispAdminResultado({ ok: false, error: 'Error de conexión. No se guardó — revisá e intentá de nuevo.' })
+    }
+    setDispAdminGuardando(false)
+  }
+
+  // ── Publicar guardias: separa el borrador de trabajo (turnos) de lo que
+  // ve el efectivo. No toca turnos; solo crea una nueva versión publicada. ──
+  async function abrirPublicar() {
+    setPublicarResultado(null)
+    setPublicarCargando(true)
+    try {
+      const resp = await fetch(`/api/publicar-guardias?lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`)
+      const body = await resp.json()
+      setPublicarResumen(resp.ok ? body : { error: body.error || 'No se pudo calcular el resumen.' })
+    } catch (err) {
+      setPublicarResumen({ error: 'Error de conexión.' })
+    }
+    setPublicarCargando(false)
+  }
+
+  async function confirmarPublicar() {
+    setPublicarCargando(true)
+    setPublicarResultado(null)
+    try {
+      // version_base/hash_borrador tienen que ser EXACTAMENTE los que trajo
+      // el resumen que el administrador está viendo en este momento (el GET
+      // de abrirPublicar) — es lo que el servidor vuelve a comprobar, dentro
+      // de la misma transacción y bajo un lock, antes de publicar de verdad.
+      // Si faltan (por ejemplo, porque el resumen es de una versión vieja
+      // del frontend que todavía no los conocía), no se manda la publicación
+      // a ciegas: se pide recalcular el resumen primero.
+      if (publicarResumen?.hash_borrador === undefined || publicarResumen?.hash_borrador === null) {
+        setPublicarResultado({ ok: false, error: 'Falta recalcular el resumen antes de publicar. Volvé a abrir "Publicar guardias".' })
+        setPublicarCargando(false)
+        return
+      }
+      const resp = await fetch('/api/publicar-guardias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lugar: lugarDetectado, mes: MES, anio: ANIO, confirmar: true,
+          version_base: publicarResumen.version_base,
+          hash_borrador: publicarResumen.hash_borrador,
+        }),
+      })
+      const body = await resp.json()
+      if (resp.ok) {
+        setPublicarResultado({ ok: true, ...body })
+      } else if (body.desactualizado) {
+        // El resumen que se estaba mostrando ya no es el real (alguien
+        // publicó mientras tanto, el borrador cambió, o esto es un
+        // reintento/doble clic de una publicación que ya se hizo). Se
+        // descarta el resumen viejo para que no se pueda reintentar con el
+        // mismo version_base/hash_borrador — hay que recalcularlo.
+        setPublicarResumen(null)
+        setPublicarResultado({ ok: false, error: body.error || 'La información cambió desde que se generó el resumen. Volvé a abrir "Publicar guardias" para revisar el estado actual.' })
+      } else {
+        setPublicarResultado({ ok: false, error: body.error || 'No se pudo publicar.' })
+      }
+    } catch (err) {
+      setPublicarResultado({ ok: false, error: 'Error de conexión. No se publicó — revisá e intentá de nuevo.' })
+    }
+    setPublicarCargando(false)
+  }
+
   return (
     <div>
       {firmaEditando && (
@@ -1671,6 +2053,203 @@ export default function AdminApp() {
         />
       )}
       {modalTurno && <ModalTurno turno={modalTurno} efectivos={efectivos} horasAsig={horasAsig} onClose={() => setModalTurno(null)} onGuardar={handleGuardarEdicion} onEliminar={handleEliminarTurno} onAgregar={handleAgregarTurno} diasMes={DIAS_MES} mes={MES} anio={ANIO} turnosDelDia={todosLosTurnos.filter(t => t.dia === (modalTurno.dia || filtroDia))} />}
+
+      {modalDispAdmin && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+          <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.4)',width:'100%',maxWidth:560,maxHeight:'90vh',overflow:'auto' }}>
+            <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.3)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)',position:'sticky',top:0,zIndex:1 }}>
+              <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>✎ Disponibilidad fuera de término — {modalDispAdmin.nombre}</h3>
+              <button className="btn btn-sm" onClick={() => { setModalDispAdmin(null); setDispAdminResultado(null) }}>Cerrar</button>
+            </div>
+            <div style={{ padding:16 }}>
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:12 }}>
+                Leg. {modalDispAdmin.legajo} · {lugarDetectado} · {NOMBRE_MES}. Esto NO reabre la inscripción general: solo guarda la disponibilidad de esta persona para este período. No borra ni modifica guardias ya asignadas.
+              </div>
+
+              {dispAdminCargando ? (
+                <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Cargando...</div>
+              ) : dispAdminResultado?.ok ? (
+                <div>
+                  <div className="alert alert-ok" style={{ marginBottom:12 }}>
+                    Disponibilidad guardada{dispAdminResultado.atomico === false ? ' (guardado paso a paso, no transaccional — ver aviso abajo)' : ''}.
+                    {dispAdminResultado.auditoria_id != null && ` Auditoría #${dispAdminResultado.auditoria_id}.`}
+                  </div>
+                  {dispAdminResultado.aviso && <div className="alert alert-warn" style={{ marginBottom:12 }}>{dispAdminResultado.aviso}</div>}
+                  {(dispAdminResultado.advertencias || []).length > 0 && (
+                    <div className="alert alert-warn" style={{ marginBottom:12 }}>
+                      <div style={{ fontWeight:600, marginBottom:6 }}>⚠ Guardias ya asignadas que quedan en contradicción (NO se tocaron):</div>
+                      {dispAdminResultado.advertencias.map((a, i) => <div key={i} style={{ fontSize:11, marginBottom:4 }}>{a.detalle}</div>)}
+                    </div>
+                  )}
+                  <button className="btn" style={{ width:'100%', justifyContent:'center' }} onClick={() => { setModalDispAdmin(null); setDispAdminResultado(null) }}>Cerrar</button>
+                </div>
+              ) : (
+                <>
+                  {dispAdminResultado?.error && <div className="alert alert-err" style={{ marginBottom:12 }}>{dispAdminResultado.error}</div>}
+
+                  {dispAdminPaso === 'editar' && (
+                    <>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
+                        {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => (
+                          <div key={dia} style={{ border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:6, padding:'4px 6px', minWidth:46, textAlign:'center' }}>
+                            <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>{dia}</div>
+                            <div style={{ display:'flex', gap:2, justifyContent:'center' }}>
+                              {TURNOS_LUGAR.map(k => {
+                                const activo = (dispAdminDias[dia] || '').includes(k)
+                                return (
+                                  <button key={k} type="button" onClick={() => toggleDispAdminDia(dia, k)}
+                                    style={{ width:20, height:20, fontSize:9, fontWeight:700, borderRadius:4, cursor:'pointer',
+                                      border: activo ? '1px solid #c8a84b' : '1px solid rgba(255,255,255,0.15)',
+                                      background: activo ? 'rgba(200,168,75,0.3)' : 'rgba(255,255,255,0.04)',
+                                      color: activo ? '#c8a84b' : 'var(--text-muted)' }}>
+                                    {k.toUpperCase()}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ marginBottom:14 }}>
+                        <label style={{ fontSize:12, color:'var(--text-muted)', display:'block', marginBottom:5 }}>Motivo (opcional, queda en la auditoría)</label>
+                        <input type="text" value={dispAdminMotivo} onChange={e => setDispAdminMotivo(e.target.value)} placeholder="Ej: no llegó a cargar por licencia"
+                          style={{ width:'100%', padding:'8px 10px', border:'0.5px solid rgba(255,255,255,0.12)', borderRadius:6, fontSize:13, background:'#1e2130', color:'#e8eaf0', outline:'none' }} />
+                      </div>
+
+                      <button className="btn" style={{ width:'100%', justifyContent:'center', background:'rgba(200,168,75,0.15)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }}
+                        onClick={() => setDispAdminPaso('confirmar')}>
+                        Ver cambios antes de confirmar →
+                      </button>
+                    </>
+                  )}
+
+                  {dispAdminPaso === 'confirmar' && (() => {
+                    const diasAntes = Object.keys(dispAdminDiasOriginal).map(Number).sort((a,b)=>a-b)
+                    const diasDespues = Object.keys(dispAdminDias).map(Number).sort((a,b)=>a-b)
+                    const advertencias = advertenciasDispAdminPreview()
+                    return (
+                      <div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+                          <div>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:6 }}>Antes ({diasAntes.length} días)</div>
+                            <div style={{ fontSize:12 }}>{diasAntes.length ? diasAntes.map(d => `${d}(${dispAdminDiasOriginal[d]})`).join(', ') : '— sin disponibilidad cargada —'}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:11, color:'#c8a84b', marginBottom:6 }}>Después ({diasDespues.length} días)</div>
+                            <div style={{ fontSize:12 }}>{diasDespues.length ? diasDespues.map(d => `${d}(${dispAdminDias[d]})`).join(', ') : '— sin disponibilidad —'}</div>
+                          </div>
+                        </div>
+                        {advertencias.length > 0 && (
+                          <div className="alert alert-warn" style={{ marginBottom:14 }}>
+                            <div style={{ fontWeight:600, marginBottom:6 }}>⚠ Esto contradice {advertencias.length} guardia(s) ya asignada(s). NO se van a borrar ni reasignar solas — quedan así hasta que decidas qué hacer manualmente.</div>
+                            {advertencias.map((a, i) => (
+                              <div key={i} style={{ fontSize:11, marginBottom:3 }}>Día {a.dia} — turno {a.turno} — {a.sector}</div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display:'flex', gap:8 }}>
+                          <button className="btn btn-sm" style={{ flex:1, justifyContent:'center' }} onClick={() => setDispAdminPaso('editar')} disabled={dispAdminGuardando}>← Volver a editar</button>
+                          <button className="btn btn-success" style={{ flex:1, justifyContent:'center' }} onClick={confirmarDispAdmin} disabled={dispAdminGuardando}>
+                            {dispAdminGuardando ? 'Guardando...' : 'Confirmar y guardar'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mostrarModalPublicar && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+          <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.4)',width:'100%',maxWidth:520,maxHeight:'90vh',overflow:'auto' }}>
+            <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.3)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)',position:'sticky',top:0 }}>
+              <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>📣 Publicar guardias — {APP_LUGAR} · {NOMBRE_MES}</h3>
+              <button className="btn btn-sm" onClick={() => setMostrarModalPublicar(false)}>Cerrar</button>
+            </div>
+            <div style={{ padding:16 }}>
+              {publicarCargando && <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Calculando...</div>}
+
+              {!publicarCargando && publicarResultado?.ok && (
+                <div>
+                  <div className="alert alert-ok" style={{ marginBottom:12 }}>
+                    Publicado — versión {publicarResultado.version}. Los efectivos ya pueden ver esta versión de sus guardias.
+                  </div>
+                  {publicarResultado.efectivos_afectados?.length > 0 && (
+                    <div style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Efectivos para volver a avisar (cambió algo para ellos):</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                        {publicarResultado.efectivos_afectados.map(a => (
+                          <span key={a.legajo} style={{ fontSize:11, padding:'3px 8px', borderRadius:4, background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.3)' }}>
+                            {nombreCorto(a.legajo)} ({a.tipo_cambio})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <button className="btn" style={{ width:'100%', justifyContent:'center' }} onClick={() => setMostrarModalPublicar(false)}>Cerrar</button>
+                </div>
+              )}
+
+              {!publicarCargando && !publicarResultado?.ok && (
+                <>
+                  {publicarResultado?.error && (
+                    <div className="alert alert-err" style={{ marginBottom:12 }}>
+                      {publicarResultado.error}
+                    </div>
+                  )}
+                  {publicarResultado?.error && !publicarResumen && (
+                    <button className="btn" style={{ width:'100%', justifyContent:'center', marginBottom:12 }} onClick={abrirPublicar} disabled={publicarCargando}>
+                      Volver a revisar
+                    </button>
+                  )}
+                  {publicarResumen?.error && <div className="alert alert-err" style={{ marginBottom:12 }}>{publicarResumen.error}</div>}
+                  {publicarResumen && !publicarResumen.error && (
+                    <div>
+                      <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10 }}>
+                        {publicarResumen.version_anterior
+                          ? `Ya existe una publicación previa (versión ${publicarResumen.version_anterior}, ${new Date(publicarResumen.publicado_anteriormente_en).toLocaleString('es-AR')}). Esto va a crear la versión ${publicarResumen.version_anterior + 1}.`
+                          : 'Todavía no hay ninguna publicación para este lugar/mes/año. Esto va a crear la versión 1.'}
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+                        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:8, padding:10 }}>
+                          <div style={{ fontSize:10, color:'var(--text-muted)' }}>Turnos en el borrador ahora</div>
+                          <div style={{ fontSize:18, fontWeight:600 }}>{publicarResumen.total_turnos_actuales}</div>
+                        </div>
+                        <div style={{ background:'rgba(255,255,255,0.03)', borderRadius:8, padding:10 }}>
+                          <div style={{ fontSize:10, color:'var(--text-muted)' }}>Turnos en la última versión publicada</div>
+                          <div style={{ fontSize:18, fontWeight:600 }}>{publicarResumen.total_turnos_version_anterior}</div>
+                        </div>
+                      </div>
+                      {publicarResumen.efectivos_afectados.length === 0 ? (
+                        <div className="alert alert-warn" style={{ marginBottom:14 }}>No hay cambios respecto a la última publicación — igual se puede publicar para dejar constancia.</div>
+                      ) : (
+                        <div style={{ marginBottom:14 }}>
+                          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>{publicarResumen.efectivos_afectados.length} efectivo(s) con cambios:</div>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:6, maxHeight:140, overflow:'auto' }}>
+                            {publicarResumen.efectivos_afectados.map(a => (
+                              <span key={a.legajo} style={{ fontSize:11, padding:'3px 8px', borderRadius:4, background:'rgba(255,255,255,0.05)', color:'var(--text)', border:'0.5px solid rgba(255,255,255,0.1)' }}>
+                                {nombreCorto(a.legajo)} ({a.tipo_cambio})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <button className="btn btn-success" style={{ width:'100%', justifyContent:'center' }} onClick={confirmarPublicar} disabled={publicarCargando}>
+                        Confirmar y publicar
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalAsignar && (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
@@ -1802,37 +2381,64 @@ export default function AdminApp() {
         })()}
 
         {vista === 'personal' && (() => {
-          const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
-          const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
-          const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
+          // Punto 1 de esta ronda: filtro por sexo, sin inferirlo del
+          // nombre — 'todos' (default) no filtra nada, igual que antes.
+          const porSexo = e => filtroSexo === 'todos' || (e.sexo || 'sin_informar') === filtroSexo
+          const uniformados = efectivos.filter(e => e.tipo === 'Uniformado' && porSexo(e))
+          const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General' && porSexo(e))
+          const destacamento = efectivos.filter(e => e.tipo === 'Destacamento' && porSexo(e))
           const renderFichas = lista => lista.map(e => {
             const hs = horasAsig[e.legajo] || 0
             const pct = Math.round(hs / 180 * 100)
             const color = pct >= 100 ? '#E24B4A' : pct >= 80 ? '#EF9F27' : '#1D9E75'
             const turnosEf = turnos[e.legajo] || []
             const iniciales = e.nombre.split(',').map(p => p.trim()[0]).join('').toUpperCase().slice(0, 2)
+            // Punto 9 de esta ronda: estado persistente en servidor
+            // (whatsappAvisos), independiente por lugar/mes/año — nunca el
+            // Map de localStorage de antes. 'confirmado' = el administrador
+            // confirmó EXPRESAMENTE que envió el mensaje; 'abierto' = solo
+            // se hizo click en el link de wa.me, todavía no se confirmó.
+            const avisoEf = whatsappAvisos[e.legajo] || {}
+            // Corrección de esta ronda ("Confirmación de WhatsApp"): el
+            // fingerprint del contenido que ESTA pantalla tiene cargado
+            // para este efectivo ahora mismo — se manda tal cual al
+            // "abrir" y al "confirmar" (ver fingerprintTurnos más arriba),
+            // para que el servidor pueda rechazar la operación si no
+            // coincide con lo vigente (pantalla desactualizada).
+            const fpActualEf = fingerprintTurnos(turnosPublicadosPorLegajo[e.legajo] || [])
+            const avisoConfirmado = avisoEf.estado === 'confirmado'
+            const avisoAbiertoSinConfirmar = !avisoConfirmado && !!avisoEf.abierto_en
             return (
-              <div key={e.legajo} className="card" style={{ padding:0, overflow:'hidden', cursor:'pointer', border: notificados.has(e.legajo) ? '0.5px solid rgba(29,158,117,0.4)' : undefined }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
-                {notificados.has(e.legajo) && (() => {
-                  const ts = notificados.get(e.legajo)
-                  const d = new Date(ts)
+              <div key={e.legajo} className="card" style={{ padding:0, overflow:'hidden', cursor:'pointer', border: avisoConfirmado ? '0.5px solid rgba(29,158,117,0.4)' : avisoAbiertoSinConfirmar ? '0.5px solid rgba(239,159,39,0.4)' : undefined }} onClick={() => { setMsgPersonal(null); setModalPersonal({ ...e }) }}>
+                {avisoConfirmado && (() => {
+                  const d = new Date(avisoEf.confirmado_en)
                   const hora = d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })
                   const dia = d.toLocaleDateString('es-AR', { day:'numeric', month:'long' })
                   return (
                     <div style={{ background:'rgba(29,158,117,0.1)', borderBottom:'0.5px solid rgba(29,158,117,0.2)', padding:'5px 12px', display:'flex', alignItems:'center', gap:6 }} onClick={ev=>ev.stopPropagation()}>
                       <span style={{ fontSize:13, color:'#1D9E75' }}>✓</span>
-                      <span style={{ fontSize:10, fontWeight:500, color:'#1D9E75', flex:1 }}>Avisado el {dia} a las {hora}</span>
-                      <button onClick={ev=>{ev.stopPropagation();desmarcarNotificado(e.legajo)}} style={{ fontSize:9, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:0 }}>desmarcar</button>
+                      <span style={{ fontSize:10, fontWeight:500, color:'#1D9E75', flex:1 }}>Envío confirmado el {dia} a las {hora}</span>
+                      <button onClick={ev=>{ev.stopPropagation();desmarcarAviso(e.legajo)}} style={{ fontSize:9, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:0 }}>desmarcar</button>
                     </div>
                   )
                 })()}
+                {avisoAbiertoSinConfirmar && (
+                  <div style={{ background:'rgba(239,159,39,0.08)', borderBottom:'0.5px solid rgba(239,159,39,0.2)', padding:'5px 12px', display:'flex', alignItems:'center', gap:6 }} onClick={ev=>ev.stopPropagation()}>
+                    <span style={{ fontSize:13, color:'#EF9F27' }}>⏳</span>
+                    <span style={{ fontSize:10, fontWeight:500, color:'#EF9F27', flex:1 }}>WhatsApp abierto — falta confirmar el envío</span>
+                    <button onClick={ev=>{ev.stopPropagation();confirmarAviso(e.legajo, fpActualEf)}} style={{ fontSize:9, color:'#1D9E75', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:0 }}>confirmar envío</button>
+                  </div>
+                )}
                 <div style={{ padding:'12px 14px',borderBottom:'0.5px solid rgba(255,255,255,0.06)',display:'flex',alignItems:'center',gap:12 }}>
                   <div style={{ width:40,height:40,borderRadius:'50%',background:'rgba(200,168,75,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:500,color:'#c8a84b',flexShrink:0 }}>{iniciales}</div>
                   <div style={{ flex:1,minWidth:0 }}>
                     <div style={{ fontWeight:500,fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5 }}>
                       {e.nombre}{e.notas && <span title={e.notas} style={{ fontSize:13,cursor:'help' }}>📝</span>}
                     </div>
-                    <div style={{ fontSize:10,color:'var(--text-muted)',marginTop:2 }}>Leg. {e.legajo} · {e.jerarquia || e.tipo}</div>
+                    <div style={{ fontSize:10,color:'var(--text-muted)',marginTop:2 }}>
+                      Leg. {e.legajo} · {e.jerarquia || e.tipo}
+                      {e.sexo && e.sexo !== 'sin_informar' && <span> · {e.sexo === 'femenino' ? 'F' : 'M'}</span>}
+                    </div>
                   </div>
                   <div style={{ textAlign:'right',flexShrink:0 }}>
                     <div style={{ fontSize:18,fontWeight:500,color,lineHeight:1 }}>{hs}</div>
@@ -1856,29 +2462,94 @@ export default function AdminApp() {
                     })}
                     {turnosEf.length === 0 && <div style={{ gridColumn:'1/-1',fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin guardias asignadas</div>}
                   </div>
-                  {e.telefono && turnosEf.length > 0 && (
-                    notificados.has(e.legajo)
+                  {/* El mensaje de WhatsApp usa SOLO guardias publicadas — nunca el
+                      borrador — y nunca se manda solo: siempre es un click manual
+                      del administrador sobre un link de wa.me. */}
+                  {e.telefono && !publicacionVigenteInfo.publicado && turnosEf.length > 0 && (
+                    <div style={{ fontSize:10, color:'var(--text-hint)', fontStyle:'italic', padding:'6px 2px' }}>
+                      Todavía no se publicaron las guardias de este período — publicalas (pestaña Guardias) para poder avisar por WhatsApp.
+                    </div>
+                  )}
+                  {/* Corrección de esta ronda ("Permitir comunicar que se
+                      retiraron todas las guardias de un efectivo"): antes
+                      esto se condicionaba a que tuviera guardias publicadas
+                      (turnosPublicadosPorLegajo[...].length > 0) — si a un
+                      efectivo se le retiraban TODAS las guardias publicadas
+                      (quedaba en 0), la acción de WhatsApp desaparecía por
+                      completo y nunca se podía avisar justamente eso. Ahora
+                      se muestra apenas exista una fila de seguimiento para
+                      este efectivo/mes/año (whatsappAvisos[e.legajo] —
+                      fn_whatsapp_sincronizar_tras_publicar ya la crea para
+                      todo efectivo con una publicación vigente, tenga o no
+                      guardias en ella), y el texto del mensaje (más abajo)
+                      distingue el caso de 0 guardias. */}
+                  {e.telefono && publicacionVigenteInfo.publicado && !!whatsappAvisos[e.legajo] && (
+                    avisoConfirmado
                     ? <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:6, border:'0.5px solid rgba(29,158,117,0.3)', background:'rgba(29,158,117,0.07)', opacity:0.8 }}>
                         <span style={{ fontSize:14, color:'#1D9E75' }}>✓</span>
-                        <span style={{ fontSize:11, fontWeight:500, color:'#1D9E75', flex:1 }}>Mensaje enviado</span>
+                        <span style={{ fontSize:11, fontWeight:500, color:'#1D9E75', flex:1 }}>Mensaje enviado (confirmado)</span>
                         <span style={{ fontSize:14, color:'#1D9E75', opacity:0.5 }}>📱</span>
                       </div>
-                    : <a href={(() => {
-                        const tel = '549' + e.telefono.replace(/\D/g,'')
-                        const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
-                        const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
-                        const ts = [...turnosEf].sort((a,b) => a.dia - b.dia)
-                        const subtotal = ts.length * HORAS_TURNO
-                        const lineas = ts.map(t => { const ti = TURNOS_INFO.find(x=>x.key===t.turno); return `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${encodeURIComponent(ti?.horario||t.turno)} hs %E2%80%94 ${encodeURIComponent(t.sector)}` }).join('%0A')
-                        const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0ASe le comunica el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A%0A${lineas}%0A%0A%E2%9C%85 *Total: ${subtotal} hs*%0A%0A_Referente: Cap. Zara Gonzalo_%0A_POLAD %C2%B7 ${APP_LUGAR} %C2%B7 Mar del Plata_`
-                        return `https://wa.me/${tel}?text=${msg}`
-                      })()} target="_blank" rel="noopener noreferrer"
-                      onClick={ev=>{ev.stopPropagation();marcarNotificado(e.legajo)}}
-                      style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:6, border:'0.5px solid rgba(37,211,102,0.35)', background:'rgba(37,211,102,0.07)', color:'#25D366', fontSize:11, fontWeight:500, textDecoration:'none' }}>
-                        <span style={{ fontSize:14 }}>📱</span>
-                        <span style={{ flex:1 }}>Enviar guardias por WhatsApp</span>
-                        <span style={{ fontSize:12, opacity:0.6 }}>›</span>
-                      </a>
+                    : <div style={{ display:'flex', flexDirection:'column', gap:6 }} onClick={ev=>ev.stopPropagation()}>
+                        {/* Abrir WhatsApp (mecanismo de envío SIN CAMBIOS: mismo
+                            link wa.me con el mismo texto precargado) ya NO
+                            marca "enviado" por sí solo — solo registra
+                            abierto_en (punto 9: "abrir no equivale a
+                            enviar"). La confirmación es una acción aparte,
+                            explícita, del administrador. */}
+                        <a href={(() => {
+                          const tel = '549' + e.telefono.replace(/\D/g,'')
+                          const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
+                          const nombreFormateado = e.nombre.split(',').map(p => p.trim()).reverse().join(' ')
+                          const ts = [...(turnosPublicadosPorLegajo[e.legajo]||[])].sort((a,b) => a.dia - b.dia)
+                          const subtotal = ts.length * HORAS_TURNO
+                          // Corrección de esta ronda: si no tiene NINGUNA
+                          // guardia publicada este período (p.ej. se le
+                          // retiraron todas las que tenía), el mensaje ya
+                          // no arma una lista vacía + "Total: 0 hs" (que se
+                          // leía como un error) — comunica EXPLÍCITAMENTE
+                          // que no tiene guardias asignadas este mes.
+                          const cuerpo = ts.length === 0
+                            ? `Se le informa que NO tiene guardias asignadas en el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*.`
+                            : (() => {
+                                const lineas = ts.map(t => { const ti = TURNOS_INFO.find(x=>x.key===t.turno); return `   %E2%80%A2 D%C3%ADa ${t.dia} %E2%80%94 ${encodeURIComponent(ti?.horario||t.turno)} hs %E2%80%94 ${encodeURIComponent(t.sector)}` }).join('%0A')
+                                return `Se le comunica el cronograma POLAD *${APP_LUGAR}* para *${encodeURIComponent(NOMBRE_MES.toUpperCase())}*%3A%0A%0A${lineas}%0A%0A%E2%9C%85 *Total: ${subtotal} hs*`
+                              })()
+                          const msg = `Estimado%2Fa ${encodeURIComponent(jerarquia + nombreFormateado)}%3A%0A%0A${cuerpo}%0A%0A_Referente: Cap. Zara Gonzalo_%0A_POLAD %C2%B7 ${APP_LUGAR} %C2%B7 Mar del Plata_`
+                          return `https://wa.me/${tel}?text=${msg}`
+                        })()} target="_blank" rel="noopener noreferrer"
+                        onClick={ev => {
+                          // Corrección de esta ronda ("el enlace de WhatsApp
+                          // debe esperar el resultado de la validación
+                          // existente antes de abrir el mensaje"): antes,
+                          // onClick disparaba abrirAviso() sin esperarlo y
+                          // el navegador seguía de largo y abría wa.me de
+                          // inmediato, sin importar si el servidor terminaba
+                          // rechazando la apertura (p.ej. pantalla
+                          // desactualizada, ver fn_whatsapp_marcar_abierto).
+                          // Ahora se frena la navegación del link
+                          // (preventDefault), se espera el resultado de la
+                          // MISMA validación que ya existía (abrirAviso,
+                          // sin cambiar su lógica interna) y solo si tuvo
+                          // éxito se abre el mensaje; si la validación
+                          // falla, abrirAviso ya informa el motivo (alert) y
+                          // el mensaje NUNCA se abre.
+                          ev.preventDefault()
+                          const href = ev.currentTarget.href
+                          abrirAviso(e.legajo, fpActualEf).then(exito => {
+                            if (exito) window.open(href, '_blank', 'noopener,noreferrer')
+                          })
+                        }}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:6, border:'0.5px solid rgba(37,211,102,0.35)', background:'rgba(37,211,102,0.07)', color:'#25D366', fontSize:11, fontWeight:500, textDecoration:'none' }}>
+                          <span style={{ fontSize:14 }}>📱</span>
+                          <span style={{ flex:1 }}>{avisoAbiertoSinConfirmar ? 'Reabrir WhatsApp' : 'Enviar guardias por WhatsApp'}</span>
+                          <span style={{ fontSize:12, opacity:0.6 }}>›</span>
+                        </a>
+                        <button onClick={() => confirmarAviso(e.legajo, fpActualEf)}
+                          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'6px 12px', borderRadius:6, border:'0.5px solid rgba(29,158,117,0.3)', background:'transparent', color:'#1D9E75', fontSize:10.5, fontWeight:500, cursor:'pointer' }}>
+                          ✓ Confirmar que lo envié
+                        </button>
+                      </div>
                   )}
                 </div>
               </div>
@@ -1886,8 +2557,17 @@ export default function AdminApp() {
           })
           return (
             <div>
-              <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:12 }}>
-                <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ legajo:'',nombre:'',tipo:'Uniformado',email:'',sector:'Sin asignar',lugar:APP_LUGAR }) }}>+ Dar de alta efectivo</button>
+              <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,gap:10 }}>
+                <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+                  <label style={{ fontSize:11,color:'var(--text-muted)' }}>Filtrar por sexo:</label>
+                  <select value={filtroSexo} onChange={e => setFiltroSexo(e.target.value)} style={{ padding:'5px 8px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:6,fontSize:12,background:'#1e2130',color:'#e8eaf0' }}>
+                    <option value="todos">Todos</option>
+                    <option value="femenino">Femenino</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="sin_informar">Sin informar</option>
+                  </select>
+                </div>
+                <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ legajo:'',nombre:'',tipo:'Uniformado',email:'',sector:'Sin asignar',lugar:APP_LUGAR,sexo:'sin_informar' }) }}>+ Dar de alta efectivo</button>
               </div>
               <div className="panel" style={{ marginBottom:16 }}>
                 <div className="panel-header" style={{ background:BG_APP }}><h3 style={{ color:COLOR_APP }}>Uniformados — {uniformados.length} efectivos</h3></div>
@@ -1955,6 +2635,14 @@ export default function AdminApp() {
                             )}
                           </div>
                         </div>
+                        {seleccionado && !cargo && (
+                          <div style={{ border:'0.5px solid #c8a84b', borderTop:'none', borderRadius:'0 0 8px 8px', padding:'10px 12px', background:'rgba(200,168,75,0.05)' }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:8 }}>No cargó disponibilidad este período.</div>
+                            <button className="btn btn-sm" style={{ color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={ev => { ev.stopPropagation(); abrirDispAdmin(e) }}>
+                              ✎ Cargar disponibilidad (fuera de término)
+                            </button>
+                          </div>
+                        )}
                         {seleccionado && cargo && (
                           <div style={{ border:'0.5px solid #c8a84b', borderTop:'none', borderRadius:'0 0 8px 8px', padding:'10px 12px', background:'rgba(200,168,75,0.05)' }}>
                             <div style={{ fontSize:10, color:'#c8a84b', marginBottom:8, fontWeight:500 }}>{cantDias} días cargados</div>
@@ -1980,6 +2668,9 @@ export default function AdminApp() {
                             <div style={{ marginTop:8, fontSize:10, color:'var(--text-muted)', display:'flex', gap:12, flexWrap:'wrap' }}>
                               {TURNOS_INFO.map(ti => <span key={ti.key} style={{ color:ti.color }}>{ti.key.toUpperCase()} = {ti.label.split(' ')[0]}</span>)}
                             </div>
+                            <button className="btn btn-sm" style={{ marginTop:8, color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={ev => { ev.stopPropagation(); abrirDispAdmin(e) }}>
+                              ✎ Cargar/corregir disponibilidad (fuera de término)
+                            </button>
 
                             {/* Guardias asignadas */}
                             {(() => {
@@ -2042,6 +2733,22 @@ export default function AdminApp() {
               <button className="btn btn-success" onClick={generarTurnos} disabled={generando}>{generando?'Generando...':hayTurnos?'Regenerar turnos':'Generar turnos automáticamente'}</button>
               <p style={{ fontSize:11,color:'var(--text-muted)',marginTop:6 }}>Solo genera turnos para {APP_LUGAR}</p>
             </div>
+
+            <div className="panel" style={{ marginBottom:16, border:'0.5px solid rgba(200,168,75,0.3)' }}>
+              <div className="panel-header" style={{ background:'rgba(200,168,75,0.08)' }}>
+                <h3 style={{ color:'#c8a84b' }}>📣 Publicar guardias — {APP_LUGAR} · {NOMBRE_MES}</h3>
+              </div>
+              <div style={{ padding:14 }}>
+                <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12 }}>
+                  Lo que estás viendo y editando acá arriba (el cronograma) es el borrador de trabajo. Los efectivos NO lo ven hasta que lo publiques. Publicar guardias toma una foto del estado actual y la deja visible para cada efectivo — no borra ni modifica el borrador.
+                </p>
+                <button className="btn" style={{ background:'rgba(200,168,75,0.15)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }}
+                  onClick={() => { setPublicarResumen(null); setPublicarResultado(null); setMostrarModalPublicar(true); abrirPublicar() }} disabled={publicarCargando}>
+                  {publicarCargando ? 'Calculando...' : 'Publicar guardias…'}
+                </button>
+              </div>
+            </div>
+
             {hayTurnos && (
               <div className="panel">
                 <div className="panel-header"><h3>Cronograma {APP_LUGAR} — {NOMBRE_MES}</h3></div>
@@ -2512,17 +3219,21 @@ export default function AdminApp() {
                   </div>
                   <button className="btn" style={{ width:'100%',justifyContent:'center',background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={async () => {
                     const L = lugarDetectado
-                    // Buscar por lugar únicamente — un registro por lugar
-                    const { data: existing } = await supabase.from('configuracion').select('id').eq('lugar', L).maybeSingle()
                     const mesV = ventanas.mesVentana || MES
                     const anioV = ventanas.anioVentana || ANIO
                     const mesAp = ventanas.mesApertura || MES
                     const anioAp = ventanas.anioApertura || ANIO
-                    if (existing) {
-                      await supabase.from('configuracion').update({ dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes: mesV, anio: anioV, mes_apertura: mesAp, anio_apertura: anioAp }).eq('id', existing.id)
-                    } else {
-                      await supabase.from('configuracion').insert([{ lugar: L, mes: mesV, anio: anioV, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes_apertura: mesAp, anio_apertura: anioAp }])
-                    }
+                    // Guardado por un endpoint propio con sesión de admin, que
+                    // hace el upsert (buscar y luego insertar/actualizar) del
+                    // lado del servidor — ver pages/api/configuracion.js.
+                    try {
+                      const resp = await fetch('/api/configuracion', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lugar: L, dia: parseInt(ventanas.dia)||null, hora_inicio: ventanas.horaInicio, hora_fin: ventanas.horaFin, mes: mesV, anio: anioV, mes_apertura: mesAp, anio_apertura: anioAp }),
+                      })
+                      if (!resp.ok) { const b = await resp.json().catch(()=>({})); alert('No se pudo guardar la configuración: ' + (b.error || resp.status)); return }
+                    } catch (e) { alert('No se pudo guardar la configuración (error de conexión).'); return }
                     localStorage.setItem(`polad_ventanas_${L}`, JSON.stringify(ventanas))
                     setVentanasGuardadas(true); setTimeout(()=>setVentanasGuardadas(false),2500)
                   }}>Guardar configuración</button>

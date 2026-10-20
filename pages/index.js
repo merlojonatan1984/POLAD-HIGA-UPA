@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '../lib/supabase'
 import Head from 'next/head'
 
 function _detectLugar() {
+  // Punto 1 de esta ronda ("Ingreso correcto por destino"): coherente con
+  // pages/admin.js — en un entorno de prueba local, NEXT_PUBLIC_LUGAR tiene
+  // prioridad sobre el hostname (que en local es siempre "localhost", sin
+  // importar qué sitio se esté simulando). En los 3 dominios reales de
+  // producción esta variable no está definida, así que ahí no cambia nada.
+  try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA', 'UPA', 'MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch (e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
@@ -25,107 +30,53 @@ export default function Login() {
   const [pass, setPass] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [checking, setChecking] = useState(true)
-  const [bloqueado, setBloqueado] = useState(false)
 
   useEffect(() => {
     const l = _detectLugar()
     setLugar(l)
     setConfig(LUGAR_CONFIG[l] || LUGAR_CONFIG['HIGA'])
-    verificarVentana(l)
+    // Antes, acá se verificaba la ventana de inscripción y, si estaba
+    // cerrada, se mostraba una pantalla negra sin siquiera dejar entrar al
+    // login. Eso ya no corresponde: la ventana de inscripción ahora SOLO
+    // limita la edición de disponibilidad del efectivo (ver EfectivoApp.js),
+    // no el ingreso al sistema. El efectivo puede ingresar y consultar
+    // durante todo el mes.
   }, [])
-
-  async function verificarVentana(l) {
-    setChecking(true)
-    try {
-      const now = new Date()
-      const mes = now.getMonth() + 1
-      const anio = now.getFullYear()
-
-      // Buscar config por lugar — un registro por lugar
-      const { data: cfg } = await supabase
-        .from('configuracion')
-        .select('*')
-        .eq('lugar', l)
-        .maybeSingle()
-
-      // Si no hay configuración o no hay día seteado → bloqueado
-      if (!cfg || !cfg.dia) {
-        setBloqueado(true)
-        setChecking(false)
-        return
-      }
-
-      // Verificar fecha completa de apertura: dia + mes_apertura + anio_apertura
-      const mesApertura = cfg.mes_apertura || now.getMonth() + 1
-      const anioApertura = cfg.anio_apertura || now.getFullYear()
-      const diaApertura = parseInt(cfg.dia)
-
-      const [hIni, mIni] = (cfg.hora_inicio || '08:00').split(':').map(Number)
-      const [hFin, mFin] = (cfg.hora_fin || '20:00').split(':').map(Number)
-
-      const inicio = new Date(anioApertura, mesApertura - 1, diaApertura, hIni, mIni)
-      const fin = new Date(anioApertura, mesApertura - 1, diaApertura, hFin, mFin)
-
-      if (now >= inicio && now <= fin) {
-        setBloqueado(false)
-      } else {
-        setBloqueado(true)
-      }
-    } catch (e) {
-      // En caso de error de red → bloqueado por seguridad
-      setBloqueado(true)
-    }
-    setChecking(false)
-  }
 
   async function handleLogin(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      let { data, error: err } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', legajo.trim())
-        .eq('es_admin', true)
-        .maybeSingle()
+      // El login ahora se verifica del lado del servidor (pages/api/auth-login.js),
+      // que además emite una cookie de sesión firmada. Ya no se compara
+      // ninguna contraseña (ni la de administrador) en el código del
+      // navegador.
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: legajo.trim(), password: pass }),
+      })
+      const body = await resp.json()
 
-      if (!data) {
-        const res = await supabase
-          .from('efectivos')
-          .select('*')
-          .eq('legajo', legajo.trim())
-          .eq('lugar', lugar)
-          .maybeSingle()
-        data = res.data
-        err = res.error
+      if (!resp.ok) {
+        setError(body.error || 'No se pudo iniciar sesión.')
+        setLoading(false)
+        return
       }
 
-      if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
+      // Se sigue guardando en localStorage solo para mostrar nombre/legajo
+      // en pantalla y por comodidad de navegación — ya NO es lo que autoriza
+      // nada: cada operación sensible se verifica en el servidor contra la
+      // cookie de sesión, nunca contra este valor.
+      localStorage.setItem('polad_user', JSON.stringify(body.usuario))
 
-      // Clave: si tiene password propio usarlo, sino usar legajo como clave
-      const claveEsperada = data.es_admin ? 'admin2025' : (data.password || legajo.trim())
-      if (pass !== claveEsperada) { setError('Contraseña incorrecta.'); setLoading(false); return }
-
-      localStorage.setItem('polad_user', JSON.stringify(data))
-
-      if (data.es_admin) router.push('/admin')
+      if (body.usuario.es_admin) router.push('/admin')
       else router.push('/efectivo')
     } catch (e) {
       setError('Error de conexión.')
       setLoading(false)
     }
-  }
-
-  // Mientras verifica → pantalla negra
-  if (checking) {
-    return <div style={{ minHeight:'100vh', background:'#000' }} />
-  }
-
-  // Bloqueado → pantalla completamente negra, sin nada
-  if (bloqueado) {
-    return <div style={{ minHeight:'100vh', background:'#000' }} />
   }
 
   return (

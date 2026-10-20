@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdminSession } from '../../lib/authServer'
 
 export const config = { api: { bodyParser: { sizeLimit: '15mb' } } }
 
@@ -88,6 +89,7 @@ async function fixPrintAreaOds(buffer) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
+  if (!requireAdminSession(req, res)) return
 
   try {
     const { legajo, fileBase64, fileName } = req.body

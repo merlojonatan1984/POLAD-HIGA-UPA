@@ -2,23 +2,77 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import Head from 'next/head'
 
+// Punto 1 de la revisión: esta pantalla ya tenía un login real (contra
+// /api/auth-login), pero después de loguearse seguía leyendo Y ESCRIBIENDO
+// la tabla `efectivos` directo con la clave anon desde el navegador (ver
+// buscarEfectivo/actualizarPlanillaUrl más abajo, que ahora pasan por
+// /api/carga-planillas-datos.js con esa misma sesión verificada en el
+// servidor). Este cliente `supabase` queda SOLO para Storage: subir con la
+// URL firmada que entrega /api/crear-url-planilla.js (punto 5 de la
+// siguiente ronda de revisión — ver procesarTodo()) y leer la URL pública
+// del archivo ya subido — ninguna de las dos cosas necesita, ni usa, la
+// clave anon como permiso real (la subida la autoriza el token firmado, de
+// un solo uso y una sola ruta; la lectura es pública a propósito).
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+async function buscarEfectivo(ilike) {
+  const resp = await fetch('/api/carga-planillas-datos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'buscar_por_nombre', ilike }),
+  })
+  const body = await resp.json()
+  return body.efectivos || []
+}
+
+async function actualizarPlanillaUrl(legajo, lugar, planilla_url) {
+  await fetch('/api/carga-planillas-datos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'actualizar_planilla_url', legajo, lugar, planilla_url }),
+  })
+}
+
+async function crearUrlFirmadaPlanilla(legajo, lugar, ext) {
+  const resp = await fetch('/api/crear-url-planilla', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ legajo, ext, lugar }),
+  })
+  const body = await resp.json()
+  if (!resp.ok || !body.ok) throw new Error(body.error || 'no se pudo preparar la subida')
+  return body
+}
+
 export default function CargaPlanillas() {
   const [autenticado, setAutenticado] = useState(false)
+  const [legajoLogin, setLegajoLogin] = useState('')
   const [pass, setPass] = useState('')
+  const [errorLogin, setErrorLogin] = useState('')
   const [archivos, setArchivos] = useState([])
   const [procesando, setProcesando] = useState(false)
   const [progreso, setProgreso] = useState([])
   const [terminado, setTerminado] = useState(false)
 
-  function login(e) {
+  async function login(e) {
     e.preventDefault()
-    if (pass === 'admin2025') setAutenticado(true)
-    else alert('Clave incorrecta')
+    setErrorLogin('')
+    // Verificado en el servidor (pages/api/auth-login.js) en vez de comparar
+    // una clave fija acá. Las subidas de planilla (más abajo) ya exigen esa
+    // misma sesión del lado del servidor en crear-url-planilla.js y
+    // subir-planilla.js: sin este login real, esos pedidos van a fallar
+    // igual aunque alguien intentara pasar por alto esta pantalla.
+    const resp = await fetch('/api/auth-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ legajo: legajoLogin.trim(), password: pass }),
+    })
+    const body = await resp.json()
+    if (!resp.ok || !body.usuario?.es_admin) {
+      setErrorLogin(body.error || 'Ese legajo no tiene permisos de administrador.')
+      return
+    }
+    setAutenticado(true)
   }
 
   function seleccionarArchivos(e) {
@@ -44,12 +98,9 @@ export default function CargaPlanillas() {
       const p2 = partes[1] || ''
       const ilike = p2 ? '%' + p1 + '%' + p2 + '%' : '%' + p1 + '%'
 
-      // Buscar efectivo en la DB
-      const { data: efectivos } = await supabase
-        .from('efectivos')
-        .select('legajo, nombre, lugar')
-        .ilike('nombre', ilike)
-        .limit(1)
+      // Buscar efectivo en la DB — vía endpoint autenticado (ver arriba),
+      // no más directo con la clave anon.
+      const efectivos = await buscarEfectivo(ilike)
 
       if (!efectivos || efectivos.length === 0) {
         resultados.push({ nombre, estado: 'no_encontrado', msg: 'No encontrado en la base de datos' })
@@ -88,15 +139,34 @@ export default function CargaPlanillas() {
           }
         }
 
-        // Subir a Supabase Storage
-        const storageName = ef.legajo + '.' + ext
+        // Punto 5 de esta ronda ("permisos de archivos de planillas"): esto
+        // SUBÍA directo a Supabase Storage con la clave anon pública —
+        // cualquiera que la conociera podía subir o sobrescribir cualquier
+        // archivo del bucket 'planillas', sin sesión ni control alguno
+        // (era el pendiente de Storage señalado en la entrega anterior).
+        // Ahora sigue el mismo patrón ya usado por pages/admin.js
+        // (subirPlanillaAdmin): se pide al servidor, autenticado, una URL
+        // firmada de subida acotada a este (legajo, lugar) puntual —
+        // pages/api/crear-url-planilla.js valida ahí que esa fila exista
+        // antes de firmarla — y recién con esa URL se sube el archivo. La
+        // clave anon del cliente de Storage de este archivo no otorga
+        // ningún permiso por sí sola: solo el token firmado (de un solo
+        // uso, para esa ruta puntual) autoriza la subida.
+        let urlFirmada
+        try {
+          urlFirmada = await crearUrlFirmadaPlanilla(ef.legajo, ef.lugar, ext)
+        } catch (errUrl) {
+          resultados.push({ nombre, estado: 'error', msg: errUrl.message })
+          setProgreso([...resultados])
+          continue
+        }
+
         const { error: uploadError } = await supabase.storage
           .from('planillas')
-          .upload(storageName, finalBuffer, {
+          .uploadToSignedUrl(urlFirmada.path, urlFirmada.token, finalBuffer, {
             contentType: ext === 'ods'
               ? 'application/vnd.oasis.opendocument.spreadsheet'
               : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            upsert: true
           })
 
         if (uploadError) {
@@ -105,12 +175,17 @@ export default function CargaPlanillas() {
           continue
         }
 
-        // Obtener URL pública
-        const { data: urlData } = supabase.storage.from('planillas').getPublicUrl(storageName)
+        // Obtener URL pública (lectura pública intencional — ver nota de
+        // permisos de lectura en el informe: hace falta para descargar la
+        // planilla sin login).
+        const { data: urlData } = supabase.storage.from('planillas').getPublicUrl(urlFirmada.path)
         const publicUrl = urlData.publicUrl
 
-        // Actualizar efectivo
-        await supabase.from('efectivos').update({ planilla_url: publicUrl }).eq('legajo', ef.legajo)
+        // Actualizar efectivo — vía endpoint autenticado (ver arriba), no
+        // más directo con la clave anon. Se pasa también ef.lugar (punto 5:
+        // ver el comentario en carga-planillas-datos.js sobre por qué el
+        // update tiene que filtrar por legajo Y lugar juntos).
+        await actualizarPlanillaUrl(ef.legajo, ef.lugar, publicUrl)
 
         resultados.push({ nombre, estado: 'ok', msg: ef.nombre + ' — ' + ef.lugar })
         setProgreso([...resultados])
@@ -133,8 +208,11 @@ export default function CargaPlanillas() {
     <div style={{ minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0f1117' }}>
       <form onSubmit={login} style={{ background:'#1a1d27',padding:32,borderRadius:12,width:320,border:'0.5px solid #2a2d3a' }}>
         <h2 style={{ color:'white',marginBottom:20,textAlign:'center' }}>POLAD — Carga de Planillas</h2>
+        <input type="text" placeholder="Legajo admin" value={legajoLogin} onChange={e => setLegajoLogin(e.target.value)} autoFocus
+          style={{ width:'100%',padding:'10px 12px',borderRadius:8,border:'0.5px solid #2a2d3a',background:'#0f1117',color:'white',fontSize:14,boxSizing:'border-box',marginBottom:10 }} />
         <input type="password" placeholder="Clave admin" value={pass} onChange={e => setPass(e.target.value)}
           style={{ width:'100%',padding:'10px 12px',borderRadius:8,border:'0.5px solid #2a2d3a',background:'#0f1117',color:'white',fontSize:14,boxSizing:'border-box',marginBottom:12 }} />
+        {errorLogin && <div style={{ color:'#f87171', fontSize:13, marginBottom:12 }}>{errorLogin}</div>}
         <button type="submit" style={{ width:'100%',padding:'10px',borderRadius:8,background:'#1D9E75',color:'white',border:'none',fontSize:14,cursor:'pointer' }}>Entrar</button>
       </form>
     </div>

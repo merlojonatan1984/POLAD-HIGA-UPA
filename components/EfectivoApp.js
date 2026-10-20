@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '../lib/supabase'
+// Ya no importa el cliente de Supabase: todo lo que este componente
+// necesita (disponibilidad propia, guardias publicadas, ventana de
+// inscripción, cambio de clave) pasa ahora por endpoints propios del
+// servidor (pages/api/...), nunca directo con la clave anon.
 
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
@@ -23,6 +26,10 @@ const TURNOS_CONFIG_MAP = {
 const COLOR_MAP = { HIGA: '#AFA9EC', UPA: '#D85A30', MODULAR: '#20A0B0' }
 
 function detectLugar() {
+  // Punto 1 de esta ronda ("Ingreso correcto por destino"): mismo motivo
+  // y mismo orden que pages/admin.js — ver el comentario completo en
+  // pages/index.js.
+  try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA', 'UPA', 'MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch (e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
@@ -50,10 +57,17 @@ export default function EfectivoApp() {
   const [mes, setMes] = useState(MES_ACTUAL)
   const [anio, setAnio] = useState(ANIO_ACTUAL)
   const [disponibilidad, setDisponibilidad] = useState({})
+  // Punto 3 de la revisión: snapshot de lo que el servidor devolvió la
+  // última vez que se cargó/guardó, para poder mandarlo como
+  // dias_antes_esperado al guardar — `disponibilidad` en cambio va
+  // cambiando con cada click del efectivo, así que no sirve como "lo que
+  // vi al abrir la pantalla".
+  const [disponibilidadOriginal, setDisponibilidadOriginal] = useState({})
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg] = useState(null)
   const [ventana, setVentana] = useState(null)
   const [turnos, setTurnos] = useState([])
+  const [publicacion, setPublicacion] = useState({ publicado: false })
   const [loading, setLoading] = useState(true)
   const [appLugar, setAppLugar] = useState('HIGA')
   const [isMobile, setIsMobile] = useState(false)
@@ -99,10 +113,12 @@ export default function EfectivoApp() {
 
   async function cargarDatos(legajo, m, a, lugar) {
     setLoading(true)
-    // Cargar ventana desde Supabase
+    // Ventana de inscripción: por un endpoint propio con sesión (no directo
+    // a Supabase con la clave anon) — ver pages/api/configuracion.js. Esto
+    // es lo que permite que la tabla configuracion ya no sea legible/
+    // escribible con la clave pública.
     const now = new Date()
-    // Buscar config por lugar — un registro por lugar
-    const { data: cfg } = await supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle()
+    const { cfg } = await fetch(`/api/configuracion?lugar=${encodeURIComponent(lugar)}`).then(r => r.json()).catch(() => ({ cfg: null }))
     if (cfg) {
       setVentana({ dia: cfg.dia?.toString()||'', horaInicio: cfg.hora_inicio||'08:00', horaFin: cfg.hora_fin||'20:00', mes: cfg.mes, anio: cfg.anio, mesApertura: cfg.mes_apertura, anioApertura: cfg.anio_apertura })
       // Fijar el mes y año al configurado por el admin
@@ -112,15 +128,24 @@ export default function EfectivoApp() {
       const ventanasStr = localStorage.getItem(`polad_ventanas_${lugar}`)
       if (ventanasStr) { try { setVentana(JSON.parse(ventanasStr)) } catch(e) {} }
     }
-    const sectores = SECTORES_POR_LUGAR[lugar] || SECTORES_POR_LUGAR['HIGA']
-    const [{ data: disp }, { data: turns }] = await Promise.all([
-      supabase.from('disponibilidad').select('dia, turno').eq('legajo', legajo).eq('mes', m).eq('anio', a).eq('lugar', lugar),
-      supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', m).eq('anio', a).in('sector', sectores)
+    // La disponibilidad propia y las guardias se leen ahora por endpoints
+    // propios del servidor, identificando al efectivo por su sesión (cookie
+    // firmada), no por el legajo que tengamos en el estado del navegador.
+    // En particular, las guardias ya NO salen de la tabla turnos (el
+    // borrador de trabajo del administrador): salen de /api/mis-guardias,
+    // que solo devuelve la última versión PUBLICADA de las guardias de
+    // este efectivo. Si todavía no se publicó nada para este mes, el
+    // efectivo ve un aviso en vez de ver turnos del borrador.
+    const [dispResp, guardiasResp] = await Promise.all([
+      fetch(`/api/guardar-disponibilidad?mes=${m}&anio=${a}`).then(r => r.json()).catch(() => ({ dias: {} })),
+      fetch(`/api/mis-guardias?mes=${m}&anio=${a}`).then(r => r.json()).catch(() => ({ publicado: false, turnos: [] })),
     ])
-    const dispMap = {}
-    ;(disp || []).forEach(d => { dispMap[d.dia] = d.turno })
-    setDisponibilidad(dispMap)
-    setTurnos(turns || [])
+    setDisponibilidad(dispResp.dias || {})
+    setDisponibilidadOriginal(dispResp.dias || {})
+    setTurnos(guardiasResp.turnos || [])
+    setPublicacion(guardiasResp.publicado
+      ? { publicado: true, version: guardiasResp.version, publicado_en: guardiasResp.publicado_en }
+      : { publicado: false })
     setLoading(false)
   }
 
@@ -161,14 +186,22 @@ export default function EfectivoApp() {
   async function cambiarClave() {
     if (!claveNueva || claveNueva.length < 4) { setMsgClave('La clave debe tener al menos 4 caracteres.'); return }
     if (claveNueva !== claveConfirm) { setMsgClave('Las claves no coinciden.'); return }
-    const claveEsperada = usuario.password || usuario.legajo
-    if (claveActual !== claveEsperada) { setMsgClave('La clave actual es incorrecta.'); return }
     setGuardandoClave(true)
-    const { error } = await supabase.from('efectivos').update({ password: claveNueva }).eq('id', usuario.id)
-    if (error) { setMsgClave('Error al guardar.'); setGuardandoClave(false); return }
-    const updated = { ...usuario, password: claveNueva }
-    localStorage.setItem('polad_user', JSON.stringify(updated))
-    setUsuario(updated)
+    // La clave actual ahora se verifica del lado del servidor (nunca acá:
+    // el navegador ya no tiene la clave guardada para comparar, y aunque la
+    // tuviera, esa comparación en el cliente no autoriza nada por sí sola).
+    // Ver pages/api/cambiar-clave.js.
+    try {
+      const resp = await fetch('/api/cambiar-clave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clave_actual: claveActual, clave_nueva: claveNueva }),
+      })
+      const body = await resp.json()
+      if (!resp.ok) { setMsgClave(body.error || 'No se pudo cambiar la clave.'); setGuardandoClave(false); return }
+    } catch (e) {
+      setMsgClave('Error de conexión.'); setGuardandoClave(false); return
+    }
     setMsgClave('✓ Clave actualizada correctamente.')
     setClaveActual(''); setClaveNueva(''); setClaveConfirm('')
     setGuardandoClave(false)
@@ -181,20 +214,45 @@ export default function EfectivoApp() {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    const h = window.location.hostname
-    const lugar = h.includes('polad-modular') ? 'MODULAR' : h === 'polad-higa-upa.vercel.app' ? 'UPA' : 'HIGA'
+    setMsg(null)
 
-    await supabase.from('disponibilidad').delete()
-      .eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', lugar)
-
-    const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
-      legajo: usuario.legajo, dia: parseInt(dia), turno, mes, anio, lugar
-    }))
-
-    if (inserts.length > 0) await supabase.from('disponibilidad').insert(inserts)
-
-    setMsg('✓ Disponibilidad guardada para ' + lugar)
-    setTimeout(() => setMsg(null), 3000)
+    // El guardado ahora pasa por el servidor (/api/guardar-disponibilidad),
+    // que vuelve a verificar ahí la ventana de inscripción antes de guardar
+    // (aunque el botón ya esté deshabilitado acá, no hay que confiar solo
+    // en eso). El lugar y el legajo los determina el servidor a partir de
+    // la sesión, no de lo que mande el navegador.
+    try {
+      const resp = await fetch('/api/guardar-disponibilidad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // dias_antes_esperado: la foto de disponibilidad que esta pantalla
+        // cargó (o guardó) la última vez — el servidor la compara, dentro
+        // de la misma transacción y bajo un lock, contra lo que haya de
+        // verdad guardado ahora. Es obligatoria: sin ella el servidor
+        // rechaza el guardado en vez de pisar algo a ciegas.
+        body: JSON.stringify({ mes, anio, dias: disponibilidad, dias_antes_esperado: disponibilidadOriginal }),
+      })
+      const body = await resp.json()
+      if (!resp.ok) {
+        if (body.conflicto) {
+          // Otra carga (propia en otra pestaña, o una corrección
+          // administrativa) cambió esto mientras se editaba. No se guardó
+          // nada — se refleja el estado real para no seguir editando sobre
+          // una base que ya no existe.
+          setDisponibilidad(body.dias_actuales || {})
+          setDisponibilidadOriginal(body.dias_actuales || {})
+          setMsg('✗ ' + (body.error || 'Tu disponibilidad cambió desde que abriste esta pantalla. Se actualizó con el estado real — revisá antes de guardar de nuevo.'))
+        } else {
+          setMsg('✗ ' + (body.error || 'No se pudo guardar.'))
+        }
+      } else {
+        setDisponibilidadOriginal(disponibilidad)
+        setMsg('✓ Disponibilidad guardada para ' + appLugar)
+      }
+    } catch (e) {
+      setMsg('✗ Error de conexión. No se guardó — reintentá.')
+    }
+    setTimeout(() => setMsg(null), 4000)
     setGuardando(false)
   }
 
@@ -287,11 +345,11 @@ export default function EfectivoApp() {
       </div>
 
       <div className="content" style={{ padding: isMobile ? '10px 8px' : undefined }}>
-        {msg && <div className="alert alert-ok" style={{ marginBottom:14 }}>{msg}</div>}
+        {msg && <div className={`alert ${msg.startsWith('✓') ? 'alert-ok' : 'alert-err'}`} style={{ marginBottom:14 }}>{msg}</div>}
 
         {!abierta && ventana?.dia && (
           <div className="alert alert-warn" style={{ marginBottom:14 }}>
-            La inscripción está habilitada el día {ventana.dia} de {MESES_NOMBRES[mes-1]} de {ventana.horaInicio} a {ventana.horaFin}.
+            La carga/edición de disponibilidad está habilitada el día {ventana.dia} de {MESES_NOMBRES[mes-1]} de {ventana.horaInicio} a {ventana.horaFin}. Podés seguir consultando tu disponibilidad y tus guardias publicadas en cualquier momento.
           </div>
         )}
 
@@ -408,8 +466,18 @@ export default function EfectivoApp() {
           </button>
         </div>
 
+        {/* Estado de publicación — si todavía no se publicó nada para este
+            mes, se avisa explícitamente en vez de no mostrar nada (y nunca
+            se muestra un borrador: turnos acá siempre viene de la última
+            versión publicada, o viene vacío). */}
+        {!publicacion.publicado && (
+          <div className="alert alert-warn" style={{ marginBottom:14 }}>
+            Las guardias de este mes todavía no fueron publicadas.
+          </div>
+        )}
+
         {/* Guardias asignadas */}
-        {turnos.length > 0 && (
+        {publicacion.publicado && turnos.length > 0 && (
           <div className="panel" style={{ marginTop: isMobile ? 8 : 0 }}>
             <div className="panel-header" style={{ background:`${COLOR_APP}18`, borderBottom:`0.5px solid ${COLOR_APP}33` }}>
               <h3 style={{ color:COLOR_APP, fontSize: isMobile ? 12 : 14 }}>Mis guardias — {appLugar} · {nombreMes}</h3>

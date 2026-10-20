@@ -137,17 +137,53 @@ export default async function handler(req, res) {
     const mesAyer = ayerAr.getUTCMonth() + 1
     const diaAyer = ayerAr.getUTCDate()
 
-    // Traer los turnos asignados a este legajo hoy y ayer (por si un turno noche
-    // de ayer todavía sigue vigente), en los 3 lugares
-    const [{ data: turnosHoy }, { data: turnosAyer }] = await Promise.all([
-      supabase.from('turnos').select('*').eq('legajo', efectivo.legajo).eq('mes', mesHoy).eq('anio', anioHoy).eq('dia', diaHoy),
-      supabase.from('turnos').select('*').eq('legajo', efectivo.legajo).eq('mes', mesAyer).eq('anio', anioAyer).eq('dia', diaAyer)
-    ])
-    const candidatosTurno = [...(turnosHoy || []), ...(turnosAyer || [])]
+    // Punto de revisión 6: la confirmación de presencia por WhatsApp tiene que
+    // mirar ÚNICAMENTE lo que ya está publicado (turnos_publicados, filtrado
+    // por la publicación VIGENTE de cada lugar/mes/año), nunca el borrador
+    // (turnos) que el administrador puede estar editando. Antes esta ruta
+    // consultaba `turnos` directo, así que un cambio en el borrador — incluso
+    // uno que el administrador todavía no publicó — podía hacer que alguien
+    // reciba o deje de recibir la confirmación de presencia según una guardia
+    // que los efectivos ni siquiera llegaron a ver.
+    //
+    // turnos_publicados conserva filas de publicaciones anteriores (no se
+    // borran al publicar una versión nueva), así que no alcanza con filtrar
+    // por mes/año/lugar: hay que acotar explícitamente a los id de las
+    // publicaciones que están VIGENTES ahora para cada (lugar, mes, año)
+    // relevante (hoy y, por si un turno noche de ayer sigue en curso, ayer).
+    const periodos = [{ mes: mesHoy, anio: anioHoy }]
+    if (mesAyer !== mesHoy || anioAyer !== anioHoy) periodos.push({ mes: mesAyer, anio: anioAyer })
+
+    const resultadosVigentes = await Promise.all(
+      periodos.map(p =>
+        supabase.from('publicaciones').select('id, lugar, mes, anio')
+          .eq('mes', p.mes).eq('anio', p.anio).eq('vigente', true)
+      )
+    )
+    const publicacionesVigentesIds = []
+    for (const r of resultadosVigentes) {
+      if (r.error) console.error('[whatsapp-webhook] Error consultando publicaciones vigentes (¿falta aplicar la migración?):', r.error.message)
+      for (const pub of (r.data || [])) publicacionesVigentesIds.push(pub.id)
+    }
+
+    let candidatosTurno = []
+    if (publicacionesVigentesIds.length > 0) {
+      const { data: turnosPublicados } = await supabase
+        .from('turnos_publicados').select('*')
+        .eq('legajo', efectivo.legajo)
+        .in('publicacion_id', publicacionesVigentesIds)
+      candidatosTurno = (turnosPublicados || []).filter(t =>
+        (parseInt(t.dia) === diaHoy && t.mes === mesHoy && t.anio === anioHoy) ||
+        (parseInt(t.dia) === diaAyer && t.mes === mesAyer && t.anio === anioAyer)
+      )
+    }
 
     let turnoVigente = null
     for (const t of candidatosTurno) {
-      const lugarT = lugarDeSector(t.sector)
+      // turnos_publicados ya guarda `lugar` explícitamente (se fija en el
+      // momento de publicar — ver fn_publicar_guardias), así que no hace
+      // falta volver a derivarlo del sector.
+      const lugarT = t.lugar || lugarDeSector(t.sector)
       const [inicio, fin] = rangoTurnoFecha(t.anio, t.mes, parseInt(t.dia), t.turno, lugarT)
       if (ahoraUTC >= inicio && ahoraUTC < fin) { turnoVigente = { ...t, lugar: lugarT }; break }
     }

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '../lib/supabase'
 import Head from 'next/head'
 
 function _detectLugar() {
+  // Punto 1 de esta ronda ("Ingreso correcto por destino"): mismo motivo
+  // y mismo orden que pages/admin.js / pages/index.js — ver el comentario
+  // completo en pages/index.js.
+  try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA', 'UPA', 'MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch (e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
@@ -37,18 +40,18 @@ export default function LoginAdmin() {
     setError('')
     setLoading(true)
     try {
-      const { data, error: err } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', legajo.trim())
-        .eq('es_admin', true)
-        .maybeSingle()
+      // Verificado en el servidor ahora (pages/api/auth-login.js), ya no
+      // contra 'admin2025' escrito en el código del cliente.
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: legajo.trim(), password: pass }),
+      })
+      const body = await resp.json()
+      if (!resp.ok) { setError(body.error || 'No se pudo iniciar sesión.'); setLoading(false); return }
+      if (!body.usuario?.es_admin) { setError('Ese legajo no tiene permisos de administrador.'); setLoading(false); return }
 
-      if (err || !data) { setError('Legajo no encontrado o no es administrador.'); setLoading(false); return }
-
-      if (pass !== 'admin2025') { setError('Contraseña incorrecta.'); setLoading(false); return }
-
-      localStorage.setItem('polad_user', JSON.stringify(data))
+      localStorage.setItem('polad_user', JSON.stringify(body.usuario))
       router.push('/admin')
     } catch (e) {
       setError('Error de conexión.')

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdminSession } from '../../lib/authServer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -18,6 +19,10 @@ function lugarDeSector(sector) {
 function normLegajo(x) { return x === null || x === undefined ? '' : String(x).trim().toUpperCase() }
 
 export default async function handler(req, res) {
+  // Antes, cualquiera que conociera un legajo (y la URL) podía ver TODAS
+  // sus guardias en los 3 lugares, sin ninguna autenticación. Ahora
+  // requiere sesión de admin.
+  if (!requireAdminSession(req, res)) return
   const { legajo, mes, anio } = req.query
   if (!legajo || !mes || !anio) return res.status(400).json({ error: 'Faltan parámetros: legajo, mes, anio' })
 

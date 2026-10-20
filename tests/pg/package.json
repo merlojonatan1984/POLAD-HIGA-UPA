@@ -1,0 +1,8 @@
+{
+  "name": "polad-turnos-pruebas-pg",
+  "private": true,
+  "description": "Dependencia necesaria para correr tests/pg/03_concurrencia.js (dos conexiones PostgreSQL reales y simultáneas). No se usa en la app (next.js) ni se despliega — es solo para reproducir estas pruebas localmente contra la base ficticia polad_test. Ver tests/README.md para el procedimiento completo.",
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

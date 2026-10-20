@@ -3,6 +3,10 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 function _detectLugar() {
+  // Punto 1 de esta ronda ("Ingreso correcto por destino"): mismo motivo
+  // y mismo orden que pages/admin.js — ver el comentario completo en
+  // pages/index.js.
+  try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA', 'UPA', 'MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch (e) {}
   if (typeof window === 'undefined') return 'HIGA'
   const h = window.location.hostname
   if (h === 'polad-modular.vercel.app' || h.includes('polad-modular')) return 'MODULAR'
@@ -38,12 +42,25 @@ const MESES_NOMBRES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio',
 
 export default function ControlApp() {
   const router = useRouter()
+  // Punto 1/6 de la revisión: antes, "estar logueado" en este panel era
+  // apenas que existiera algo en localStorage — cualquiera podía escribirlo
+  // a mano en la consola del navegador (o, más grave, ignorar esta pantalla
+  // por completo y llamar directo a la API de Supabase con la clave anon,
+  // que esta pantalla usaba para leer Y ESCRIBIR efectivos/turnos/
+  // asistencia/firmas sin ningún control). No existía NINGÚN endpoint de
+  // servidor de por medio, a diferencia de pages/admin.js. Ahora se exige
+  // la misma sesión de administrador firmada por el servidor que usa
+  // pages/admin.js (cookie HttpOnly, ver lib/authServer.js), verificada de
+  // verdad en los endpoints que esta pantalla llama — login === null
+  // mientras se verifica, false una vez logueado.
+  const [login, setLogin] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mesSeleccionado, setMesSeleccionado] = useState(MES_ACTUAL)
   const [anioSeleccionado, setAnioSeleccionado] = useState(ANIO_ACTUAL)
   const [diaActual, setDiaActual] = useState(new Date().getDate())
   const [efectivos, setEfectivos] = useState([])
   const [turnos, setTurnos] = useState([])
+  const [publicado, setPublicado] = useState(null) // null=sin consultar; {publicado:false} o {publicado:true, version, publicado_en}
   const [asistencia, setAsistencia] = useState({})
   const [firmas, setFirmas] = useState({})
   const [subiendoFirma, setSubiendoFirma] = useState(null)
@@ -57,30 +74,60 @@ export default function ControlApp() {
   const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
 
   useEffect(() => {
-    const u = localStorage.getItem('polad_user')
-    if (!u) { router.push('/'); return }
-    const parsed = JSON.parse(u)
-    if (!parsed.es_admin) { router.push('/efectivo'); return }
-    cargarDatos()
+    // Ya no se decide "logueado" mirando localStorage: se le pregunta al
+    // servidor (que es quien de verdad puede validar la cookie firmada).
+    fetch('/api/admin-efectivos').then(r => {
+      if (r.ok) { setLogin(false); cargarDatos() }
+      else setLogin({ legajo: '', pass: '', error: '', loading: false })
+    }).catch(() => setLogin({ legajo: '', pass: '', error: '', loading: false }))
   }, [])
 
-  useEffect(() => { cargarDatos() }, [mesSeleccionado, anioSeleccionado])
+  useEffect(() => { if (login === false) cargarDatos() }, [mesSeleccionado, anioSeleccionado])
+
+  async function handleLogin(e) {
+    e.preventDefault()
+    setLogin(prev => ({ ...prev, error: '', loading: true }))
+    try {
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: login.legajo.trim(), password: login.pass }),
+      })
+      const body = await resp.json()
+      if (!resp.ok) { setLogin(prev => ({ ...prev, error: body.error || 'No se pudo iniciar sesión.', loading: false })); return }
+      if (!body.usuario?.es_admin) { setLogin(prev => ({ ...prev, error: 'Ese legajo no tiene permisos de administrador.', loading: false })); return }
+      setLogin(false)
+      cargarDatos()
+    } catch (err) {
+      setLogin(prev => ({ ...prev, error: 'Error de conexión.', loading: false }))
+    }
+  }
 
   async function cargarDatos() {
     setLoading(true)
-    const [{ data: efs }, { data: turns }, { data: asist }, { data: firmasData }] = await Promise.all([
-      supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', APP_LUGAR).order('nombre'),
-      supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP),
+    // Punto 6 de la revisión: este panel operativo tiene que ser coherente
+    // con las guardias PUBLICADAS, nunca con el borrador de trabajo — antes
+    // leía la tabla turnos (el borrador) directo con la clave anon, así que
+    // podía mostrar guardias todavía en preparación, no comunicadas, como
+    // si ya fueran las reales. Ahora lee turnos_publicados (vía el mismo
+    // endpoint que usa el panel de administración para WhatsApp) y, si
+    // todavía no se publicó nada para este lugar/mes/año, lo dice
+    // explícitamente en vez de mostrar una lista vacía sin explicación.
+    const [efsResp, pubResp, asist, firmasData] = await Promise.all([
+      fetch('/api/admin-efectivos').then(r => r.ok ? r.json() : { efectivos: [] }),
+      fetch(`/api/guardias-publicadas?lugar=${APP_LUGAR}&mes=${MES}&anio=${ANIO}`).then(r => r.ok ? r.json() : { publicado: false, turnos_por_legajo: {} }),
       supabase.from('asistencia').select('*').eq('mes', MES).eq('anio', ANIO).eq('lugar', APP_LUGAR),
       supabase.from('firmas').select('*').eq('mes', MES).eq('anio', ANIO)
     ])
-    setEfectivos(efs || [])
-    setTurnos(turns || [])
+    setEfectivos(efsResp.efectivos || [])
+    setPublicado(pubResp)
+    const turnosFlat = Object.values(pubResp.turnos_por_legajo || {}).flat()
+      .filter(t => SECTORES_APP.includes(t.sector))
+    setTurnos(turnosFlat)
     const asistMap = {}
-    ;(asist || []).forEach(a => { asistMap[`${a.legajo}-${a.dia}-${a.turno}`] = a })
+    ;(asist.data || []).forEach(a => { asistMap[`${a.legajo}-${a.dia}-${a.turno}`] = a })
     setAsistencia(asistMap)
     const firmasMap = {}
-    ;(firmasData || []).forEach(f => { firmasMap[f.legajo] = f })
+    ;(firmasData.data || []).forEach(f => { firmasMap[f.legajo] = f })
     setFirmas(firmasMap)
     setLoading(false)
   }
@@ -136,6 +183,37 @@ export default function ControlApp() {
     }
     reader.readAsDataURL(file)
   }
+
+  if (login !== false) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ width:'100%', maxWidth:340 }}>
+        <h1 style={{ fontSize:18, fontWeight:600, color:'#e8eaf0', marginBottom:4, textAlign:'center' }}>POLAD · {APP_LUGAR}</h1>
+        <p style={{ fontSize:11, color:'#c8a84b', textAlign:'center', letterSpacing:'0.1em', marginBottom:22, textTransform:'uppercase' }}>Control de asistencia</p>
+        <div style={{ background:'var(--surface)', border:'0.5px solid var(--border)', borderRadius:10, padding:20 }}>
+          {login === null ? (
+            <p style={{ color:'var(--text-muted)', textAlign:'center', fontSize:13 }}>Verificando...</p>
+          ) : (
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom:12 }}>
+                <label style={{ display:'block', fontSize:12, color:'var(--text-muted)', marginBottom:5 }}>Legajo</label>
+                <input type="text" value={login.legajo} onChange={e => setLogin(prev => ({ ...prev, legajo: e.target.value }))} required autoFocus
+                  style={{ width:'100%', padding:'9px 11px', border:'0.5px solid var(--border)', borderRadius:7, fontSize:14, background:'var(--surface2)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
+              </div>
+              <div style={{ marginBottom:16 }}>
+                <label style={{ display:'block', fontSize:12, color:'var(--text-muted)', marginBottom:5 }}>Contraseña</label>
+                <input type="password" value={login.pass} onChange={e => setLogin(prev => ({ ...prev, pass: e.target.value }))} required
+                  style={{ width:'100%', padding:'9px 11px', border:'0.5px solid var(--border)', borderRadius:7, fontSize:14, background:'var(--surface2)', color:'#e8eaf0', boxSizing:'border-box', outline:'none' }} />
+              </div>
+              {login.error && <div className="alert alert-err" style={{ marginBottom:14 }}>{login.error}</div>}
+              <button type="submit" className="btn" disabled={login.loading} style={{ width:'100%', justifyContent:'center' }}>
+                {login.loading ? 'Ingresando...' : 'Ingresar'}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 
   if (loading) return <div className="loading">Cargando...</div>
 
@@ -230,6 +308,14 @@ export default function ControlApp() {
             )
           })}
         </div>
+
+        {publicado && publicado.publicado === false && (
+          <div className="alert alert-warn" style={{ marginBottom: 12 }}>
+            Todavía no se publicó ninguna versión de las guardias de {NOMBRE_MES} para {APP_LUGAR} — este panel solo
+            muestra guardias ya publicadas (nunca el borrador en preparación), así que no hay nada para controlar
+            todavía en este período.
+          </div>
+        )}
 
         {turnosHoy.length === 0 && (
           <div className="alert alert-warn">No hay guardias asignadas para el día {diaActual} en {APP_LUGAR}.</div>

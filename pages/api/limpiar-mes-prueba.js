@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdminSession } from '../../lib/authServer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -14,6 +15,13 @@ const ANIO = 2026
 const TABLAS = ['turnos', 'disponibilidad', 'asistencia', 'planilla_manual']
 
 export default async function handler(req, res) {
+  // ⚠ HALLAZGO IMPORTANTE (ver resumen de entrega): este endpoint borra
+  // datos reales (turnos, disponibilidad, asistencia, planilla_manual) de
+  // los 3 lugares para un mes/año fijo, y hasta ahora era accesible por
+  // CUALQUIERA que visitara la URL con ?confirmar=SI — sin ningún login.
+  // Es un riesgo activo en producción, independiente del resto de este
+  // trabajo. Ahora exige sesión de admin antes de hacer nada.
+  if (!requireAdminSession(req, res)) return
   if (req.query.confirmar !== 'SI') {
     return res.status(400).json({
       error: `Agregá ?confirmar=SI a la URL para ejecutar esto (medida de seguridad).`,
