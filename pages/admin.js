@@ -14,7 +14,7 @@ function _detectLugar() {
 // APP_LUGAR se recalcula en cliente via useEffect — ver hook useLugar en AdminApp
 const APP_LUGAR = _detectLugar()
 const SECTORES_POR_LUGAR = {
-  'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento'],
+  'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'Rondin Externo'],
   'UPA': ['UPA'],
   'MODULAR': ['Modular']
 }
