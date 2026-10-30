@@ -1,6 +1,15 @@
 import ExcelJS from 'exceljs'
 import { createClient } from '@supabase/supabase-js'
+import { infoDiaEspecial } from '../../lib/feriadosArgentina'
 
+// Esta ruta genera la planilla de TODO un destino (todos los efectivos
+// no-admin de `lugar`, con sus turnos). Usa la misma clave anon pública
+// que el resto de las rutas reales de este proyecto (login, la versión
+// anterior de esta misma planilla) — este proyecto no tiene todavía
+// sesión de administrador verificada en el servidor ni una service role
+// key separada configurada; ese endurecimiento queda para la etapa de
+// seguridad, junto con el resto de las rutas que hoy tienen el mismo
+// punto pendiente (no es algo nuevo de este archivo).
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -80,16 +89,87 @@ function fmtNombre(ef) {
   // Quitar jerarquía si viene pegada al nombre
   nombre = nombre.replace(/^(OFICIAL\s*SUB\s*AYUDANTE|OFICIAL\s*AYUDANTE|SUB\s*COMISARIO|COMISARIO|SUBINSPECTOR|INSPECTOR|SARGENTO|TENIENTE|CAPITAN|MAYOR|OFICIAL)\s+/i, '').trim()
 
-  // Apellido + primer nombre + segundo nombre (para distinguir homónimos)
-  const palabras = nombre.split(/\s+/).filter(Boolean)
-  const apellido      = palabras[0] || ''
-  const primerNombre  = palabras[1] || ''
-  const segundoNombre = palabras[2] || ''
+  // Apellido + primer nombre + segundo nombre (para distinguir homónimos —
+  // pedido explícito: "en el proyecto original se ponen apellido y los dos
+  // nombres de la persona, para que no confunda").
+  //
+  // FIX: en la base el dato viene como "Apellido(s), Nombre(s)" —hay que
+  // separar por la COMA, no por posición de palabra. Antes se tomaba la 1ra
+  // palabra como apellido y la 2da/3ra como nombres; con un apellido de DOS
+  // palabras (muy común: "Rojas Fernández", "García López", etc.) eso corría
+  // todo un lugar: el apellido quedaba cortado a la mitad y el segundo
+  // nombre real se perdía (se mostraba la segunda palabra del apellido en su
+  // lugar). Ej.: "Rojas Fernández, Claudia Beatriz" daba antes
+  // "Rojas Fernández, Claudia" (Beatriz desaparecía) — ahora da
+  // "Rojas Fernández, Claudia Beatriz".
+  const idxComa = nombre.indexOf(',')
+  let apellido, nombres
+  if (idxComa === -1) {
+    // Dato cargado sin coma (caso raro/mal cargado): se mantiene el
+    // criterio anterior como respaldo, para no romper con datos atípicos.
+    const palabras = nombre.split(/\s+/).filter(Boolean)
+    apellido = palabras[0] || ''
+    nombres = palabras.slice(1).join(' ')
+  } else {
+    apellido = nombre.slice(0, idxComa).trim()
+    nombres = nombre.slice(idxComa + 1).trim()
+  }
+  const [primerNombre = '', segundoNombre = ''] = nombres.split(/\s+/).filter(Boolean)
 
-  return [apellido, primerNombre, segundoNombre].filter(Boolean).join(' ')
+  if (!apellido) return [primerNombre, segundoNombre].filter(Boolean).join(' ')
+  return [apellido + ',', primerNombre, segundoNombre].filter(Boolean).join(' ')
+}
+
+// Pedido de esta ronda ("para visibilizar el promedio" — Opción B elegida
+// de entre 4 ejemplos mostrados antes de tocar código): en la grilla
+// impresa, el fondo de la celda del nombre lleva un tinte suave según el
+// sexo del efectivo (rosa femenino, celeste masculino), y un punto "●"
+// antepuesto al nombre si es Uniformado (ningún punto para los demás
+// tipos).
+//
+// FIX (encontrado con el .xlsx real que mandó el usuario, no solo con
+// capturas): el punto dorado se armaba con richText (dos "runs" de fuente
+// distinta dentro de la misma celda: uno para "● " en dorado, otro para el
+// nombre en negro) — un intento anterior con emoji de color (🟡) tampoco
+// servía, por eso se había pasado a richText. Se abrió el .xlsx generado
+// con ExcelJS y SE CONFIRMÓ que el archivo en sí NO tiene ningún nombre
+// duplicado (cada celda tiene exactamente un texto, sin repetir) — pero en
+// Google Sheets esas mismas celdas (las que tienen richText) se mostraban
+// con el nombre repetido varias veces, mezclado con el punto. Las celdas
+// SIN richText (sin punto, sin Uniformado) nunca tuvieron ese problema en
+// ninguna captura. Conclusión: Google Sheets tiene un bug propio mostrando
+// richText (texto con más de un color/estilo en la misma celda) al
+// importar un .xlsx — no es algo que se pueda arreglar desde el archivo,
+// hay que dejar de usar richText.
+//
+// Ahora el punto es parte del mismo texto plano que el nombre (una sola
+// tira de texto, sin mezclar estilos adentro de la celda) y en su lugar
+// toda la celda se pinta en dorado + negrita cuando es Uniformado (en vez
+// de solo el punto). Sigue siendo fácil de distinguir a simple vista, pero
+// ya no depende de una función de Excel que Google Sheets renderiza mal.
+function fillPorSexo(sexo) {
+  if (sexo === 'femenino') return 'FBD9E6'   // rosa pálido
+  if (sexo === 'masculino') return 'D6E8FB'  // celeste pálido
+  return 'FFFFFF'                             // sin sexo informado: celda blanca, sin tinte
+}
+function celdaNombreOpcionB(nm) {
+  return nm.tipo === 'Uniformado' ? ('● ' + nm.nombre) : nm.nombre
+}
+function fontNombre(nm, size) {
+  const esUniformado = nm.tipo === 'Uniformado'
+  return { name: 'Arial', size, bold: esUniformado, color: { argb: esUniformado ? 'FFB8860B' : 'FF000000' } }
 }
 
 function fill(color) { return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } } }
+// Punto 5 de esta ronda ("Planilla para imprimir"): "tramado" real de Excel
+// (líneas cruzadas), no un gris sólido — para que un puesto que NO
+// corresponde cubrir se distinga a simple vista, incluso en una impresión
+// en blanco y negro, de un puesto vacante (que sí debe cubrirse y no tiene
+// a nadie asignado). fgColor es el color de las líneas, bgColor el fondo
+// entre ellas.
+function fillTramado(fg = '999999', bg = 'FFFFFF') {
+  return { type: 'pattern', pattern: 'darkTrellis', fgColor: { argb: 'FF' + fg }, bgColor: { argb: 'FF' + bg } }
+}
 function font(bold = false, size = 9, color = '000000') { return { name: 'Arial', bold, size, color: { argb: 'FF' + color } } }
 function aln(h = 'center', wrap = false) { return { horizontal: h, vertical: 'middle', wrapText: wrap } }
 
@@ -114,9 +194,301 @@ function cupoHIGA(sector, turno) {
   return 2
 }
 
+// Pedido de la ronda de prueba: además de la grilla completa, una hoja
+// aparte con la lista de guardias sin cubrir (fecha + dónde), para no
+// tener que ir buscando casillero por casillero. `extraCols` son columnas
+// propias de cada destino (en HIGA: Sector; en UPA/MODULAR no hace falta,
+// el turno ya lo identifica) — cada objeto de `vacantes` debe traer esos
+// mismos campos por `key`.
+// Pedido de esta ronda ("mucho scroll, ¿se puede hacer más simple?"): esta
+// hoja era una lista plana, una fila por lugar sin cubrir — en un mes real
+// puede tener más de cien filas. Un primer resumen agrupado (turno+sector,
+// ordenado de mayor a menor) ayudaba pero seguía siendo una lista larga.
+// Se probaron 3 formatos distintos (lista compactada agrupando puestos,
+// el mismo detalle repartido en columnas, y una matriz de calor) y se
+// eligió la matriz, con un ajuste más: marcar el turno adentro de cada
+// celda ("D3", "N1"), no solo la cantidad total.
+// Resultado: una grilla Día × (Sector en HIGA — la única columna extra que
+// usa ese destino — o Turno en UPA/MODULAR, que no tienen sector y para
+// las que el turno ya es la columna, así que alcanza con el número, sin
+// letra). El color de cada celda marca la gravedad (blanco = nada,
+// rojo = 5 o más). Todo el mes entra en una sola pantalla/página, sin
+// scroll, y de un vistazo se ve DÓNDE está el problema.
+// Pedido de esta ronda ("no me agregues la lista larga, con la de arriba
+// está bien así, la segunda lista larga no me sirve"): se sacó el
+// detalle fila-por-fila que había quedado debajo de la matriz (con
+// encabezado fijo y autofiltro) — la matriz sola es toda la hoja ahora.
+// `extraCols` son columnas propias de cada destino (en HIGA: Sector; en
+// UPA/MODULAR no hace falta, el turno ya lo identifica) — cada objeto de
+// `vacantes` debe traer esos mismos campos por `key`. `headers`/`nCols`
+// se mantienen solo como referencia de ancho mínimo razonable (4 en HIGA,
+// 3 en UPA/MODULAR) para cuando no hay ninguna vacante y por lo tanto
+// tampoco hay matriz.
+function agregarHojaSinCubrir(wb, vacantes, extraCols = [], DIAS_MES = 31) {
+  const ws = wb.addWorksheet('Sin cubrir')
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+    margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  const headers = ['Día', 'Turno', ...extraCols.map(c => c.header), 'Puesto']
+  const nCols = headers.length
+
+  // Columna de la matriz: Sector en HIGA (de mayor a menor cantidad, igual
+  // que el resumen viejo); Turno en UPA/MODULAR (en su orden cronológico
+  // natural — Día→Noche, o Mañana→Tarde→Noche — reordenarlos por
+  // gravedad no tendría sentido).
+  const porColumna = extraCols.length > 0 ? extraCols[0].key : 'turno'
+  const etiquetaColumna = extraCols.length > 0 ? extraCols[0].header : 'Turno'
+  const totalesPorCol = {}
+  const ordenCols = []
+  vacantes.forEach(v => {
+    const k = v[porColumna]
+    if (!(k in totalesPorCol)) { totalesPorCol[k] = 0; ordenCols.push(k) }
+    totalesPorCol[k]++
+  })
+  if (extraCols.length > 0) {
+    ordenCols.sort((a, b) => totalesPorCol[b] - totalesPorCol[a])
+  } else {
+    // FIX: el orden "cronológico" no puede salir de cuál turno tuvo la
+    // primera vacante (eso depende de los datos del mes — si el día 1 no
+    // tiene faltantes de mañana pero sí de tarde, "Tarde" quedaba primero
+    // en la columna, mezclado). Orden fijo en vez de por aparición.
+    const prioridadTurno = { 'Día': 0, 'MAÑANA': 0, 'TARDE': 1, 'Noche': 2, 'NOCHE': 2 }
+    ordenCols.sort((a, b) => (prioridadTurno[a] ?? 99) - (prioridadTurno[b] ?? 99))
+  }
+
+  // Cantidad sin cubrir por día + columna + turno (el turno hace falta
+  // aunque la columna YA sea el turno en UPA/MODULAR — ahí queda un solo
+  // valor, pero así el resto del código es igual para los tres destinos).
+  const cuentas = {} // `${dia}|${valorColumna}` -> { [turno]: cantidad }
+  vacantes.forEach(v => {
+    const key = `${v.dia}|${v[porColumna]}`
+    if (!cuentas[key]) cuentas[key] = {}
+    cuentas[key][v.turno] = (cuentas[key][v.turno] || 0) + 1
+  })
+  const colTotalIdx = 2 + ordenCols.length // columna "Total" de la matriz
+
+  // El ancho de la hoja es el mayor entre lo que necesita el detalle de
+  // abajo (nCols) y lo que necesita la matriz de arriba (día + una
+  // columna por Sector/Turno + Total) — así ninguna de las dos queda
+  // corta ni se pisan los anchos.
+  const anchoHoja = vacantes.length > 0 ? Math.max(nCols, colTotalIdx) : nCols
+  ws.getColumn(1).width = 8
+  for (let i = 2; i <= anchoHoja; i++) ws.getColumn(i).width = 22
+
+  const ultimaColHoja = String.fromCharCode(64 + anchoHoja)
+  ws.getRow(1).height = 20
+  ws.mergeCells(`A1:${ultimaColHoja}1`)
+  const tit = ws.getCell('A1')
+  tit.value = vacantes.length
+    ? `GUARDIAS SIN CUBRIR (${vacantes.length})`
+    : 'GUARDIAS SIN CUBRIR — no queda ninguna pendiente'
+  tit.font = { name:'Arial', bold:true, size:11, color:{argb:'FFFFFFFF'} }
+  tit.alignment = aln(); tit.fill = fill('CC0000'); tit.border = borde('medium','medium','medium','medium')
+
+  let row = 2
+
+  // Color según la cantidad sin cubrir de esa celda — mismos cortes que
+  // se probaron y aprobaron en los ejemplos (blanco/rosa claro/rosa/rojo
+  // claro/rojo pleno, de 0 a 5+).
+  const colorGravedad = n => {
+    if (n <= 0)  return { bg: 'FFFFFF', claro: false }
+    if (n <= 2)  return { bg: 'FFE5E5', claro: false }
+    if (n === 3) return { bg: 'FFB3B3', claro: false }
+    if (n === 4) return { bg: 'FF7A7A', claro: true }
+    return { bg: 'CC0000', claro: true }
+  }
+  // "Día"→D, "Noche"→N, "MAÑANA"/"TARDE"/"NOCHE"→M/T/N — alcanza con la
+  // primera letra en mayúscula para los dos formatos que usa el programa.
+  const turnoLetra = t => (t || '').trim().charAt(0).toUpperCase()
+
+  if (vacantes.length > 0) {
+    ws.getRow(row).height = 16
+    ws.mergeCells(`A${row}:${ultimaColHoja}${row}`)
+    const subt = ws.getCell(row, 1)
+    subt.value = extraCols.length
+      ? `RESUMEN — sin cubrir por día y ${etiquetaColumna.toLowerCase()} (color = gravedad del día, letra = turno)`
+      : `RESUMEN — sin cubrir por día y ${etiquetaColumna.toLowerCase()} (color = gravedad)`
+    subt.font = font(true, 9, 'FFFFFF'); subt.alignment = aln(); subt.fill = fill('8b4040')
+    subt.border = borde('thin','thin','medium','medium')
+    row++
+
+    // Encabezado de la matriz: Día + una columna por Sector/Turno + Total
+    ws.getRow(row).height = 16
+    const cHdrDia = ws.getCell(row, 1)
+    cHdrDia.value = 'Día'; cHdrDia.font = font(true, 8, 'FFFFFF'); cHdrDia.alignment = aln()
+    cHdrDia.fill = fill('2d2d44'); cHdrDia.border = borde('thin','thin','medium','thin')
+    ordenCols.forEach((colVal, i) => {
+      const c = ws.getCell(row, 2 + i)
+      c.value = colVal; c.font = font(true, 8, 'FFFFFF'); c.alignment = aln()
+      c.fill = fill('2d2d44'); c.border = borde('thin','thin','thin','thin')
+    })
+    const cHdrTot = ws.getCell(row, colTotalIdx)
+    cHdrTot.value = 'Total'; cHdrTot.font = font(true, 8, 'FFFFFF'); cHdrTot.alignment = aln()
+    cHdrTot.fill = fill('2d2d44'); cHdrTot.border = borde('thin','thin','thin','medium')
+    row++
+
+    // Una fila por día del mes — todos, aunque algún día no tenga ninguna
+    // celda con faltantes (queda en "—"), para que la numeración de días
+    // sea continua y fácil de ubicar.
+    for (let dia = 1; dia <= DIAS_MES; dia++) {
+      ws.getRow(row).height = extraCols.length ? 26 : 15
+      const cDia = ws.getCell(row, 1)
+      cDia.value = dia; cDia.font = font(true, 8, '000000'); cDia.alignment = aln()
+      cDia.fill = fill('f4f4f6'); cDia.border = borde('thin','thin','medium','thin')
+
+      let totalDia = 0
+      ordenCols.forEach((colVal, i) => {
+        const porTurno = cuentas[`${dia}|${colVal}`] || {}
+        const turnosConValor = Object.keys(porTurno).filter(t => porTurno[t] > 0)
+        const total = turnosConValor.reduce((s, t) => s + porTurno[t], 0)
+        totalDia += total
+        const c = ws.getCell(row, 2 + i)
+        const { bg, claro } = colorGravedad(total)
+        c.fill = fill(bg)
+        c.border = borde('thin','thin','thin','thin')
+        c.alignment = aln('center', true)
+        if (total === 0) {
+          c.value = '—'
+          c.font = font(false, 8, 'BBBBBB')
+        } else if (extraCols.length > 0) {
+          // Una línea por turno con faltantes — "D3", "N1" — solo las que
+          // aplican (si falta nada más que a la noche, se ve solo "N1").
+          c.value = turnosConValor.map(t => `${turnoLetra(t)}${porTurno[t]}`).join('\n')
+          c.font = font(true, 8, claro ? 'FFFFFF' : '5a2020')
+        } else {
+          // La columna ya es el turno (UPA/MODULAR) — alcanza con el número.
+          c.value = total
+          c.font = font(true, 9, claro ? 'FFFFFF' : '5a2020')
+        }
+      })
+
+      const cTot = ws.getCell(row, colTotalIdx)
+      cTot.value = totalDia; cTot.font = font(true, 8, 'FFFFFF'); cTot.alignment = aln()
+      cTot.fill = fill('2d2d44'); cTot.border = borde('thin','thin','thin','medium')
+      row++
+    }
+
+    // Fila de totales por Sector/Turno al pie de la matriz — mismos
+    // números que daba el resumen viejo, ahora como cierre de la matriz
+    // en vez de una lista aparte.
+    ws.getRow(row).height = 15
+    const cTotLbl = ws.getCell(row, 1)
+    cTotLbl.value = 'Total'; cTotLbl.font = font(true, 8, 'FFFFFF'); cTotLbl.alignment = aln()
+    cTotLbl.fill = fill('8b4040'); cTotLbl.border = borde('medium','thin','medium','thin')
+    ordenCols.forEach((colVal, i) => {
+      const c = ws.getCell(row, 2 + i)
+      c.value = totalesPorCol[colVal]
+      c.font = font(true, 8, 'CC0000'); c.alignment = aln()
+      c.fill = fill('FFE5E5'); c.border = borde('medium','thin','thin','thin')
+    })
+    const cGranTotal = ws.getCell(row, colTotalIdx)
+    cGranTotal.value = vacantes.length
+    cGranTotal.font = font(true, 8, 'FFFFFF'); cGranTotal.alignment = aln()
+    cGranTotal.fill = fill('8b4040'); cGranTotal.border = borde('medium','thin','thin','medium')
+    row++
+  } else {
+    // Pedido de esta ronda ("no me agregues la lista larga, con la de
+    // arriba está bien"): la lista fila-por-fila de abajo (con autofiltro
+    // y encabezado fijo) se sacó — la matriz de arriba ya es suficiente.
+    // Sin vacantes no hay matriz, así que el único contenido de la hoja es
+    // este mensaje, justo debajo del título.
+    ws.mergeCells(`A${row}:${ultimaColHoja}${row}`)
+    const c = ws.getCell(`A${row}`)
+    c.value = 'Todas las guardias de este mes están cubiertas.'
+    c.font = font(false, 9, '008000'); c.alignment = aln()
+    c.border = borde('thin', 'medium', 'medium', 'medium')
+  }
+}
+
+// Pedido de la ronda de prueba: un resumen de guardias asignadas por sexo
+// (femenino/masculino/sin informar) y por tipo (uniformado/no uniformado).
+// ExcelJS (la librería que arma el .xlsx acá) no puede crear gráficos de
+// torta nativos de Excel — solo celdas, no objetos de gráfico — así que en
+// vez de una torta armamos una tabla con cantidad y porcentaje por
+// categoría, con color por fila para que se distinga de un vistazo. Si más
+// adelante hace falta la torta de verdad, se puede abrir ese dato en Excel
+// y generarla ahí con "Insertar gráfico" en dos clics, usando esta misma
+// tabla como base.
+function agregarHojaResumen(wb, turnosData, efectivos, { horasPorGuardia = 12, cantFaltantes = 0 } = {}) {
+  const ws = wb.addWorksheet('Resumen')
+  ws.pageSetup = {
+    orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
+    margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
+  }
+  ws.getColumn(1).width = 22; ws.getColumn(2).width = 14; ws.getColumn(3).width = 14
+
+  const total = (turnosData || []).length
+  const porSexo = { femenino: 0, masculino: 0, sin_informar: 0 }
+  const porTipo = { 'Uniformado': 0, 'No uniformado': 0 }
+  ;(turnosData || []).forEach(t => {
+    const ef = (efectivos || []).find(e => e.legajo === t.legajo)
+    const sexo = ef?.sexo && ef.sexo in porSexo ? ef.sexo : 'sin_informar'
+    porSexo[sexo]++
+    porTipo[ef?.tipo === 'Uniformado' ? 'Uniformado' : 'No uniformado']++
+  })
+
+  const pct = n => total ? `${Math.round(n / total * 100)}%` : '—'
+
+  let row = 1
+  const tituloSeccion = (texto, color) => {
+    ws.mergeCells(`A${row}:C${row}`)
+    const c = ws.getCell(`A${row}`); c.value = texto
+    c.font = { name:'Arial', bold:true, size:10, color:{argb:'FFFFFFFF'} }
+    c.alignment = aln(); c.fill = fill(color); c.border = borde('medium','thin','medium','medium')
+    row++
+  }
+  const headerFila = (encabezados) => {
+    encabezados.forEach((h,i) => {
+      const c = ws.getCell(row, i+1); c.value = h; c.font = font(true,9,'FFFFFF')
+      c.alignment = aln(); c.fill = fill('2d2d44'); c.border = borde('thin','thin',i===0?'medium':'thin',i===2?'medium':'thin')
+    })
+    row++
+  }
+  const filaDato = (nombre, cant, color, esUltima, tercerValor) => {
+    const vals = [nombre, cant, tercerValor !== undefined ? tercerValor : pct(cant)]
+    vals.forEach((v,i) => {
+      const c = ws.getCell(row, i+1); c.value = v
+      c.font = font(i===0,9,'000000'); c.alignment = aln(i===0?'left':'center')
+      c.fill = fill(color); c.border = borde('thin', esUltima?'medium':'thin', i===0?'medium':'thin', i===2?'medium':'thin')
+    })
+    row++
+  }
+
+  // Pedido de la ronda de prueba: totalidad de guardias y horas otorgadas
+  // vs. pendientes de asignar. Cada guardia equivale a `horasPorGuardia`
+  // horas (12 en HIGA/UPA, 8 en MODULAR — se calcula según el destino de
+  // esta planilla).
+  ws.getRow(row).height = 20
+  tituloSeccion(`GUARDIAS Y HORAS  (cada guardia = ${horasPorGuardia} horas)`, 'B8860B')
+  headerFila(['Categoría','Guardias','Horas'])
+  filaDato('Asignadas',   total,         'FFF3D6', false, total * horasPorGuardia)
+  filaDato('Sin asignar', cantFaltantes, 'FFD6D6', true,  cantFaltantes * horasPorGuardia)
+
+  row++ // fila en blanco entre tablas
+  tituloSeccion(`GUARDIAS ASIGNADAS POR SEXO  (total: ${total})`, '6b3fa0')
+  headerFila(['Categoría','Cantidad','% del total'])
+  filaDato('Femenino',      porSexo.femenino,      'FFD6E8')
+  filaDato('Masculino',     porSexo.masculino,     'D6E8FF')
+  filaDato('Sin informar',  porSexo.sin_informar,  'EAEAEA', true)
+
+  row++ // fila en blanco entre tablas
+  tituloSeccion('GUARDIAS ASIGNADAS POR TIPO DE PERSONAL', '1A6B3A')
+  headerFila(['Categoría','Cantidad','% del total'])
+  filaDato('Uniformado',    porTipo['Uniformado'],    'D6FFD6')
+  filaDato('No uniformado', porTipo['No uniformado'], 'FFE8C8', true)
+
+  ws.mergeCells(`A${row+1}:C${row+1}`)
+  const nota = ws.getCell(`A${row+1}`)
+  nota.value = 'Nota: esta tabla reemplaza al gráfico de torta — Excel no permite generarlo automáticamente desde este programa, pero con estos datos seleccionados alcanza "Insertar → Gráfico circular" para armarlo en un clic.'
+  nota.font = { name:'Arial', italic:true, size:7, color:{argb:'FF8b90a0'} }
+  nota.alignment = { horizontal:'left', vertical:'middle', wrapText:true }
+}
+
 // ── HIGA: portrait, vertical, 10 días por hoja, alturas exactas ─────
-async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
+async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES, MES, ANIO) {
   const rangos = [[1,10],[11,20],[21,DIAS_MES]]
+  const vacantes = []  // {dia, turno, sector, puesto} — para la hoja "Sin cubrir"
 
   for (const [d1, d2] of rangos) {
     const ws = wb.addWorksheet(`Días ${d1}-${d2}`)
@@ -125,12 +497,23 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
       margins: { left:0.3, right:0.3, top:0.3, bottom:0.3, header:0, footer:0 }
     }
 
-    // Columnas portrait A4 (usable ≈ 194mm ≈ 94 chars)
+    // Columnas: el ancho de abajo YA NO tiene que sumar un total fijo para
+    // entrar en A4 — fitToPage/fitToWidth/fitToHeight de arriba hacen que
+    // TODA la hoja se reescale para entrar siempre en una página, sea cual
+    // sea el ancho nominal de las columnas (confirmado: UPA/MODULAR ya
+    // usan columnas más anchas que esto, 22, y entran igual en una hoja).
+    // Antes estas 4 columnas (19.0) quedaban justas para un nombre con el
+    // punto "●" antepuesto (Uniformado) — en Google Sheets, con la celda
+    // centrada y sin wrap, el contenido que no entra se desborda para los
+    // DOS lados y se mezcla con la celda vecina ("se ve desprolijo" /
+    // "salen los apellidos y nombres repetidos", reportado con capturas
+    // reales). Se agranda a 22.0, igual que ya usan UPA/MODULAR sin
+    // problema, para que el nombre con el punto entre cómodo.
     ws.getColumn(1).width = 18.0  // SECTOR
-    ws.getColumn(2).width = 19.0  // DÍA Ef.1
-    ws.getColumn(3).width = 19.0  // DÍA Ef.2
-    ws.getColumn(4).width = 19.0  // NOCHE Ef.1
-    ws.getColumn(5).width = 19.0  // NOCHE Ef.2
+    ws.getColumn(2).width = 22.0  // DÍA Ef.1
+    ws.getColumn(3).width = 22.0  // DÍA Ef.2
+    ws.getColumn(4).width = 22.0  // NOCHE Ef.1
+    ws.getColumn(5).width = 22.0  // NOCHE Ef.2
 
     // A4 portrait usable height: 297mm - 2×0.3"×25.4 = 281.8mm = 798pt
     // Filas fijas: título(22)+hdr2(13)+hdr3(11)+pie(10) = 56pt → disponible 742pt
@@ -138,7 +521,13 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     // day_hdr=14pt, sector=12pt → 10×14 + 50×12 = 140+600 = 740pt ≈ exacto
     const nDias = d2 - d1 + 1
     const ALTO_DIA_HDR = 14
-    const ALTO_SEC     = 12
+    // Antes 12 — con wrapText:true (ver más abajo) un nombre largo puede
+    // bajar a una segunda línea dentro de la misma celda; 18 le da lugar
+    // cómodo a 2 líneas de letra chica sin que se vea apretado. fitToHeight
+    // ya reescala toda la hoja para entrar en una página sea cual sea la
+    // altura nominal de las filas, así que agrandar esto no rompe el
+    // ajuste a A4 (mismo razonamiento ya aplicado al ancho de columnas).
+    const ALTO_SEC     = 18
 
     ws.getRow(1).height = 22
     ws.getRow(2).height = 13
@@ -179,9 +568,13 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
       ws.getRow(row).height = ALTO_DIA_HDR
       ws.mergeCells(`A${row}:E${row}`)
       const cDia = ws.getCell(`A${row}`)
-      cDia.value = `DÍA ${dia}`
-      cDia.font = font(true,9,'FFFFFF'); cDia.alignment = aln()
-      cDia.fill = fill('2d2d44'); cDia.border = borde('medium','thin','medium','medium')
+      // Pedido de esta ronda: marcar fin de semana y feriados (nacionales +
+      // el local de Mar del Plata) con un color llamativo, para que salten
+      // a la vista al imprimir — ver lib/feriadosArgentina.js.
+      const esp = infoDiaEspecial(dia, MES, ANIO)
+      cDia.value = esp.marcar ? `DÍA ${dia} · ${esp.motivo === 'feriado' ? 'FERIADO' : 'FIN DE SEMANA'}` : `DÍA ${dia}`
+      cDia.font = font(true,9, esp.marcar ? '000000' : 'FFFFFF'); cDia.alignment = aln()
+      cDia.fill = fill(esp.marcar ? 'FFD700' : '2d2d44'); cDia.border = borde('medium','thin','medium','medium')
       row++
 
       sectores.forEach((sec, si) => {
@@ -196,18 +589,49 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
         ;[[0,2,'FFFBF0','FFF0C0','d'],[1,4,'EDF4FF','C8DEFF','n']].forEach(([ei0, colStart, C1, C2, key]) => {
           const cupo = cupoHIGA(sec, key);
           [0,1].forEach(ei => {
-            // Slots que superan el cupo real de este sector+turno (p.ej. Rondín Externo
-            // de día: cupo 0, o Salud Mental/Llaves de noche: cupo 1, por lo que el Ef.2
-            // nunca corresponde) se muestran en gris neutro en vez de rojo de alerta, para
-            // no dar la falsa impresión de un puesto descubierto.
+            // Pedido de la ronda de prueba: distinguir DOS situaciones con
+            // colores bien separados, para que se vean mejor en pantalla:
+            //   - noAplica (slot que supera el cupo real de este sector+
+            //     turno: p.ej. Rondín Externo de día —cupo 0—, o el Ef.2 de
+            //     Salud Mental/Llaves de noche —cupo 1—): celda NEGRA con
+            //     texto BLANCO "NO CORRESPONDE" — no corresponde cubrirla.
+            //   - vacante real (dentro del cupo, sin nadie asignado): celda
+            //     ROJA con texto BLANCO "SIN CUBRIR" — sí corresponde
+            //     cubrirla y no tiene a nadie, para que salte a la vista.
             const noAplica = ei >= cupo
             const col = colStart + ei
-            const nm = gds[dia]?.[key]?.[sec]?.[ei] || ''
+            const nm = gds[dia]?.[key]?.[sec]?.[ei] || null
             const c = ws.getCell(row, col)
-            c.value = noAplica ? (ei === 0 ? '—' : '') : nm
-            c.font = { name:'Arial', size:7, italic: noAplica, color:{argb: noAplica ? 'FF999999' : 'FF000000'} }
-            c.alignment = { horizontal:'center', vertical:'middle', wrapText:false }
-            c.fill = fill(noAplica ? 'D9D9D9' : (nm ? (ei===0?C1:C2) : 'E84040'))
+            if (noAplica) {
+              // Pedido de la ronda de prueba: la leyenda va en TODAS las
+              // celdas que no corresponden, no solo en la primera — así no
+              // queda ninguna celda negra sin texto (antes, cuando cupo=0,
+              // la segunda celda del turno quedaba negra pero vacía).
+              c.value = 'NO CORRESPONDE'
+              c.font = { name:'Arial', bold:true, size:6, color:{argb:'FFFFFFFF'} }
+              c.fill = fill('000000')
+            } else if (!nm) {
+              c.value = 'SIN CUBRIR'
+              c.font = { name:'Arial', bold:true, size:6.5, color:{argb:'FFFFFFFF'} }
+              c.fill = fill('CC0000')
+              vacantes.push({ dia, turno: key === 'd' ? 'Día' : 'Noche', sector: sec, puesto: ei === 0 ? 'Ef.1' : 'Ef.2' })
+            } else {
+              c.value = celdaNombreOpcionB(nm)
+              c.font = fontNombre(nm, 7)
+              c.fill = fill(fillPorSexo(nm.sexo))
+            }
+            // FIX (encontrado comparando con UPA/MODULAR, que nunca tuvieron
+            // esta queja): esas dos hojas usan wrapText:true en estas mismas
+            // celdas (aln('center',true)) — acá en HIGA estaba en false. Con
+            // centrado + wrapText:false, cuando el contenido no entra en el
+            // ancho de columna, el texto se desborda hacia los DOS costados
+            // en vez de bajar de línea — eso es lo que se veía como nombres
+            // "repetidos"/mezclados con la celda vecina en Google Sheets.
+            // Con wrapText:true el texto baja de línea DENTRO de la misma
+            // celda en vez de desbordarse, así que nunca se mezcla con la de
+            // al lado, sea cual sea el ancho de columna o el motor que lo
+            // dibuje (Google Sheets, Excel, LibreOffice).
+            c.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
             c.border = borde('thin', isLast?'medium':'thin', 'thin', col===5?'medium':'thin')
           })
         })
@@ -223,9 +647,12 @@ async function generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES) {
     pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
     ws.pageSetup.printArea = `A1:E${pieRow}`
   }
+
+  agregarHojaSinCubrir(wb, vacantes, [{ header: 'Sector', key: 'sector' }], DIAS_MES)
+  return vacantes.length
 }
 // ── UPA: 1 fila por día, turnos lado a lado ───────────────────────────
-async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
+async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES, MES, ANIO) {
   const ws = wb.addWorksheet(`UPA ${NOMBRE_MES}`)
   ws.pageSetup = {
     orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
@@ -267,16 +694,31 @@ async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
 
   const colores = [['FFFBF0','FFF0C0'],['EDF4FF','C8DEFF']]
   const keys = ['d','n']
+  const vacantes = []  // {dia, turno, puesto} — para la hoja "Sin cubrir"
   for (let di = 0; di < DIAS_MES; di++) {
     const dia = di+1, fila = 4+di
     const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
-    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,10,'FFFFFF')
-    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    // Columna de día angosta (5.0 de ancho) — no entra texto extra como en
+    // HIGA, así que acá solo cambia el color (gold) para fin de semana o
+    // feriado, el número de día se mantiene igual.
+    const esp = infoDiaEspecial(dia, MES, ANIO)
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,10, esp.marcar ? '000000' : 'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill(esp.marcar ? 'FFD700' : '2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
     keys.forEach((key,ki) => {
       ;[0,1].forEach(ei => {
-        const nm = gds[dia]?.[key]?.[ei] || ''
-        const c = ws.getCell(fila, 2+ki*2+ei); c.value = nm; c.font = font(false,8,'000000')
-        c.alignment = aln('center',true); c.fill = fill(nm?colores[ki][ei]:'E84040')
+        const nm = gds[dia]?.[key]?.[ei] || null
+        const c = ws.getCell(fila, 2+ki*2+ei)
+        // En UPA el cupo es siempre fijo (2 por turno) — no existe el caso
+        // "no corresponde cubrir" (eso es específico de HIGA, ver
+        // generarHIGA/cupoHIGA). Una celda vacía acá SIEMPRE es una
+        // vacante real: "SIN CUBRIR" en rojo con texto blanco (mismo
+        // criterio que HIGA, para que las tres planillas se vean iguales).
+        if (!nm) {
+          c.value = 'SIN CUBRIR'; c.font = { name:'Arial', bold:true, size:7, color:{argb:'FFFFFFFF'} }; c.fill = fill('CC0000')
+          vacantes.push({ dia, turno: key === 'd' ? 'Día' : 'Noche', puesto: ei === 0 ? 'Ef.1' : 'Ef.2' })
+        }
+        else { c.value = celdaNombreOpcionB(nm); c.font = fontNombre(nm, 8); c.fill = fill(fillPorSexo(nm.sexo)) }
+        c.alignment = aln('center',true)
         c.border = borde(topS,botS,'thin',(ki===1&&ei===1)?'medium':'thin')
       })
     })
@@ -288,10 +730,13 @@ async function generarUPA(wb, gds, DIAS_MES, NOMBRE_MES) {
   pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
   pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
   ws.pageSetup.printArea = `A1:E${pieRow}`
+
+  agregarHojaSinCubrir(wb, vacantes, [], DIAS_MES)
+  return vacantes.length
 }
 
 // ── MODULAR: 1 fila por día, 3 turnos lado a lado ─────────────────────
-async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
+async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES, MES, ANIO) {
   const ws = wb.addWorksheet(`MODULAR ${NOMBRE_MES}`)
   ws.pageSetup = {
     orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1,
@@ -322,6 +767,7 @@ async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
     { key:'t', label:'TARDE  16:00–23:59',   C_HDR:'5A4A8A', C_EF1:'F0EDFF', C_EF2:'E0D8FF', colI:4 },
     { key:'n', label:'NOCHE  23:59–08:00',   C_HDR:'1A3A6B', C_EF1:'EDF4FF', C_EF2:'C8DEFF', colI:6 },
   ]
+  const vacantes = []  // {dia, turno, puesto} — para la hoja "Sin cubrir"
 
   turnosConf.forEach(({ label, C_HDR, colI }, ti) => {
     const lA = ws.getColumn(colI).letter, lB = ws.getColumn(colI+1).letter
@@ -338,14 +784,24 @@ async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
   for (let di = 0; di < DIAS_MES; di++) {
     const dia = di+1, fila = 4+di
     const topS = di===0?'medium':'thin', botS = di===DIAS_MES-1?'medium':'thin'
-    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,11,'FFFFFF')
-    cDia.alignment = aln(); cDia.fill = fill('2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
-    turnosConf.forEach(({ key, C_EF1, C_EF2, colI }, ti) => {
+    // Misma lógica que en UPA: columna angosta, solo cambia el color.
+    const esp = infoDiaEspecial(dia, MES, ANIO)
+    const cDia = ws.getCell(fila,1); cDia.value = dia; cDia.font = font(true,11, esp.marcar ? '000000' : 'FFFFFF')
+    cDia.alignment = aln(); cDia.fill = fill(esp.marcar ? 'FFD700' : '2d2d44'); cDia.border = borde(topS,botS,'medium','thin')
+    turnosConf.forEach(({ key, label, C_EF1, C_EF2, colI }, ti) => {
       const isLast = ti === turnosConf.length - 1
       ;[0,1].forEach(ei => {
-        const nm = gds[dia]?.[key]?.[ei] || ''
-        const c = ws.getCell(fila, colI+ei); c.value = nm; c.font = font(false,7.5,'000000')
-        c.alignment = aln('center',true); c.fill = fill(nm?(ei===0?C_EF1:C_EF2):'E84040')
+        const nm = gds[dia]?.[key]?.[ei] || null
+        const c = ws.getCell(fila, colI+ei)
+        // En MODULAR el cupo también es siempre fijo (2 por turno) — una
+        // celda vacía es siempre vacante real: "SIN CUBRIR" en rojo con
+        // texto blanco (mismo criterio que HIGA y UPA).
+        if (!nm) {
+          c.value = 'SIN CUBRIR'; c.font = { name:'Arial', bold:true, size:6.5, color:{argb:'FFFFFFFF'} }; c.fill = fill('CC0000')
+          vacantes.push({ dia, turno: label.split(/\s{2,}/)[0], puesto: ei === 0 ? 'Ef.1' : 'Ef.2' })
+        }
+        else { c.value = celdaNombreOpcionB(nm); c.font = fontNombre(nm, 7.5); c.fill = fill(fillPorSexo(nm.sexo)) }
+        c.alignment = aln('center',true)
         c.border = borde(topS,botS,'thin',(isLast&&ei===1)?'medium':'thin')
       })
     })
@@ -357,6 +813,22 @@ async function generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES) {
   pie.font = { name:'Arial', size:7, italic:true, color:{argb:'FF8b90a0'} }
   pie.alignment = aln(); pie.fill = fill('1a1a2e'); pie.border = borde('medium','medium','medium','medium')
   ws.pageSetup.printArea = `A1:G${pieRow}`
+
+  agregarHojaSinCubrir(wb, vacantes, [], DIAS_MES)
+  return vacantes.length
+}
+
+// Lee los turnos asignados hoy mismo (tabla `turnos`) para un
+// lugar/mes/año. Este proyecto no tiene todavía un paso separado de
+// "publicación" de guardias (esa tabla no existe en la base real) — lee
+// directamente lo que está cargado, igual que el resto de las pantallas
+// (admin, asignación rápida, etc.).
+async function leerTurnos(mes, anio, sectorEqOrIn) {
+  let q = supabase.from('turnos').select('legajo, dia, turno, sector')
+    .eq('mes', mes).eq('anio', anio)
+  q = Array.isArray(sectorEqOrIn) ? q.in('sector', sectorEqOrIn) : q.eq('sector', sectorEqOrIn)
+  const { data } = await q
+  return data || []
 }
 
 // ── HANDLER ────────────────────────────────────────────────────────────
@@ -374,11 +846,21 @@ export default async function handler(req, res) {
 
   const wb = new ExcelJS.Workbook()
   wb.creator = 'POLAD HIGA UPA'
+  let turnosDataParaResumen = []  // guardias publicadas de este lugar/mes, para la hoja "Resumen" (sexo/tipo)
+  let cantFaltantes = 0  // cantidad de guardias "sin cubrir" (lo que devuelve cada generarXXX)
+  // Horas por guardia: pedido de la ronda de prueba — en HIGA y UPA cada
+  // guardia son 12 horas; en MODULAR, 8 horas (turnos mañana/tarde/noche).
+  const HORAS_POR_GUARDIA = lugar === 'MODULAR' ? 8 : 12
 
   if (lugar === 'HIGA') {
-    const sectores = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','Rondin Externo']
-    const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).in('sector', sectores)
+    // Orden pedido en la ronda de prueba: Salud Mental y Llaves van al
+    // final, uno junto al otro (antes estaban separados, arriba de todo).
+    // Ojo: este orden es SOLO para esta planilla impresa — el resto de las
+    // pantallas (admin, asignación rápida, etc.) sigue con el orden de
+    // siempre, no se tocó nada ahí.
+    const sectores = ['Giratoria','Guardia','Estacionamiento','Rondin Externo','Salud Mental','Llaves']
+    const turnosData = await leerTurnos(MES, ANIO, sectores)
+    turnosDataParaResumen = turnosData
     const gds = {}
     for (let d = 1; d <= DIAS_MES; d++) {
       gds[d] = {}
@@ -386,32 +868,34 @@ export default async function handler(req, res) {
     }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef && gds[t.dia]?.[t.turno]?.[t.sector]) gds[t.dia][t.turno][t.sector].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]?.[t.sector]) gds[t.dia][t.turno][t.sector].push({ nombre: fmtNombre(ef), sexo: ef.sexo, tipo: ef.tipo })
     })
-    await generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES)
+    cantFaltantes = await generarHIGA(wb, gds, sectores, DIAS_MES, NOMBRE_MES, MES, ANIO)
 
   } else if (lugar === 'UPA') {
-    const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'UPA')
+    const turnosData = await leerTurnos(MES, ANIO, 'UPA')
+    turnosDataParaResumen = turnosData
     const gds = {}
     for (let d = 1; d <= DIAS_MES; d++) gds[d] = { d:[], n:[] }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push({ nombre: fmtNombre(ef), sexo: ef.sexo, tipo: ef.tipo })
     })
-    await generarUPA(wb, gds, DIAS_MES, NOMBRE_MES)
+    cantFaltantes = await generarUPA(wb, gds, DIAS_MES, NOMBRE_MES, MES, ANIO)
 
   } else if (lugar === 'MODULAR') {
-    const { data: turnosData } = await supabase.from('turnos').select('*')
-      .eq('mes', MES).eq('anio', ANIO).eq('sector', 'Modular')
+    const turnosData = await leerTurnos(MES, ANIO, 'Modular')
+    turnosDataParaResumen = turnosData
     const gds = {}
     for (let d = 1; d <= DIAS_MES; d++) gds[d] = { m:[], t:[], n:[] }
     ;(turnosData || []).forEach(t => {
       const ef = (efectivos || []).find(e => e.legajo === t.legajo)
-      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push(fmtNombre(ef))
+      if (ef && gds[t.dia]?.[t.turno]) gds[t.dia][t.turno].push({ nombre: fmtNombre(ef), sexo: ef.sexo, tipo: ef.tipo })
     })
-    await generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES)
+    cantFaltantes = await generarMODULAR(wb, gds, DIAS_MES, NOMBRE_MES, MES, ANIO)
   }
+
+  agregarHojaResumen(wb, turnosDataParaResumen, efectivos, { horasPorGuardia: HORAS_POR_GUARDIA, cantFaltantes })
 
   const buffer = await wb.xlsx.writeBuffer()
   const filename = `POLAD_${lugar}_${NOMBRE_MES.replace(' ','_')}.xlsx`
