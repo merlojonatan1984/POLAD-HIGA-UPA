@@ -242,6 +242,12 @@ function ModalPersonal({ datos, onClose, onGuardar, onEliminar, guardando, msg }
               </select>
             </div>
           </div>
+          <div style={{ marginBottom:8 }}>
+            <label>Sexo</label>
+            <select value={form.sexo||''} onChange={e => setForm({...form,sexo:e.target.value})} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:13,background:'#1e2130',color:'#e8eaf0',outline:'none' }}>
+              <option value="">Sin especificar</option><option value="femenino">Femenino</option><option value="masculino">Masculino</option>
+            </select>
+          </div>
           <div style={{ marginBottom:4 }}>
             <label>📝 Nota / Recordatorio</label>
             <textarea value={form.notas||''} onChange={e => setForm({...form,notas:e.target.value})} rows={2} style={{ width:'100%',padding:'7px 10px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:12,background:'#1e2130',color:'#e8eaf0',outline:'none',resize:'none' }} />
@@ -1389,10 +1395,10 @@ export default function AdminApp() {
           supabase.from('firmas').update({ legajo: datos.legajo }).eq('legajo', legajoViejo),
         ])
       }
-      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR, password: datos.password || null }).eq('id', datos.id)
+      await supabase.from('efectivos').update({ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, sexo: datos.sexo || null, email: datos.email || '', sector: datos.sector || 'Sin asignar', telefono: datos.telefono || '', notas: datos.notas || null, dni: datos.dni || null, jerarquia: datos.jerarquia || null, lugar: APP_LUGAR, password: datos.password || null }).eq('id', datos.id)
       setMsgPersonal('Efectivo actualizado.')
     } else {
-      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
+      const { error } = await supabase.from('efectivos').insert([{ legajo: datos.legajo, nombre: datos.nombre, tipo: datos.tipo, sexo: datos.sexo || null, email: datos.email || '', sector: 'Sin asignar', es_admin: false, telefono: datos.telefono || '', lugar: APP_LUGAR }])
       if (error) { setMsgPersonal('Error: ' + (error.message.includes('duplicate') ? 'ese legajo ya existe.' : error.message)); setGuardandoPersonal(false); return }
       setMsgPersonal('Efectivo dado de alta. Clave inicial: ' + datos.legajo)
     }
