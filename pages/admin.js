@@ -1688,6 +1688,54 @@ export default function AdminApp() {
   const todosLosTurnos = Object.values(turnos).flat()
   const hayTurnos = todosLosTurnos.length > 0
   const cargaron = efectivos.filter(e => disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+  // Dentro de los que YA cargaron disponibilidad, cuántos son femeninos y
+  // cuántos masculinos (para el resumen de arriba).
+  const cargaronFemenino = efectivos.filter(e => e.sexo === 'femenino' && disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+  const cargaronMasculino = efectivos.filter(e => e.sexo === 'masculino' && disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+  const pctDisp = n => cargaron ? `${Math.round(n / cargaron * 100)}%` : '—'
+  const pctDispNum = n => cargaron ? Math.round(n / cargaron * 100) : 0
+  // Mismo desglose, por tipo de personal (no hay "sin informar": el tipo
+  // lo carga siempre el administrador al dar de alta al efectivo).
+  const cargaronUniformado = efectivos.filter(e => e.tipo === 'Uniformado' && disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+  const cargaronServGeneral = efectivos.filter(e => e.tipo === 'Serv. General' && disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+  const cargaronDestacamento = efectivos.filter(e => e.tipo === 'Destacamento' && disponibilidad[normLegajo(e.legajo)] && Object.keys(disponibilidad[normLegajo(e.legajo)]).length > 0).length
+
+  // Mismos totales de horas/sexo que ya tiene la planilla para imprimir
+  // (pages/api/generar-planilla.js), pero a la vista acá arriba.
+  const horasAsignadas = todosLosTurnos.length * HORAS_TURNO
+  const masculinosAsignados = todosLosTurnos.filter(t => efectivos.find(e => e.legajo === t.legajo)?.sexo === 'masculino').length
+  const femeninosAsignados = todosLosTurnos.filter(t => efectivos.find(e => e.legajo === t.legajo)?.sexo === 'femenino').length
+  const uniformadosAsignados = todosLosTurnos.filter(t => efectivos.find(e => e.legajo === t.legajo)?.tipo === 'Uniformado').length
+  const servGeneralAsignados = todosLosTurnos.filter(t => efectivos.find(e => e.legajo === t.legajo)?.tipo === 'Serv. General').length
+  const destacamentoAsignados = todosLosTurnos.filter(t => efectivos.find(e => e.legajo === t.legajo)?.tipo === 'Destacamento').length
+  const noUniformadosAsignados = servGeneralAsignados + destacamentoAsignados
+  const pctSexo = n => todosLosTurnos.length ? `${Math.round(n / todosLosTurnos.length * 100)}%` : '—'
+  const pctSexoNum = n => todosLosTurnos.length ? Math.round(n / todosLosTurnos.length * 100) : 0
+
+  // Cuántas guardias hacen falta cubrir este mes en TOTAL (la suma de los
+  // cupos reales de cada sector/turno, multiplicada por los días del
+  // mes), cuántas ya están cubiertas y cuántas faltan — en guardias y en
+  // horas. El cupo real por sector/turno en HIGA es el mismo que usa
+  // pages/api/generar-planilla.js (Salud Mental y Llaves bajan a 1 de
+  // noche porque los otros 2 forman el Rondín Externo, que es 0 de día y
+  // 2 de noche) — acá se repite el mismo criterio en chico, nada más que
+  // para este cálculo; el sistema general de cupos configurables por
+  // puesto queda para más adelante.
+  const CUPO_POR_SECTOR_TURNO = APP_LUGAR === 'HIGA' ? {
+    'Salud Mental':   { d: 2, n: 1 },
+    'Llaves':         { d: 2, n: 1 },
+    'Rondin Externo': { d: 0, n: 2 },
+  } : {}
+  const cupoSlot = (sector, turno) => {
+    const porTurno = CUPO_POR_SECTOR_TURNO[sector]
+    if (porTurno && turno in porTurno) return porTurno[turno]
+    return MAX_POR_SLOT
+  }
+  const slotsPorDia = SECTORES_APP.reduce((acc, sector) => acc + TURNOS_LUGAR.reduce((acc2, turno) => acc2 + cupoSlot(sector, turno), 0), 0)
+  const guardiasNecesarias = slotsPorDia * DIAS_MES
+  const guardiasSinCubrir = Math.max(0, guardiasNecesarias - todosLosTurnos.length)
+  const horasNecesarias = guardiasNecesarias * HORAS_TURNO
+  const horasSinCubrir = Math.max(0, horasNecesarias - horasAsignadas)
   const nombreCompleto = leg => { const e = efectivos.find(x => x.legajo === leg); return e ? e.nombre : leg }
   const nombreCorto = leg => nombreCompleto(leg).split(',')[0]
 
@@ -1770,12 +1818,130 @@ export default function AdminApp() {
       </div>
 
       <div className="content">
-        <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16 }}>
-          <div className="metric"><div className="metric-label">Efectivos en {APP_LUGAR}</div><div className="metric-val">{efectivos.length}</div><div className="metric-sub">en el sistema</div></div>
-          <div className="metric"><div className="metric-label">Cargaron disponib.</div><div className="metric-val">{cargaron}</div><div className="metric-sub">de {efectivos.length}</div></div>
-          <div className="metric"><div className="metric-label">Turnos asignados</div><div className="metric-val">{todosLosTurnos.length}</div><div className="metric-sub">{NOMBRE_MES}</div></div>
-          <div className="metric"><div className="metric-label">Estado</div><div className="metric-val" style={{ fontSize:13,marginTop:4,color:hayTurnos?'#1D9E75':'#8b90a0' }}>{hayTurnos?'Generado':'Sin generar'}</div><div className="metric-sub">{NOMBRE_MES}</div></div>
+        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16 }}>
+          <div>
+            <h2 style={{ fontSize:28,fontWeight:700,color:'#fff',margin:0 }}>Resumen del mes</h2>
+            <p style={{ fontSize:15,color:'#c8a84b',margin:'4px 0 0' }}>{APP_LUGAR} · {NOMBRE_MES}</p>
+          </div>
+          <div style={{ display:'flex',alignItems:'center',gap:6,background:hayTurnos?'rgba(29,158,117,0.15)':'rgba(200,168,75,0.15)',border:hayTurnos?'0.5px solid rgba(29,158,117,0.4)':'0.5px solid rgba(200,168,75,0.4)',color:hayTurnos?'#1D9E75':'#c8a84b',borderRadius:8,padding:'7px 14px',fontSize:14,fontWeight:600 }}>
+            <span>{hayTurnos?'✅':'⏱'}</span>{hayTurnos?'Generado':'Sin generar'}
+          </div>
         </div>
+        {(() => {
+          // Texto oscuro o claro según qué tan clara sea la placa de color
+          // de fondo — así funciona con cualquier color (incluido
+          // COLOR_APP, que cambia según HIGA/UPA/MODULAR).
+          const contraste = hex => {
+            const h = hex.replace('#', '')
+            const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16)
+            const lum = (0.299*r + 0.587*g + 0.114*b) / 255
+            return lum > 0.6 ? '#0f1117' : '#ffffff'
+          }
+          const segBar = { display:'flex', height:20, borderRadius:10, overflow:'hidden', background:'rgba(255,255,255,0.05)', gap:2 }
+          const seg = (pct, color, label, lightText) => (
+            <div style={{ width:`${pct}%`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11.5, fontWeight:600, color: lightText?'#fff':'#0f1117', background:color, whiteSpace:'nowrap', overflow:'hidden' }}>{label}</div>
+          )
+          const legendItem = (color, label) => (
+            <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'#a3a8ba' }}><span style={{ width:8, height:8, borderRadius:2, background:color, flexShrink:0 }} />{label}</div>
+          )
+          const AZUL_M = '#5B9BD5', ROSA_F = '#E8829E', SERVGRAL = '#5DCAA5', DESTACAMENTO = '#F5C518', NO_UNIFORME = '#E8935A', DORADO = '#c8a84b', ROJO_ALERTA = '#E35B5B'
+          const noUniformado = cargaronServGeneral + cargaronDestacamento
+          const pairWrap = { display:'flex', borderRadius:12, overflow:'hidden', marginBottom:8, background:'rgba(255,255,255,0.025)' }
+          const item = (icono, label, sub, bg, val, chipSize = 20, conBorde = false) => (
+            <div style={{ flex:1, display:'flex', alignItems:'center', gap:12, padding:'11px 16px', borderLeft: conBorde ? '1px solid rgba(255,255,255,0.11)' : 'none' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:2, flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, color:'#9aa0b5', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}><span>{icono}</span>{label}</div>
+                <div style={{ fontSize:11, color:'#a3a8ba' }}>{sub}</div>
+              </div>
+              <div style={{ display:'inline-flex', alignItems:'center', borderRadius:8, padding:'3px 12px', flexShrink:0, background:bg }}>
+                <span style={{ fontWeight:800, lineHeight:1.3, fontSize:chipSize, color:contraste(bg) }}>{val}</span>
+              </div>
+            </div>
+          )
+          return (<>
+            <div style={pairWrap}>
+              {item('📋', 'Guardias a cubrir', NOMBRE_MES, DORADO, guardiasNecesarias)}
+              {item('⌛', 'Horas a cubrir', NOMBRE_MES, DORADO, horasNecesarias, 20, true)}
+            </div>
+
+            <div style={pairWrap}>
+              {item('📅', 'Cargaron disponibilidad', `de ${efectivos.length} efectivos`, '#2DD4BF', cargaron, 22)}
+            </div>
+
+            <div style={{ borderTop:'0.5px solid rgba(255,255,255,0.11)', margin:'12px 0 10px' }} />
+
+            <div style={pairWrap}>
+              {item('♀', 'Femeninos', `${pctDisp(cargaronFemenino)} de los que cargaron`, ROSA_F, cargaronFemenino)}
+              {item('♂', 'Masculinos', `${pctDisp(cargaronMasculino)} de los que cargaron`, AZUL_M, cargaronMasculino, 20, true)}
+            </div>
+
+            <div style={pairWrap}>
+              {item('🎖️', 'Uniformados', `${pctDisp(cargaronUniformado)} de los que cargaron`, COLOR_APP, cargaronUniformado)}
+              {item('🧰', 'No uniformados', `${pctDisp(noUniformado)} de los que cargaron`, NO_UNIFORME, noUniformado, 20, true)}
+            </div>
+
+            <div style={{ ...pairWrap, marginBottom:20 }}>
+              {item('⏳', 'Guardias sin cubrir', `de ${guardiasNecesarias} necesarias`, ROJO_ALERTA, guardiasSinCubrir)}
+              {item('⌛', 'Horas sin cubrir', `de ${horasNecesarias} hs necesarias`, ROJO_ALERTA, horasSinCubrir, 20, true)}
+            </div>
+
+            <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:14 }}>
+              <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Disponibilidad cargada <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {cargaron} efectivos</span></div>
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por sexo</div>
+                <div style={segBar}>
+                  {seg(pctDispNum(cargaronMasculino), AZUL_M, `${cargaronMasculino} · ${pctDisp(cargaronMasculino)}`, true)}
+                  {seg(pctDispNum(cargaronFemenino), ROSA_F, `${cargaronFemenino} · ${pctDisp(cargaronFemenino)}`, false)}
+                </div>
+                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                  {legendItem(AZUL_M, '♂ Masculinos')}
+                  {legendItem(ROSA_F, '♀ Femeninos')}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por tipo</div>
+                <div style={segBar}>
+                  {seg(pctDispNum(cargaronUniformado), COLOR_APP, `${cargaronUniformado} · ${pctDisp(cargaronUniformado)}`, false)}
+                  {seg(pctDispNum(cargaronServGeneral), SERVGRAL, `${cargaronServGeneral} · ${pctDisp(cargaronServGeneral)}`, true)}
+                  {seg(pctDispNum(cargaronDestacamento), DESTACAMENTO, `${cargaronDestacamento} · ${pctDisp(cargaronDestacamento)}`, false)}
+                </div>
+                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                  {legendItem(COLOR_APP, '🎖️ Uniformados')}
+                  {legendItem(SERVGRAL, '🧰 Serv. General')}
+                  {legendItem(DESTACAMENTO, '📍 Destacamento')}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:16 }}>
+              <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Turnos asignados <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {todosLosTurnos.length} turnos · {horasAsignadas} horas ({HORAS_TURNO} hs/guardia)</span></div>
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por sexo</div>
+                <div style={segBar}>
+                  {seg(pctSexoNum(masculinosAsignados), AZUL_M, `${masculinosAsignados} · ${pctSexo(masculinosAsignados)}`, true)}
+                  {seg(pctSexoNum(femeninosAsignados), ROSA_F, `${femeninosAsignados} · ${pctSexo(femeninosAsignados)}`, false)}
+                </div>
+                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                  {legendItem(AZUL_M, '♂ Masculinos')}
+                  {legendItem(ROSA_F, '♀ Femeninos')}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por tipo</div>
+                <div style={segBar}>
+                  {seg(pctSexoNum(uniformadosAsignados), COLOR_APP, `${uniformadosAsignados} · ${pctSexo(uniformadosAsignados)}`, false)}
+                  {seg(pctSexoNum(servGeneralAsignados), SERVGRAL, `${servGeneralAsignados} · ${pctSexo(servGeneralAsignados)}`, true)}
+                  {seg(pctSexoNum(destacamentoAsignados), DESTACAMENTO, `${destacamentoAsignados} · ${pctSexo(destacamentoAsignados)}`, false)}
+                </div>
+                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                  {legendItem(COLOR_APP, '🎖️ Uniformados')}
+                  {legendItem(SERVGRAL, '🧰 Serv. General')}
+                  {legendItem(DESTACAMENTO, '📍 Destacamento')}
+                </div>
+              </div>
+            </div>
+          </>)
+        })()}
 
         <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:12 }}>
           <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)',display:'flex',alignItems:'center',gap:6 }}
