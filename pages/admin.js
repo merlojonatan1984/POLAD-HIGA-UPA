@@ -355,6 +355,15 @@ export default function AdminApp() {
   const [nuevoEspecialTipo, setNuevoEspecialTipo] = useState('24hs')
   const [nuevoEspecialLeg1, setNuevoEspecialLeg1] = useState('')
   const [nuevoEspecialLeg2, setNuevoEspecialLeg2] = useState('')
+  // Puesto fijo (Paso 3B): configuración editable por efectivo de un sector (y,
+  // opcionalmente, un turno) exclusivo — nunca se lo asigna en otro sector por
+  // ningún mecanismo automático (Asignación rápida, Asignar guardias rápido,
+  // Completar día, Generar turnos). Ver efectivo_puesto_fijo (tabla nueva).
+  const [puestoFijoReglas, setPuestoFijoReglas] = useState([])
+  const [puestoFijoModal, setPuestoFijoModal] = useState(true)
+  const [nuevoPuestoLeg, setNuevoPuestoLeg] = useState('')
+  const [nuevoPuestoSector, setNuevoPuestoSector] = useState('')
+  const [nuevoPuestoTurno, setNuevoPuestoTurno] = useState('')
   const [buscarLegajoInput, setBuscarLegajoInput] = useState('')
   const [buscarLegajoResultado, setBuscarLegajoResultado] = useState(null)
   const [buscarLegajoCargando, setBuscarLegajoCargando] = useState(false)
@@ -439,13 +448,18 @@ export default function AdminApp() {
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     setLoading(true)
     try {
-      const [{ data: efs }, dispRes, { data: turns }] = await Promise.all([
+      const [{ data: efs }, dispRes, { data: turns }, puestoFijoRes] = await Promise.all([
         supabase.from('efectivos').select('*').eq('es_admin', false).eq('lugar', L).order('nombre'),
         fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${L}`).then(r => r.json()),
-        supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000)
+        supabase.from('turnos').select('*').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
+        supabase.from('efectivo_puesto_fijo').select('*').eq('lugar', L).eq('activo', true),
       ])
       const disp = dispRes.data
       setEfectivos(efs || [])
+      // Si la tabla todavía no existe en esta base (migración no aplicada), puestoFijoRes.error
+      // va a venir seteado — se ignora en silencio (equivale a "sin reglas configuradas"), nunca
+      // rompe la carga del resto de la pantalla por una tabla opcional que falte.
+      setPuestoFijoReglas(puestoFijoRes?.data || [])
       const dispMap = {}
       ;(disp || []).forEach(d => {
         const k = normLegajo(d.legajo)
@@ -499,6 +513,11 @@ export default function AdminApp() {
     const pool = efectivos.map(e => ({ ...e, hs: 0 }))
     const nuevos = []
 
+    // Puesto fijo (Paso 3B): un efectivo con regla activa nunca entra en el pool de
+    // ningún otro sector — ver filtro de candidatos más abajo.
+    const fijoPorLegajo = {}
+    ;(puestoFijoReglas || []).forEach(r => { fijoPorLegajo[normLegajo(r.legajo)] = { sector: r.sector, turno: r.turno || null } })
+
     // Ordenar días por cantidad de candidatos disponibles (días difíciles primero)
     const diasOrdenados = Array.from({ length: DIAS_MES }, (_, i) => i + 1).sort((a, b) => {
       const candA = pool.filter(e => {
@@ -518,7 +537,15 @@ export default function AdminApp() {
           const candidatos = pool.filter(e => {
             const avail = (dispMap[normLegajo(e.legajo)] || {})[dia] || ''
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
-            return avail.includes(turno) && !yaAsignado
+            if (!avail.includes(turno) || yaAsignado) return false
+            // Puesto fijo: nunca elegir otro sector que el configurado (ni otro turno
+            // si la regla especifica uno) — queda pendiente antes que asignarlo afuera.
+            const fijo = fijoPorLegajo[normLegajo(e.legajo)]
+            if (fijo) {
+              if (fijo.sector !== sector) return false
+              if (fijo.turno && fijo.turno !== turno) return false
+            }
+            return true
           }).sort((a, b) => a.hs - b.hs)
           candidatos.slice(0, cupoSlot(sector, turno)).forEach(e => {
             e.hs += horasTurno
@@ -558,6 +585,25 @@ export default function AdminApp() {
       alert(`⚠ Se ajustó la cantidad a ${cantidad} guardias para no superar el tope de ${MAX_HS}hs.\n(Tiene ${hsActuales}hs asignadas, le quedan ${hsDisponibles}hs disponibles)`)
     }
 
+    // Puesto fijo (Paso 3B): si este efectivo tiene una regla activa, toda guardia
+    // que se le asigne acá tiene que caer en su sector configurado (y en su turno,
+    // si la regla especifica uno) — nunca en otro, por más libre que esté.
+    const fijo = (() => {
+      const r = (puestoFijoReglas || []).find(x => normLegajo(x.legajo) === normLegajo(legajo))
+      return r ? { sector: r.sector, turno: r.turno || null } : null
+    })()
+    const nombreFijo = efectivos.find(e => e.legajo === legajo)?.nombre?.split(',')[0] || legajo
+    if (fijo && fijo.turno && tipoTurno === 'doble') {
+      alert(`⛔ ${nombreFijo} tiene puesto fijo en "${fijo.sector}" solo para el turno "${fijo.turno}". No se puede asignar "Todos" (24hs) porque cubre ambos turnos del día.\n\nElegí el turno "${fijo.turno}" en el selector.`)
+      setAsignando(false)
+      return
+    }
+    if (fijo && fijo.turno && tipoTurno !== fijo.turno && tipoTurno !== 'mixto') {
+      alert(`⛔ ${nombreFijo} tiene puesto fijo en "${fijo.sector}" solo para el turno "${fijo.turno}". No se puede asignar el turno "${tipoTurno}".`)
+      setAsignando(false)
+      return
+    }
+
     const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
       fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
@@ -594,6 +640,13 @@ export default function AdminApp() {
     const conteoSector = {}
     SECTORES_APP.forEach(s => { conteoSector[s] = 0 })
     function getSector(dia, turno) {
+      // Puesto fijo: el único sector posible es el configurado — nunca se elige
+      // otro por más libre que esté. Si no hay cupo ahí, este día/turno queda sin
+      // asignar (pendiente), nunca "cambia de sector en silencio".
+      if (fijo) {
+        if (fijo.turno && fijo.turno !== turno) return null
+        return (ocupacion[dia+'-'+turno+'-'+fijo.sector] || 0) < cupoSlot(fijo.sector, turno) ? fijo.sector : null
+      }
       // Ordenar sectores por los menos usados primero para distribuir parejo
       const sectoresOrdenados = [...SECTORES_APP].sort((a, b) => conteoSector[a] - conteoSector[b])
       for (const s of sectoresOrdenados) {
@@ -760,6 +813,7 @@ export default function AdminApp() {
     let msg = `✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`
     if (nuevos.length < cantidad) {
       msg += `\n⚠ Se pedían ${cantidad} pero la disponibilidad permitió ${nuevos.length}.`
+      if (fijo) msg += ` Tiene puesto fijo en "${fijo.sector}"${fijo.turno ? ` (turno "${fijo.turno}")` : ''} y no se la asigna en otro sector — el resto queda pendiente.`
     }
     alert(msg)
   }
@@ -800,6 +854,13 @@ export default function AdminApp() {
       const nuevosPorLegajo = {}
       const faltantesPorTurno = {}
 
+      // Puesto fijo (Paso 3B): mientras se completa el día, un efectivo con regla
+      // activa solo puede entrar en SU sector (y turno, si lo especifica) — nunca en
+      // otro, aunque esté libre. No les reserva el lugar: si otro efectivo sin regla
+      // lo necesita, igual puede ocuparlo.
+      const fijoPorLegajo = {}
+      ;(puestoFijoReglas || []).forEach(r => { fijoPorLegajo[normLegajo(r.legajo)] = { sector: r.sector, turno: r.turno || null } })
+
       // Descanso 12hs (HIGA/UPA): no D+N el mismo día, no N→D en días seguidos
       function cumpleDescanso(legajo, diaX, turnoX) {
         if (L === 'MODULAR') return true
@@ -814,9 +875,11 @@ export default function AdminApp() {
         return (hsMap[legajo] || 0) + ((nuevosPorLegajo[legajo] || []).length * horasTurno)
       }
 
-      // Disponibles para un turno: con disponibilidad cargada, sin duplicar, < 180hs,
-      // que cumplan descanso. Ordenados por MENOS guardias primero (equilibra la carga).
-      function candidatosTurno(turno) {
+      // Disponibles para un turno en un sector dado: con disponibilidad cargada, sin
+      // duplicar, < 180hs, que cumplan descanso, y que no tengan puesto fijo en OTRO
+      // sector (o en otro turno, si su regla especifica uno). Ordenados por MENOS
+      // guardias primero (equilibra la carga).
+      function candidatosTurno(turno, sector) {
         return efectivos.filter(e => {
           const avail = dispMap[normLegajo(e.legajo)] || ''
           if (!avail.includes(turno)) return false
@@ -824,6 +887,11 @@ export default function AdminApp() {
           if ((turnosPorLegajo[e.legajo] || []).some(a => a.dia === dia && a.turno === turno)) return false
           if (horasDe(e.legajo) >= 180) return false
           if (!cumpleDescanso(e.legajo, dia, turno)) return false
+          const fijo = fijoPorLegajo[normLegajo(e.legajo)]
+          if (fijo) {
+            if (fijo.sector !== sector) return false
+            if (fijo.turno && fijo.turno !== turno) return false
+          }
           return true
         }).sort((a, b) => horasDe(a.legajo) - horasDe(b.legajo))
       }
@@ -836,7 +904,7 @@ export default function AdminApp() {
           for (let k = ocup; k < cupoSlot(sector, turno); k++) slots.push(sector)
         }
         for (const sector of slots) {
-          const cands = candidatosTurno(turno)
+          const cands = candidatosTurno(turno, sector)
           if (cands.length === 0) { faltantesPorTurno[turno] = (faltantesPorTurno[turno] || 0) + 1; continue }
           const e = cands[0]
           nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
@@ -924,6 +992,35 @@ export default function AdminApp() {
   async function quitarEspecial(id) {
     await supabase.from('efectivos_especiales').update({ activo: false }).eq('id', id)
     await cargarEspeciales()
+  }
+
+  async function cargarPuestoFijo() {
+    const { data } = await supabase.from('efectivo_puesto_fijo').select('*').eq('lugar', APP_LUGAR).eq('activo', true)
+    setPuestoFijoReglas(data || [])
+  }
+
+  async function agregarPuestoFijo() {
+    if (!nuevoPuestoLeg.trim()) return alert('Seleccioná el efectivo.')
+    if (!nuevoPuestoSector) return alert('Elegí el sector.')
+    // A lo sumo una regla activa por legajo+lugar: si ya tenía un puesto fijo
+    // configurado, se desactiva primero (nunca quedan dos activas en conflicto).
+    await supabase.from('efectivo_puesto_fijo').update({ activo: false })
+      .eq('lugar', APP_LUGAR).eq('legajo', nuevoPuestoLeg.trim()).eq('activo', true)
+    const { error } = await supabase.from('efectivo_puesto_fijo').insert({
+      lugar: APP_LUGAR,
+      legajo: nuevoPuestoLeg.trim(),
+      sector: nuevoPuestoSector,
+      turno: nuevoPuestoTurno || null,
+      activo: true,
+    })
+    if (error) return alert('Error al guardar: ' + error.message + '\n\nVerificá que la tabla efectivo_puesto_fijo exista en Supabase (ejecutá migracion_puesto_fijo.sql).')
+    setNuevoPuestoLeg(''); setNuevoPuestoSector(''); setNuevoPuestoTurno('')
+    await cargarPuestoFijo()
+  }
+
+  async function quitarPuestoFijo(id) {
+    await supabase.from('efectivo_puesto_fijo').update({ activo: false }).eq('id', id)
+    await cargarPuestoFijo()
   }
 
   async function cargarRapida() {
@@ -1079,10 +1176,60 @@ export default function AdminApp() {
       return true
     }
 
+    // ===== Fase 0: puestos fijos configurados por administración =====
+    // Un efectivo con regla activa en efectivo_puesto_fijo tiene esta fase como ÚNICA
+    // fuente de guardias sueltas (salvo que esté marcado para 24hs o doble turno,
+    // que se resuelven en las fases siguientes respetando igual su sector/turno). Si
+    // no alcanza a cubrir todo el objetivo acá, el resto queda PENDIENTE — la Fase 2
+    // ya no lo completa en otro sector (ver guardia de exclusividad más abajo).
+    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en las fases 0 / 1 / 1.25 / 1.5
+    const fijoPorLegajo = {}
+    ;(puestoFijoReglas || []).forEach(r => { fijoPorLegajo[normLegajo(r.legajo)] = { sector: r.sector, turno: r.turno || null } })
+    for (const { legajo, objetivo } of targets) {
+      const fijo = fijoPorLegajo[normLegajo(legajo)]
+      if (!fijo || legajos24hs.has(legajo) || legajosDoble.has(legajo)) continue
+
+      const turnosDelFijo = fijo.turno ? [fijo.turno] : turnosLugar
+      const dmap = dispMap[normLegajo(legajo)] || {}
+      const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
+      const existentes = (turnosPorLegajo[legajo] || []).length
+      const metaFijo = Math.max(0, objetivo - existentes)
+
+      let asignadasFijo = 0
+      for (const dia of diasCandidatos) {
+        if (asignadasFijo >= metaFijo) break
+        if ((turnosPorLegajo[legajo] || []).some(a => a.dia === dia)) continue
+        if ((hsMap[legajo] || 0) + horasTurno > MAX_HS) break
+        // Si la regla no especifica turno, probar cada turno permitido (no solo el
+        // primero que tenga disponibilidad): un sector con cupo 0 de día (p.ej.
+        // Rondín Externo) no debe hacer que el día entero se salte sin probar la
+        // noche, que es donde realmente tiene cupo.
+        const tk = turnosDelFijo.find(t =>
+          (dmap[dia] || '').includes(t) && cumpleDescanso(legajo, dia, t) &&
+          (ocupacion[dia + '-' + t + '-' + fijo.sector] || 0) < cupoSlot(fijo.sector, t)
+        )
+        if (!tk) continue
+
+        nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: fijo.sector })
+        if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+        turnosPorLegajo[legajo].push({ dia, turno: tk })
+        ocupacion[dia + '-' + tk + '-' + fijo.sector] = (ocupacion[dia + '-' + tk + '-' + fijo.sector] || 0) + 1
+        hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
+        asignadasFijo++
+      }
+      asignadasFase1[legajo] = (asignadasFase1[legajo] || 0) + asignadasFijo
+    }
+
     // ===== Fase 1: efectivos marcados para guardias de 24hs (día completo, con día de descanso después) =====
-    const asignadasFase1 = {} // legajo -> cantidad de turnos nuevos ya cubiertos en las fases 1 / 1.25
     for (const { legajo, objetivo } of targets) {
       if (!legajos24hs.has(legajo)) continue
+
+      // Puesto fijo con turno específico (solo día o solo noche) es incompatible con
+      // una 24hs, que por definición cubre AMBOS turnos del día — no se asigna
+      // ninguna 24hs para este efectivo, queda pendiente e informado (la Fase 2 ya
+      // no lo completa en otro sector por la exclusividad del puesto fijo).
+      const fijo = fijoPorLegajo[normLegajo(legajo)]
+      if (fijo && fijo.turno) continue
 
       const dmap = dispMap[normLegajo(legajo)] || {}
       const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
@@ -1091,6 +1238,12 @@ export default function AdminApp() {
       const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
       let sectorRotIdx = 0
       function getSector24(dia, turno) {
+        // Puesto fijo (sin turno específico, ya descartado arriba): la 24hs debe
+        // cubrirse ENTERA en ese sector — nunca repartida en otro por más libre que
+        // esté. Si no hay cupo para AMBOS turnos ese día, el día queda sin asignar.
+        if (fijo) {
+          return (ocupacion[dia + '-' + turno + '-' + fijo.sector] || 0) < cupoSlot(fijo.sector, turno) ? fijo.sector : null
+        }
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
           if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < cupoSlot(s, turno)) { conteoSector[s]++; return s }
@@ -1139,6 +1292,12 @@ export default function AdminApp() {
       for (const { legajo, objetivo } of targets) {
         if (!legajosDoble.has(legajo) || legajos24hs.has(legajo)) continue
 
+        // Puesto fijo con turno específico es incompatible con doble turno (que cubre
+        // 2 de los 3 turnos del día) — no se asigna ningún doble turno para este
+        // efectivo, queda pendiente e informado.
+        const fijo = fijoPorLegajo[normLegajo(legajo)]
+        if (fijo && fijo.turno) continue
+
         const dmap = dispMap[normLegajo(legajo)] || {}
         const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
 
@@ -1160,10 +1319,16 @@ export default function AdminApp() {
           )
           if (!par) continue
 
-          const sector = sectores.find(s =>
-            (ocupacion[dia + '-' + par[0] + '-' + s] || 0) < cupoSlot(s, par[0]) &&
-            (ocupacion[dia + '-' + par[1] + '-' + s] || 0) < cupoSlot(s, par[1])
-          )
+          // Puesto fijo (sin turno específico, ya descartado arriba): el doble turno
+          // completo tiene que caer en ese único sector — nunca se reparte en otro.
+          const sector = fijo
+            ? (((ocupacion[dia + '-' + par[0] + '-' + fijo.sector] || 0) < cupoSlot(fijo.sector, par[0]) &&
+                (ocupacion[dia + '-' + par[1] + '-' + fijo.sector] || 0) < cupoSlot(fijo.sector, par[1]))
+                ? fijo.sector : null)
+            : sectores.find(s =>
+                (ocupacion[dia + '-' + par[0] + '-' + s] || 0) < cupoSlot(s, par[0]) &&
+                (ocupacion[dia + '-' + par[1] + '-' + s] || 0) < cupoSlot(s, par[1])
+              )
           if (!sector) continue
 
           par.forEach(tk => {
@@ -1193,6 +1358,10 @@ export default function AdminApp() {
       const a = String(pareja.legajo1), b = String(pareja.legajo2)
       if (yaEmparejado.has(a) || yaEmparejado.has(b)) continue
       if (!(a in objetivoPorLegajo) || !(b in objetivoPorLegajo)) continue // ambos deben estar en esta tanda
+      // Puesto fijo (Paso 3B): si cualquiera de los dos tiene una regla activa, no se
+      // los empareja automáticamente (cada uno ya tuvo su chance en la Fase 0, en su
+      // propio sector) — evita tener que elegir en silencio el sector de uno de los dos.
+      if (fijoPorLegajo[normLegajo(a)] || fijoPorLegajo[normLegajo(b)]) continue
       yaEmparejado.add(a); yaEmparejado.add(b)
 
       const metaPareja = Math.min(objetivoPorLegajo[a], objetivoPorLegajo[b])
@@ -1231,6 +1400,15 @@ export default function AdminApp() {
     // (o no les armó ningún bloque, p.ej. por falta de disponibilidad de día completo),
     // acá se completa con turnos sueltos en vez de dejarlos sin nada.
     for (const { legajo, objetivo } of targets) {
+      // Puesto fijo (Paso 3B, "Bug 5"): un efectivo con regla activa ya agotó su única
+      // fuente de guardias en las fases anteriores (solo, en 24hs o en doble turno,
+      // siempre en SU sector). Si no llegó al objetivo, queda PENDIENTE e informado —
+      // esta fase ya NO lo completa en el resto de los sectores.
+      if (fijoPorLegajo[normLegajo(legajo)]) {
+        reporte.push({ legajo, objetivo, asignadas: asignadasFase1[legajo] || 0 })
+        continue
+      }
+
       const hsActuales = hsMap[legajo] || 0
       const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
       const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
@@ -2481,6 +2659,62 @@ export default function AdminApp() {
                       )}
                     </div>
                   )}
+                  <div style={{ marginBottom:14, border:'1px solid rgba(239,159,39,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(239,159,39,0.05)' }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
+                      onClick={() => setPuestoFijoModal(!puestoFijoModal)}>
+                      <span style={{ fontSize:12, fontWeight:500 }}>📍 Puestos fijos {APP_LUGAR} ({puestoFijoReglas.length})</span>
+                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{puestoFijoModal ? '▲' : '▼'}</span>
+                    </div>
+                    {puestoFijoModal && (
+                      <div style={{ padding:12 }}>
+                        <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
+                          Un efectivo con puesto fijo configurado nunca se asigna automáticamente en otro sector (ni en otro turno, si se especifica uno) — ni en Asignación rápida, ni en Asignar guardias rápido, ni en Completar día, ni en Generar turnos. Si no alcanza a cubrir todo el objetivo desde su puesto, el resto queda pendiente e informado, nunca se completa en otro lado.
+                        </p>
+                        {puestoFijoReglas.length === 0 ? (
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>Ningún efectivo tiene puesto fijo configurado en {APP_LUGAR}.</div>
+                        ) : (
+                          <div style={{ marginBottom:10 }}>
+                            {puestoFijoReglas.map(r => {
+                              const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
+                              const ti = TURNOS_INFO.find(x => x.key === r.turno)
+                              return (
+                                <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(239,159,39,0.08)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef?.nombre || r.legajo} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {r.legajo}</span> — {r.sector}{ti ? ` · turno ${ti.label}` : ' · ambos turnos'}</span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarPuestoFijo(r.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                        <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
+                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                            <select value={nuevoPuestoLeg} onChange={e => setNuevoPuestoLeg(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
+                              <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
+                              {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                              ))}
+                            </select>
+                            <select value={nuevoPuestoSector} onChange={e => setNuevoPuestoSector(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa' }}>
+                              <option value="" style={{ color:'#111', background:'#fff' }}>— Sector —</option>
+                              {SECTORES_APP.map(s => (
+                                <option key={s} value={s} style={{ color:'#111', background:'#fff' }}>{s}</option>
+                              ))}
+                            </select>
+                            <select value={nuevoPuestoTurno} onChange={e => setNuevoPuestoTurno(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa' }}>
+                              <option value="" style={{ color:'#111', background:'#fff' }}>Ambos turnos</option>
+                              {TURNOS_INFO.map(t => (
+                                <option key={t.key} value={t.key} style={{ color:'#111', background:'#fff' }}>Solo {t.label}</option>
+                              ))}
+                            </select>
+                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(239,159,39,0.15)', color:'#EF9F27' }} onClick={agregarPuestoFijo}>+ Configurar</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
                     Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b>, y le asigna la <b>misma cantidad</b> usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
                   </p>
