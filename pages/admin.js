@@ -304,6 +304,15 @@ export default function AdminApp() {
   const router = useRouter()
   const [mesSeleccionado, setMesSeleccionado] = useState(MES_ACTUAL)
   const [anioSeleccionado, setAnioSeleccionado] = useState(ANIO_ACTUAL)
+  // Candadito de mes (pedido: "que me deje en un mes de trabajo, para no ir
+  // cambiando y permitirme a cometer errores"): mesSeleccionado/anioSeleccionado
+  // nunca se guardaban en ningún lado, así que al recargar la página siempre
+  // arrancaban en el mes/año REAL de hoy. Con el candado activo: 1) el mes/año
+  // con el que se entró la última vez se restaura solo al volver a entrar (ver
+  // el useEffect de montaje, junto a polad_ventanas_), en vez de resetear al
+  // mes de hoy; 2) los selectores de mes/año quedan deshabilitados mientras
+  // esté puesto, para que no se toquen por error.
+  const [mesBloqueado, setMesBloqueado] = useState(false)
   const MES = mesSeleccionado
   const ANIO = anioSeleccionado
   const DIAS_MES = new Date(ANIO, MES, 0).getDate()
@@ -348,6 +357,12 @@ export default function AdminApp() {
   const [rapidaProcesando, setRapidaProcesando] = useState(false)
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
+  // Tarjetas de "Sin guardias el mes anterior": cantidad + tipo de turno que
+  // se está tipeando para cada legajo, antes de apretar "Asignar" (pedido:
+  // "había colocado una opción de ponerle cantidad de días desde ahí, así en
+  // cada uno que haya"). Se guarda por legajo porque puede haber varias
+  // tarjetas abiertas a la vez, cada una con su propio valor.
+  const [camposRapidaNuevos, setCamposRapidaNuevos] = useState({})
   const [rapida24hs, setRapida24hs] = useState(new Set())
   const [rapidaDoble, setRapidaDoble] = useState(new Set())
   const [especiales, setEspeciales] = useState([])
@@ -404,6 +419,18 @@ export default function AdminApp() {
     } catch(e) {}
     const v = localStorage.getItem(`polad_ventanas_${lugar}`)
     if (v) try { setVentanas(JSON.parse(v)) } catch(e) {}
+    // Candadito de mes (ver comentario junto a mesBloqueado más arriba): si
+    // había un mes/año guardado con el candado puesto, se restaura ACÁ, antes
+    // de cargar nada, en vez de dejar el mes/año de hoy por default.
+    const mb = localStorage.getItem(`polad_mes_bloqueado_${lugar}`)
+    if (mb) {
+      try {
+        const { mes, anio } = JSON.parse(mb)
+        if (mes >= 1 && mes <= 12 && anio >= 2000) {
+          setMesSeleccionado(mes); setAnioSeleccionado(anio); setMesBloqueado(true)
+        }
+      } catch(e) {}
+    }
     const now = new Date()
     supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
       if (cfg) {
@@ -414,6 +441,20 @@ export default function AdminApp() {
     })
     setTimeout(() => cargarTodo(lugar), 0)
   }, [])
+
+  // Candadito de mes: al activarlo guarda el mes/año actual (el que se estaba
+  // viendo en ese momento) en localStorage y deshabilita los selectores; al
+  // desactivarlo solo borra lo guardado (el mes/año con el que se estaba se
+  // mantiene hasta que se cambie a mano).
+  function toggleBloqueoMes() {
+    if (mesBloqueado) {
+      localStorage.removeItem(`polad_mes_bloqueado_${lugarDetectado}`)
+      setMesBloqueado(false)
+    } else {
+      localStorage.setItem(`polad_mes_bloqueado_${lugarDetectado}`, JSON.stringify({ mes: mesSeleccionado, anio: anioSeleccionado }))
+      setMesBloqueado(true)
+    }
+  }
 
   function marcarNotificado(legajo) {
     setNotificados(prev => {
@@ -2042,12 +2083,17 @@ export default function AdminApp() {
             <button key={v} className="btn btn-sm" style={{ fontWeight:vista===v?600:400,background:vista===v?'rgba(200,168,75,0.15)':'transparent',color:vista===v?'#c8a84b':'#8b90a0',border:vista===v?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }} onClick={() => setVista(v)}>{LABELS[v]}</button>
           ))}
           <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
-            <select value={mesSeleccionado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+            <select value={mesSeleccionado} disabled={mesBloqueado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
               {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
             </select>
-            <select value={anioSeleccionado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor:'pointer' }}>
+            <select value={anioSeleccionado} disabled={mesBloqueado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
               {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
             </select>
+            <button onClick={toggleBloqueoMes}
+              title={mesBloqueado ? `Mes bloqueado en ${NOMBRE_MES} — click para desbloquear` : 'Bloquear este mes (no se va a cambiar solo al entrar y salir)'}
+              style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:13, padding:'0 2px', opacity: mesBloqueado ? 1 : 0.55 }}>
+              {mesBloqueado ? '🔒' : '🔓'}
+            </button>
           </div>
           <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => router.push('/control')}>Control asistencia</button>
           <button className="btn btn-sm" style={{ color:'#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
@@ -2917,15 +2963,43 @@ export default function AdminApp() {
                 <div className="panel">
                   <div className="panel-header">
                     <h3>Sin guardias el mes anterior — {rapidaNuevos.length}</h3>
-                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>Cargaron disponibilidad este mes pero no tienen número de referencia — asignar a mano</span>
+                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>Cargaron disponibilidad este mes pero no tienen número de referencia — poné cantidad y turno y asigná directo, o configurá una "Cantidad fija" en Reglas especiales</span>
                   </div>
                   <div style={{ padding:14, display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:8 }}>
-                    {rapidaNuevos.map(n => (
-                      <div key={n.legajo} style={{ padding:'8px 10px', border:'0.5px solid var(--border)', borderRadius:8, background:'var(--surface2)' }}>
-                        <div style={{ fontSize:12, fontWeight:500 }}>{n.nombre}</div>
-                        <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {n.legajo}</div>
-                      </div>
-                    ))}
+                    {rapidaNuevos.map(n => {
+                      const campo = camposRapidaNuevos[n.legajo] || { cantidad: '', tipoTurno: TURNOS_LUGAR[0] }
+                      return (
+                        <div key={n.legajo} style={{ padding:'8px 10px', border:'0.5px solid var(--border)', borderRadius:8, background:'var(--surface2)' }}>
+                          <div style={{ fontSize:12, fontWeight:500 }}>{n.nombre}</div>
+                          <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:6 }}>Leg. {n.legajo}</div>
+                          <div style={{ display:'flex', gap:4 }}>
+                            <input type="number" min="1" max="31" value={campo.cantidad}
+                              onChange={e => setCamposRapidaNuevos(prev => ({ ...prev, [n.legajo]: { ...campo, cantidad: parseInt(e.target.value) || '' } }))}
+                              placeholder="Cant." title="Cantidad de guardias"
+                              style={{ width:48, padding:'4px 6px', fontSize:11, border:'0.5px solid var(--border)', borderRadius:6, background:'var(--surface)', color:'var(--text)', outline:'none' }} />
+                            <select value={campo.tipoTurno} title="Tipo de turno"
+                              onChange={e => setCamposRapidaNuevos(prev => ({ ...prev, [n.legajo]: { ...campo, tipoTurno: e.target.value } }))}
+                              style={{ flex:'1 1 0%', minWidth:0, padding:'4px 4px', fontSize:11, border:'0.5px solid var(--border)', borderRadius:6, background:'var(--surface)', color:'var(--text)', outline:'none' }}>
+                              {TURNOS_INFO.map(ti => <option key={ti.key} value={ti.key}>{ti.label}</option>)}
+                              <option value="mixto">Mixto</option>
+                              <option value="doble">Todos</option>
+                            </select>
+                            <button className="btn btn-sm" disabled={!campo.cantidad || asignando}
+                              style={{ fontSize:10, padding:'4px 8px', background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)', whiteSpace:'nowrap' }}
+                              onClick={async () => {
+                                await asignarGuardiasAuto(n.legajo, campo.cantidad, campo.tipoTurno)
+                                // asignarGuardiasAuto ya refresca turnos/horas (cargarTodo), pero no
+                                // esta lista propia — se refresca acá para que, si quedó cubierto,
+                                // la tarjeta deje de aparecer (mismo patrón que el resto de "rápida").
+                                await cargarRapida()
+                                setCamposRapidaNuevos(prev => ({ ...prev, [n.legajo]: { cantidad: '', tipoTurno: campo.tipoTurno } }))
+                              }}>
+                              Asignar
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
