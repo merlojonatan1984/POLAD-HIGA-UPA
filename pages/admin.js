@@ -372,6 +372,11 @@ export default function AdminApp() {
   const [objetivoModal, setObjetivoModal] = useState(true)
   const [nuevoObjetivoLeg, setNuevoObjetivoLeg] = useState('')
   const [nuevoObjetivoCantidad, setNuevoObjetivoCantidad] = useState('')
+  // Un solo panel colapsable "Reglas especiales" con pestañas para Casos
+  // especiales / Puestos fijos / Cantidad fija, en vez de 3 paneles separados
+  // uno debajo del otro — mismo contenido, menos altura en pantalla.
+  const [reglasModal, setReglasModal] = useState(true)
+  const [reglasTab, setReglasTab] = useState('especiales')
   const [buscarLegajoInput, setBuscarLegajoInput] = useState('')
   const [buscarLegajoResultado, setBuscarLegajoResultado] = useState(null)
   const [buscarLegajoCargando, setBuscarLegajoCargando] = useState(false)
@@ -2630,184 +2635,188 @@ export default function AdminApp() {
                 </div>
                 <div style={{ padding:14 }}>
                   {(
-                    <div style={{ marginBottom:14, border:'1px solid rgba(29,158,117,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(29,158,117,0.05)' }}>
+                    <div style={{ marginBottom:14, border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', background:'rgba(255,255,255,0.02)' }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
-                        onClick={() => setEspecialesModal(!especialesModal)}>
-                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Casos especiales {APP_LUGAR} ({especiales.filter(e=>e.tipo==='24hs').length} de 24hs · {especiales.filter(e=>e.tipo==='pareja').length} parejas)</span>
-                        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{especialesModal ? '▲' : '▼'}</span>
+                        onClick={() => setReglasModal(!reglasModal)}>
+                        <span style={{ fontSize:12, fontWeight:500 }}>⚙ Reglas especiales {APP_LUGAR}</span>
+                        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{reglasModal ? '▲' : '▼'}</span>
                       </div>
-                      {especialesModal && (
+                      {reglasModal && (
                         <div style={{ padding:12 }}>
-                          <div style={{ marginBottom:10 }}>
-                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>GUARDIAS DE 24HS</div>
-                            {especiales.filter(e => e.tipo === '24hs').map(e => {
-                              const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
-                              return (
-                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(29,158,117,0.08)', borderRadius:6, marginBottom:4 }}>
-                                  <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
-                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
-                                </div>
-                              )
-                            })}
+                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
+                            {[
+                              { key:'especiales', label:'⚙ Casos especiales', count: especiales.length, color:'#1D9E75', bg:'rgba(29,158,117,0.15)' },
+                              { key:'puestoFijo', label:'📍 Puestos fijos', count: puestoFijoReglas.length, color:'#EF9F27', bg:'rgba(239,159,39,0.15)' },
+                              { key:'cantidadFija', label:'🎯 Cantidad fija', count: objetivoReglas.length, color:'#AFA9EC', bg:'rgba(123,111,216,0.15)' },
+                            ].map(t => (
+                              <button key={t.key} className="btn btn-sm"
+                                style={{ fontSize:11, background: reglasTab === t.key ? t.bg : 'transparent', color: reglasTab === t.key ? t.color : 'var(--text-muted)', border: reglasTab === t.key ? `0.5px solid ${t.color}` : '0.5px solid var(--border)' }}
+                                onClick={() => setReglasTab(t.key)}>
+                                {t.label} ({t.count})
+                              </button>
+                            ))}
                           </div>
-                          <div style={{ marginBottom:10 }}>
-                            <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>PAREJAS</div>
-                            {especiales.filter(e => e.tipo === 'pareja').map(e => {
-                              const ef1 = efectivos.find(x => String(x.legajo) === String(e.legajo1))
-                              const ef2 = efectivos.find(x => String(x.legajo) === String(e.legajo2))
-                              return (
-                                <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(239,159,39,0.08)', borderRadius:6, marginBottom:4 }}>
-                                  <span style={{ fontSize:12 }}>{ef1?.nombre || e.legajo1} + {ef2?.nombre || e.legajo2}</span>
-                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                          {APP_LUGAR === 'MODULAR' && (
-                            <div style={{ marginBottom:10 }}>
-                              <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>DOBLE TURNO (Mañana+Tarde o Tarde+Noche)</div>
-                              {especiales.filter(e => e.tipo === 'doble').map(e => {
-                                const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
-                                return (
-                                  <div key={e.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(123,111,216,0.08)', borderRadius:6, marginBottom:4 }}>
-                                    <span style={{ fontSize:12 }}>{ef?.nombre || e.legajo1} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {e.legajo1}</span></span>
-                                    <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarEspecial(e.id)}>Quitar</button>
+
+                          {reglasTab === 'especiales' && (
+                            <div>
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:10, marginBottom:10 }}>
+                                <div style={{ flex:'1 1 240px' }}>
+                                  <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>GUARDIAS DE 24HS</div>
+                                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                    {especiales.filter(e => e.tipo === '24hs').length === 0 && <span style={{ fontSize:11, color:'var(--text-hint)' }}>Ninguno configurado.</span>}
+                                    {especiales.filter(e => e.tipo === '24hs').map(e => {
+                                      const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                                      return (
+                                        <div key={e.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(29,158,117,0.1)', border:'0.5px solid rgba(29,158,117,0.3)', borderRadius:14 }}>
+                                          <span style={{ fontSize:11 }}>{(ef?.nombre || e.legajo1).split(',')[0]}</span>
+                                          <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarEspecial(e.id)}>✕</button>
+                                        </div>
+                                      )
+                                    })}
                                   </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                          <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
-                            <div style={{ display:'flex', gap:6, marginBottom:6 }}>
-                              <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }} style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)' }}>
-                                <option value="24hs">24hs</option>
-                                <option value="pareja">Pareja</option>
-                                {APP_LUGAR === 'MODULAR' && <option value="doble">Doble turno</option>}
-                              </select>
-                            </div>
-                            <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-                              <select value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
-                                style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
-                                <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo{nuevoEspecialTipo === 'pareja' ? ' 1' : ''} —</option>
-                                {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
-                                  <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
-                                ))}
-                              </select>
-                              {nuevoEspecialTipo === 'pareja' && (
-                                <select value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
-                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
-                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo 2 —</option>
+                                </div>
+                                <div style={{ flex:'1 1 240px' }}>
+                                  <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>PAREJAS</div>
+                                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                    {especiales.filter(e => e.tipo === 'pareja').length === 0 && <span style={{ fontSize:11, color:'var(--text-hint)' }}>Ninguna configurada.</span>}
+                                    {especiales.filter(e => e.tipo === 'pareja').map(e => {
+                                      const ef1 = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                                      const ef2 = efectivos.find(x => String(x.legajo) === String(e.legajo2))
+                                      return (
+                                        <div key={e.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(239,159,39,0.1)', border:'0.5px solid rgba(239,159,39,0.3)', borderRadius:14 }}>
+                                          <span style={{ fontSize:11 }}>{(ef1?.nombre || e.legajo1).split(',')[0]} + {(ef2?.nombre || e.legajo2).split(',')[0]}</span>
+                                          <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarEspecial(e.id)}>✕</button>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                                {APP_LUGAR === 'MODULAR' && (
+                                  <div style={{ flex:'1 1 240px' }}>
+                                    <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>DOBLE TURNO</div>
+                                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                      {especiales.filter(e => e.tipo === 'doble').length === 0 && <span style={{ fontSize:11, color:'var(--text-hint)' }}>Ninguno configurado.</span>}
+                                      {especiales.filter(e => e.tipo === 'doble').map(e => {
+                                        const ef = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                                        return (
+                                          <div key={e.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(123,111,216,0.1)', border:'0.5px solid rgba(123,111,216,0.3)', borderRadius:14 }}>
+                                            <span style={{ fontSize:11 }}>{(ef?.nombre || e.legajo1).split(',')[0]}</span>
+                                            <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarEspecial(e.id)}>✕</button>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
+                                <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'var(--bg-input)', color:'var(--text)', border:'0.5px solid var(--border)', flex:'0 0 120px' }}>
+                                  <option value="24hs">24hs</option>
+                                  <option value="pareja">Pareja</option>
+                                  {APP_LUGAR === 'MODULAR' && <option value="doble">Doble turno</option>}
+                                </select>
+                                <select value={nuevoEspecialLeg1} onChange={e => setNuevoEspecialLeg1(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'1 1 200px' }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Efectivo{nuevoEspecialTipo === 'pareja' ? ' 1' : ''} —</option>
                                   {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
                                     <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
                                   ))}
                                 </select>
-                              )}
-                              <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(29,158,117,0.15)', color:'#1D9E75' }} onClick={agregarEspecial}>+ Agregar</button>
+                                {nuevoEspecialTipo === 'pareja' && (
+                                  <select value={nuevoEspecialLeg2} onChange={e => setNuevoEspecialLeg2(e.target.value)}
+                                    style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'1 1 200px' }}>
+                                    <option value="" style={{ color:'#111', background:'#fff' }}>— Efectivo 2 —</option>
+                                    {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                      <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                                    ))}
+                                  </select>
+                                )}
+                                <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(29,158,117,0.15)', color:'#1D9E75', flex:'0 0 auto' }} onClick={agregarEspecial}>+ Agregar</button>
+                              </div>
                             </div>
-                          </div>
+                          )}
+
+                          {reglasTab === 'puestoFijo' && (
+                            <div>
+                              <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
+                                Un efectivo con puesto fijo configurado nunca se asigna automáticamente en otro sector (ni en otro turno, si se especifica uno) — ni en Asignación rápida, ni en Asignar guardias rápido, ni en Completar día, ni en Generar turnos. Si no alcanza a cubrir todo el objetivo desde su puesto, el resto queda pendiente e informado, nunca se completa en otro lado.
+                              </p>
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:10 }}>
+                                {puestoFijoReglas.length === 0 && <span style={{ fontSize:11, color:'var(--text-hint)' }}>Ningún efectivo tiene puesto fijo configurado en {APP_LUGAR}.</span>}
+                                {puestoFijoReglas.map(r => {
+                                  const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
+                                  const ti = TURNOS_INFO.find(x => x.key === r.turno)
+                                  return (
+                                    <div key={r.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(239,159,39,0.1)', border:'0.5px solid rgba(239,159,39,0.3)', borderRadius:14 }}>
+                                      <span style={{ fontSize:11 }}>{(ef?.nombre || r.legajo).split(',')[0]} — {r.sector}{ti ? ` · ${ti.label}` : ' · ambos turnos'}</span>
+                                      <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarPuestoFijo(r.id)}>✕</button>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                              <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
+                                <select value={nuevoPuestoLeg} onChange={e => setNuevoPuestoLeg(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'1 1 200px' }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
+                                  {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                    <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                                  ))}
+                                </select>
+                                <select value={nuevoPuestoSector} onChange={e => setNuevoPuestoSector(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'0 0 150px' }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Sector —</option>
+                                  {SECTORES_APP.map(s => (
+                                    <option key={s} value={s} style={{ color:'#111', background:'#fff' }}>{s}</option>
+                                  ))}
+                                </select>
+                                <select value={nuevoPuestoTurno} onChange={e => setNuevoPuestoTurno(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'0 0 140px' }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>Ambos turnos</option>
+                                  {TURNOS_INFO.map(t => (
+                                    <option key={t.key} value={t.key} style={{ color:'#111', background:'#fff' }}>Solo {t.label}</option>
+                                  ))}
+                                </select>
+                                <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(239,159,39,0.15)', color:'#EF9F27', flex:'0 0 auto' }} onClick={agregarPuestoFijo}>+ Configurar</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {reglasTab === 'cantidadFija' && (
+                            <div>
+                              <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
+                                Para un efectivo con cantidad fija configurada, Asignación rápida usa ESE número como objetivo en vez de la cantidad de {nombrePrev} — lo reemplaza directamente, nunca se suma ni se resta. Si cargó disponibilidad pero no tenía guardias el mes pasado, con esto pasa a la lista de abajo con su cantidad.
+                              </p>
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:10 }}>
+                                {objetivoReglas.length === 0 && <span style={{ fontSize:11, color:'var(--text-hint)' }}>Ningún efectivo tiene cantidad fija configurada en {APP_LUGAR}.</span>}
+                                {objetivoReglas.map(r => {
+                                  const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
+                                  return (
+                                    <div key={r.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(123,111,216,0.1)', border:'0.5px solid rgba(123,111,216,0.3)', borderRadius:14 }}>
+                                      <span style={{ fontSize:11 }}>{(ef?.nombre || r.legajo).split(',')[0]} — {r.cantidad} guardias</span>
+                                      <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarObjetivoFijo(r.id)}>✕</button>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                              <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
+                                <select value={nuevoObjetivoLeg} onChange={e => setNuevoObjetivoLeg(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'1 1 200px' }}>
+                                  <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
+                                  {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                    <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                                  ))}
+                                </select>
+                                <input type="number" min="1" placeholder="Cantidad" value={nuevoObjetivoCantidad} onChange={e => setNuevoObjetivoCantidad(e.target.value)}
+                                  style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:'0 0 90px' }} />
+                                <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(123,111,216,0.15)', color:'#AFA9EC', flex:'0 0 auto' }} onClick={agregarObjetivoFijo}>+ Configurar</button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )}
-                  <div style={{ marginBottom:14, border:'1px solid rgba(239,159,39,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(239,159,39,0.05)' }}>
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
-                      onClick={() => setPuestoFijoModal(!puestoFijoModal)}>
-                      <span style={{ fontSize:12, fontWeight:500 }}>📍 Puestos fijos {APP_LUGAR} ({puestoFijoReglas.length})</span>
-                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{puestoFijoModal ? '▲' : '▼'}</span>
-                    </div>
-                    {puestoFijoModal && (
-                      <div style={{ padding:12 }}>
-                        <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
-                          Un efectivo con puesto fijo configurado nunca se asigna automáticamente en otro sector (ni en otro turno, si se especifica uno) — ni en Asignación rápida, ni en Asignar guardias rápido, ni en Completar día, ni en Generar turnos. Si no alcanza a cubrir todo el objetivo desde su puesto, el resto queda pendiente e informado, nunca se completa en otro lado.
-                        </p>
-                        {puestoFijoReglas.length === 0 ? (
-                          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>Ningún efectivo tiene puesto fijo configurado en {APP_LUGAR}.</div>
-                        ) : (
-                          <div style={{ marginBottom:10 }}>
-                            {puestoFijoReglas.map(r => {
-                              const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
-                              const ti = TURNOS_INFO.find(x => x.key === r.turno)
-                              return (
-                                <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(239,159,39,0.08)', borderRadius:6, marginBottom:4 }}>
-                                  <span style={{ fontSize:12 }}>{ef?.nombre || r.legajo} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {r.legajo}</span> — {r.sector}{ti ? ` · turno ${ti.label}` : ' · ambos turnos'}</span>
-                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarPuestoFijo(r.id)}>Quitar</button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                        <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
-                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-                            <select value={nuevoPuestoLeg} onChange={e => setNuevoPuestoLeg(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
-                              <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
-                              {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
-                                <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
-                              ))}
-                            </select>
-                            <select value={nuevoPuestoSector} onChange={e => setNuevoPuestoSector(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa' }}>
-                              <option value="" style={{ color:'#111', background:'#fff' }}>— Sector —</option>
-                              {SECTORES_APP.map(s => (
-                                <option key={s} value={s} style={{ color:'#111', background:'#fff' }}>{s}</option>
-                              ))}
-                            </select>
-                            <select value={nuevoPuestoTurno} onChange={e => setNuevoPuestoTurno(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa' }}>
-                              <option value="" style={{ color:'#111', background:'#fff' }}>Ambos turnos</option>
-                              {TURNOS_INFO.map(t => (
-                                <option key={t.key} value={t.key} style={{ color:'#111', background:'#fff' }}>Solo {t.label}</option>
-                              ))}
-                            </select>
-                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(239,159,39,0.15)', color:'#EF9F27' }} onClick={agregarPuestoFijo}>+ Configurar</button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ marginBottom:14, border:'1px solid rgba(123,111,216,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(123,111,216,0.05)' }}>
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
-                      onClick={() => setObjetivoModal(!objetivoModal)}>
-                      <span style={{ fontSize:12, fontWeight:500 }}>🎯 Cantidad fija de guardias {APP_LUGAR} ({objetivoReglas.length})</span>
-                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{objetivoModal ? '▲' : '▼'}</span>
-                    </div>
-                    {objetivoModal && (
-                      <div style={{ padding:12 }}>
-                        <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
-                          Para un efectivo con cantidad fija configurada, Asignación rápida usa ESE número como objetivo en vez de la cantidad de {nombrePrev} — lo reemplaza directamente, nunca se suma ni se resta. Si cargó disponibilidad pero no tenía guardias el mes pasado, con esto pasa a la lista de abajo con su cantidad.
-                        </p>
-                        {objetivoReglas.length === 0 ? (
-                          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>Ningún efectivo tiene cantidad fija configurada en {APP_LUGAR}.</div>
-                        ) : (
-                          <div style={{ marginBottom:10 }}>
-                            {objetivoReglas.map(r => {
-                              const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
-                              return (
-                                <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(123,111,216,0.08)', borderRadius:6, marginBottom:4 }}>
-                                  <span style={{ fontSize:12 }}>{ef?.nombre || r.legajo} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {r.legajo}</span> — {r.cantidad} guardias</span>
-                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarObjetivoFijo(r.id)}>Quitar</button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                        <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
-                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-                            <select value={nuevoObjetivoLeg} onChange={e => setNuevoObjetivoLeg(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
-                              <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
-                              {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
-                                <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
-                              ))}
-                            </select>
-                            <input type="number" min="1" placeholder="Cantidad" value={nuevoObjetivoCantidad} onChange={e => setNuevoObjetivoCantidad(e.target.value)}
-                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', width:90 }} />
-                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(123,111,216,0.15)', color:'#AFA9EC' }} onClick={agregarObjetivoFijo}>+ Configurar</button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                   <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
                     Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b> (o tiene una <b>cantidad fija</b> configurada), y le asigna esa cantidad usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
                   </p>
