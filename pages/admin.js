@@ -2073,30 +2073,67 @@ export default function AdminApp() {
 
       {modalPersonal && <ModalPersonal datos={modalPersonal} onClose={() => { setModalPersonal(null); setMsgPersonal(null) }} onGuardar={handleGuardarPersonal} onEliminar={handleEliminarPersonal} guardando={guardandoPersonal} msg={msgPersonal} />}
 
-      <div className="topbar">
-        <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-          <span style={{ fontSize:15,fontWeight:500 }}>Panel Admin — POLAD</span>
-          <span style={{ background:BG_APP,color:COLOR_APP,fontSize:11,padding:'2px 8px',borderRadius:3,fontWeight:600,border:`0.5px solid ${COLOR_APP}66` }}>{APP_LUGAR}</span>
-        </div>
-        <div style={{ display:'flex',gap:6,flexWrap:'wrap' }}>
-          {VISTAS.map(v => (
-            <button key={v} className="btn btn-sm" style={{ fontWeight:vista===v?600:400,background:vista===v?'rgba(200,168,75,0.15)':'transparent',color:vista===v?'#c8a84b':'#8b90a0',border:vista===v?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }} onClick={() => setVista(v)}>{LABELS[v]}</button>
-          ))}
-          <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'2px 6px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
-            <select value={mesSeleccionado} disabled={mesBloqueado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
-              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
-            </select>
-            <select value={anioSeleccionado} disabled={mesBloqueado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:12,fontWeight:500,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
-              {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
-            </select>
-            <button onClick={toggleBloqueoMes}
-              title={mesBloqueado ? `Mes bloqueado en ${NOMBRE_MES} — click para desbloquear` : 'Bloquear este mes (no se va a cambiar solo al entrar y salir)'}
-              style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:13, padding:'0 2px', opacity: mesBloqueado ? 1 : 0.55 }}>
-              {mesBloqueado ? '🔒' : '🔓'}
-            </button>
+      {/* Encabezado: diseño que ya habías aprobado antes (marca POLAD /
+          DESTINO + lugar, mes/año/candado y Salir arriba; pestañas
+          principales con ícono y línea de color debajo; pestañas
+          secundarias más chicas, en texto dorado, abajo de todo). Se
+          restaura tal cual estaba — el rediseño anterior (una sola tira
+          con las 10 pestañas) queda descartado. */}
+      <div className="topbar" style={{ display:'block', padding:0 }}>
+        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',flexWrap:'wrap',gap:10 }}>
+          <div style={{ display:'flex',alignItems:'center',gap:14 }}>
+            <span style={{ fontSize:23,fontWeight:700,letterSpacing:'0.04em' }}>POLAD</span>
+            <div style={{ display:'flex',flexDirection:'column',lineHeight:1.2 }}>
+              <span style={{ fontSize:11,color:COLOR_APP,letterSpacing:'0.1em',fontWeight:600 }}>DESTINO</span>
+              <span style={{ fontSize:18,fontWeight:700 }}>{APP_LUGAR}</span>
+            </div>
+            <span style={{ display:'flex',alignItems:'center',gap:6,fontSize:15,color:'#b7bcc9',borderLeft:'0.5px solid rgba(255,255,255,0.15)',paddingLeft:14,marginLeft:2 }}>📊 Panel de administración</span>
           </div>
-          <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => router.push('/control')}>Control asistencia</button>
-          <button className="btn btn-sm" style={{ color:'#8b90a0' }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>Salir</button>
+          <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+            <div style={{ display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.05)',borderRadius:6,padding:'4px 8px',border:'0.5px solid rgba(255,255,255,0.1)' }}>
+              <select value={mesSeleccionado} disabled={mesBloqueado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:14,fontWeight:600,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
+                {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#1a1d27' }}>{m}</option>)}
+              </select>
+              <select value={anioSeleccionado} disabled={mesBloqueado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ background:'transparent',border:'none',color:'#c8a84b',fontSize:14,fontWeight:600,outline:'none',cursor: mesBloqueado ? 'not-allowed' : 'pointer' }}>
+                {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#1a1d27' }}>{a}</option>)}
+              </select>
+              <button onClick={toggleBloqueoMes}
+                title={mesBloqueado ? `Mes bloqueado en ${NOMBRE_MES} — click para desbloquear` : 'Bloquear este mes (no se va a cambiar solo al entrar y salir)'}
+                style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:15, padding:'0 2px', opacity: mesBloqueado ? 1 : 0.55 }}>
+                {mesBloqueado ? '🔒' : '🔓'}
+              </button>
+            </div>
+            <button className="btn btn-sm" style={{ color:'#b7bcc9',fontSize:14 }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>↪ Salir</button>
+          </div>
+        </div>
+        <div style={{ display:'flex',gap:2,padding:'0 16px',borderBottom:'0.5px solid rgba(255,255,255,0.08)',flexWrap:'nowrap',overflowX:'auto' }}>
+          {[
+            { v:'resumen', icon:'📊', label:'Resumen' },
+            { v:'personal', icon:'👥', label:'Personal' },
+            { v:'disponibilidad', icon:'📅', label:'Disponibilidad' },
+            { v:'turnos', icon:'🛡️', label:'Guardias' },
+            { v:'edicion', icon:'✏️', label:'Edición manual' },
+            { v:'rapida', icon:'⚡', label:'Asignación rápida' },
+          ].map(item => (
+            <button key={item.v} onClick={() => setVista(item.v)} style={{ display:'flex',alignItems:'center',gap:7,padding:'11px 14px',background:'transparent',border:'none',borderBottom:vista===item.v?'2px solid #2DD4BF':'2px solid transparent',color:vista===item.v?'#2DD4BF':'#b7bcc9',fontSize:15,fontWeight:vista===item.v?700:500,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0 }}>
+              <span>{item.icon}</span>{item.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:'flex',gap:22,padding:'10px 16px',flexWrap:'nowrap',overflowX:'auto' }}>
+          {[
+            { v:'buscarLegajo', icon:'🔍', label:'Buscar legajo' },
+            { v:'config', icon:'⚙️', label:'Configuración' },
+            { v:'planillas', icon:'🗓️', label:'Planillas' },
+            { v:'descarga', icon:'📋', label:'Planilla Guardia' },
+          ].map(item => (
+            <button key={item.v} onClick={() => setVista(item.v)} style={{ display:'flex',alignItems:'center',gap:6,background:'transparent',border:'none',color:vista===item.v?'#c8a84b':'#b7bcc9',fontSize:14,fontWeight:vista===item.v?600:500,cursor:'pointer',padding:0,whiteSpace:'nowrap',flexShrink:0 }}>
+              <span>{item.icon}</span>{item.label}
+            </button>
+          ))}
+          <button onClick={() => router.push('/control')} style={{ display:'flex',alignItems:'center',gap:6,background:'transparent',border:'none',color:'#b7bcc9',fontSize:14,fontWeight:500,cursor:'pointer',padding:0,whiteSpace:'nowrap',flexShrink:0 }}>
+            <span>👤</span>Control asistencia
+          </button>
         </div>
       </div>
 
