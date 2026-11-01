@@ -364,6 +364,14 @@ export default function AdminApp() {
   const [nuevoPuestoLeg, setNuevoPuestoLeg] = useState('')
   const [nuevoPuestoSector, setNuevoPuestoSector] = useState('')
   const [nuevoPuestoTurno, setNuevoPuestoTurno] = useState('')
+  // Cantidad fija de guardias (objetivo individual): en vez de que "Asignación
+  // rápida" derive el objetivo de un efectivo de la cantidad del mes anterior,
+  // una regla activa acá lo REEMPLAZA directamente (nunca se suma ni se resta).
+  // Ver efectivo_objetivo_fijo (tabla nueva).
+  const [objetivoReglas, setObjetivoReglas] = useState([])
+  const [objetivoModal, setObjetivoModal] = useState(true)
+  const [nuevoObjetivoLeg, setNuevoObjetivoLeg] = useState('')
+  const [nuevoObjetivoCantidad, setNuevoObjetivoCantidad] = useState('')
   const [buscarLegajoInput, setBuscarLegajoInput] = useState('')
   const [buscarLegajoResultado, setBuscarLegajoResultado] = useState(null)
   const [buscarLegajoCargando, setBuscarLegajoCargando] = useState(false)
@@ -428,7 +436,7 @@ export default function AdminApp() {
 
   useEffect(() => { if (mounted && adminLoggedIn.current) cargarTodo(lugarDetectado) }, [mesSeleccionado, anioSeleccionado, mounted, lugarDetectado])
   useEffect(() => {
-    if (mounted && vista === 'rapida') { cargarTodo(lugarDetectado).then(() => { cargarRapida(); cargarEspeciales() }) }
+    if (mounted && vista === 'rapida') { cargarTodo(lugarDetectado).then(() => { cargarRapida(); cargarEspeciales(); cargarObjetivoFijo() }) }
   }, [vista, mesSeleccionado, anioSeleccionado, mounted])
   // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
   // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
@@ -1023,14 +1031,46 @@ export default function AdminApp() {
     await cargarPuestoFijo()
   }
 
+  async function cargarObjetivoFijo() {
+    const { data } = await supabase.from('efectivo_objetivo_fijo').select('*').eq('lugar', APP_LUGAR).eq('activo', true)
+    setObjetivoReglas(data || [])
+  }
+
+  async function agregarObjetivoFijo() {
+    if (!nuevoObjetivoLeg.trim()) return alert('Seleccioná el efectivo.')
+    const cant = parseInt(nuevoObjetivoCantidad, 10)
+    if (!cant || cant <= 0) return alert('Ingresá una cantidad válida (mayor a 0).')
+    // A lo sumo una regla activa por legajo+lugar: si ya tenía una cantidad fija
+    // configurada, se desactiva primero (nunca quedan dos activas en conflicto).
+    await supabase.from('efectivo_objetivo_fijo').update({ activo: false })
+      .eq('lugar', APP_LUGAR).eq('legajo', nuevoObjetivoLeg.trim()).eq('activo', true)
+    const { error } = await supabase.from('efectivo_objetivo_fijo').insert({
+      lugar: APP_LUGAR,
+      legajo: nuevoObjetivoLeg.trim(),
+      cantidad: cant,
+      activo: true,
+    })
+    if (error) return alert('Error al guardar: ' + error.message + '\n\nVerificá que la tabla efectivo_objetivo_fijo exista en Supabase (ejecutá migracion_objetivo_fijo.sql).')
+    setNuevoObjetivoLeg(''); setNuevoObjetivoCantidad('')
+    await cargarObjetivoFijo()
+    await cargarRapida()
+  }
+
+  async function quitarObjetivoFijo(id) {
+    await supabase.from('efectivo_objetivo_fijo').update({ activo: false }).eq('id', id)
+    await cargarObjetivoFijo()
+    await cargarRapida()
+  }
+
   async function cargarRapida() {
     setRapidaCargando(true); setRapidaMsg(null)
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const prev = mesAnteriorDe(MES, ANIO)
-    const [{ data: turnosPrev }, { data: turnosAct }] = await Promise.all([
+    const [{ data: turnosPrev }, { data: turnosAct }, { data: objetivoFijoData }] = await Promise.all([
       supabase.from('turnos').select('legajo').eq('mes', prev.mes).eq('anio', prev.anio).in('sector', sectores).limit(10000),
       supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
+      supabase.from('efectivo_objetivo_fijo').select('*').eq('lugar', L).eq('activo', true),
     ])
     const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
     // "Cargó disponibilidad" se define acá EXACTAMENTE igual que en la grilla de Disponibilidad:
@@ -1042,12 +1082,22 @@ export default function AdminApp() {
       Object.keys(disponibilidad).filter(legajo => Object.keys(disponibilidad[legajo] || {}).length > 0)
     )
     const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
+    // Cantidad fija (objetivo individual): si hay una regla activa para este
+    // legajo+lugar, su cantidad REEMPLAZA la del mes anterior — nunca se suman
+    // ni se restan entre sí. También hace que un efectivo que cargó
+    // disponibilidad pero no tuvo guardias el mes pasado (antes aparecía solo
+    // en "nuevos", sin objetivo) pase a la lista principal con su cantidad fija.
+    const objetivoFijoPorLegajo = {}
+    ;(objetivoFijoData || []).forEach(r => { objetivoFijoPorLegajo[normLegajo(r.legajo)] = r.cantidad })
     const lista = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) > 0)
-      .map(e => ({ legajo: e.legajo, nombre: e.nombre, objetivo: countPrev[e.legajo], yaAsignadas: countAct[e.legajo] || 0 }))
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && ((countPrev[e.legajo] || 0) > 0 || objetivoFijoPorLegajo[normLegajo(e.legajo)] != null))
+      .map(e => {
+        const fijo = objetivoFijoPorLegajo[normLegajo(e.legajo)]
+        return { legajo: e.legajo, nombre: e.nombre, objetivo: fijo != null ? fijo : countPrev[e.legajo], objetivoFijo: fijo != null, yaAsignadas: countAct[e.legajo] || 0 }
+      })
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     const nuevos = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0)
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0 && objetivoFijoPorLegajo[normLegajo(e.legajo)] == null)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     setRapidaNuevos(nuevos)
@@ -2715,8 +2765,51 @@ export default function AdminApp() {
                       </div>
                     )}
                   </div>
+                  <div style={{ marginBottom:14, border:'1px solid rgba(123,111,216,0.4)', borderRadius:8, overflow:'hidden', background:'rgba(123,111,216,0.05)' }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.03)', cursor:'pointer' }}
+                      onClick={() => setObjetivoModal(!objetivoModal)}>
+                      <span style={{ fontSize:12, fontWeight:500 }}>🎯 Cantidad fija de guardias {APP_LUGAR} ({objetivoReglas.length})</span>
+                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{objetivoModal ? '▲' : '▼'}</span>
+                    </div>
+                    {objetivoModal && (
+                      <div style={{ padding:12 }}>
+                        <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, lineHeight:1.5 }}>
+                          Para un efectivo con cantidad fija configurada, Asignación rápida usa ESE número como objetivo en vez de la cantidad de {nombrePrev} — lo reemplaza directamente, nunca se suma ni se resta. Si cargó disponibilidad pero no tenía guardias el mes pasado, con esto pasa a la lista de abajo con su cantidad.
+                        </p>
+                        {objetivoReglas.length === 0 ? (
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10 }}>Ningún efectivo tiene cantidad fija configurada en {APP_LUGAR}.</div>
+                        ) : (
+                          <div style={{ marginBottom:10 }}>
+                            {objetivoReglas.map(r => {
+                              const ef = efectivos.find(x => String(x.legajo) === String(r.legajo))
+                              return (
+                                <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'4px 8px', background:'rgba(123,111,216,0.08)', borderRadius:6, marginBottom:4 }}>
+                                  <span style={{ fontSize:12 }}>{ef?.nombre || r.legajo} <span style={{ color:'var(--text-muted)', fontSize:10 }}>Leg. {r.legajo}</span> — {r.cantidad} guardias</span>
+                                  <button className="btn btn-sm" style={{ fontSize:10, color:'#F09595', padding:'2px 8px' }} onClick={() => quitarObjetivoFijo(r.id)}>Quitar</button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                        <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)' }}>
+                          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                            <select value={nuevoObjetivoLeg} onChange={e => setNuevoObjetivoLeg(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', flex:1, minWidth:200 }}>
+                              <option value="" style={{ color:'#111', background:'#fff' }}>— Seleccioná efectivo —</option>
+                              {[...efectivos].sort((a,b) => a.nombre.localeCompare(b.nombre)).map(e => (
+                                <option key={e.legajo} value={e.legajo} style={{ color:'#111', background:'#fff' }}>{e.nombre} · Leg. {e.legajo}</option>
+                              ))}
+                            </select>
+                            <input type="number" min="1" placeholder="Cantidad" value={nuevoObjetivoCantidad} onChange={e => setNuevoObjetivoCantidad(e.target.value)}
+                              style={{ fontSize:11, padding:'4px 6px', borderRadius:6, background:'#ffffff', color:'#111111', border:'1px solid #aaa', width:90 }} />
+                            <button className="btn btn-sm" style={{ fontSize:11, background:'rgba(123,111,216,0.15)', color:'#AFA9EC' }} onClick={agregarObjetivoFijo}>+ Configurar</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
-                    Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b>, y le asigna la <b>misma cantidad</b> usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
+                    Toma a cada efectivo que <b>cargó disponibilidad este mes</b> y que <b>tuvo guardias en {nombrePrev}</b> (o tiene una <b>cantidad fija</b> configurada), y le asigna esa cantidad usando su disponibilidad actual. Respeta descanso 12hs, reparto espaciado y tope 180hs. Nunca asigna fuera de la disponibilidad cargada.
                   </p>
                   <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
                     <button className="btn btn-sm" disabled={rapidaProcesando || rapidaLista.length === 0}
@@ -2781,7 +2874,10 @@ export default function AdminApp() {
                                   <div style={{ fontSize:12, fontWeight:500 }}>{i.nombre}</div>
                                   <div style={{ fontSize:10, color:'var(--text-muted)' }}>Leg. {i.legajo}</div>
                                 </td>
-                                <td style={{ textAlign:'center', fontWeight:500, color:COLOR_APP }}>{i.objetivo}</td>
+                                <td style={{ textAlign:'center', fontWeight:500, color:COLOR_APP }}>
+                                  {i.objetivo}
+                                  {i.objetivoFijo && <div style={{ fontSize:9, color:'#AFA9EC', fontWeight:400 }}>🎯 fijo</div>}
+                                </td>
                                 <td style={{ textAlign:'center', fontWeight:500, color: completo ? '#1D9E75' : i.yaAsignadas > 0 ? '#EF9F27' : 'var(--text-muted)' }}>{i.yaAsignadas}</td>
                                 <td style={{ textAlign:'center' }}>
                                   {completo
