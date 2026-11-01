@@ -2507,6 +2507,7 @@ export default function AdminApp() {
                       <table>
                         <thead>
                           <tr>
+                            <th style={{ width:36, textAlign:'center' }}>N°</th>
                             <th style={{ width:50, textAlign:'center' }}>24hs</th>
                             {APP_LUGAR === 'MODULAR' && <th style={{ width:60, textAlign:'center' }}>Doble</th>}
                             <th>Efectivo</th>
@@ -2517,10 +2518,11 @@ export default function AdminApp() {
                           </tr>
                         </thead>
                         <tbody>
-                          {rapidaLista.map(i => {
+                          {rapidaLista.map((i, idx) => {
                             const completo = i.yaAsignadas >= i.objetivo
                             return (
                               <tr key={i.legajo}>
+                                <td style={{ textAlign:'center', fontSize:11, color:'var(--text-muted)' }}>{idx + 1}</td>
                                 <td style={{ textAlign:'center' }}>
                                   <input type="checkbox" checked={rapida24hs.has(i.legajo)} disabled={rapidaProcesando}
                                     onChange={() => setRapida24hs(prev => {
