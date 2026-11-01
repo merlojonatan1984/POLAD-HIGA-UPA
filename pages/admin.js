@@ -100,6 +100,51 @@ const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disp
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 const BG_APP   = APP_LUGAR === 'HIGA' ? 'rgba(42,37,96,0.5)' : APP_LUGAR === 'UPA' ? 'rgba(80,30,10,0.5)' : 'rgba(10,50,60,0.5)'
 
+// ===== Rediseño visual HIGA (solo APP_LUGAR==='HIGA') =====
+// Íconos SVG en línea — no se agregó ninguna librería de íconos nueva
+// (no había ninguna ya disponible en el proyecto), así que se dibujaron a
+// mano, livianos, del mismo estilo que la vista previa aprobada. Se usan
+// tanto en el menú lateral como en las tarjetas y accesos rápidos.
+const PHG_ICONOS = {
+  resumen: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="12" width="4" height="8"/><rect x="10" y="8" width="4" height="12"/><rect x="17" y="4" width="4" height="16"/></svg>,
+  personal: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="7" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6.2 6.5-6.2s6.5 2.6 6.5 6.2"/><circle cx="17.5" cy="8" r="2.6"/><path d="M15 13.5c2.7.3 4.7 2.3 5.5 5"/></svg>,
+  disponibilidad: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>,
+  turnos: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5l7.5 3.2v5.1c0 5-3.2 8.6-7.5 10.2-4.3-1.6-7.5-5.2-7.5-10.2V5.7z"/></svg>,
+  edicion: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20l1-4.3L15.6 5.1a1.8 1.8 0 012.6 0l.7.7a1.8 1.8 0 010 2.6L8.3 19 4 20z"/></svg>,
+  rapida: <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z"/></svg>,
+  buscarLegajo: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.8-4.8"/></svg>,
+  config: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 00.3-1.9l1.1-1.9-1.7-1.7-1.9 1.1a1.7 1.7 0 00-1.9-.8l-.5-2.1h-2.4l-.5 2.1a1.7 1.7 0 00-1.9.8l-1.9-1.1-1.7 1.7 1.1 1.9a1.7 1.7 0 00-.3 1.9l-2.1.5v2.4l2.1.5a1.7 1.7 0 00.3 1.9l-1.1 1.9 1.7 1.7 1.9-1.1a1.7 1.7 0 001.9.8l.5 2.1h2.4l.5-2.1a1.7 1.7 0 001.9-.8l1.9 1.1 1.7-1.7-1.1-1.9a1.7 1.7 0 00.3-1.9l2.1-.5v-2.4z"/></svg>,
+  planillas: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>,
+  descarga: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2.5A1.5 1.5 0 005.5 21h13a1.5 1.5 0 001.5-1.5V17"/></svg>,
+  control: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a5 5 0 015 5v2a5 5 0 01-10 0V7a5 5 0 015-5z"/><path d="M8 11v1a4 4 0 008 0v-1M12 16v5M9 21h6"/></svg>,
+  calendario: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>,
+  reloj: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>,
+  femenino: <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21s-7-4.6-9.5-8.8C.8 8.7 2.3 5 6 5c2.1 0 3.6 1.2 4.3 2.6C11 6.2 12.5 5 14.6 5c3.7 0 5.2 3.7 3.5 7.2C19 16.4 12 21 12 21z"/></svg>,
+  masculino: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10" cy="14" r="6"/><path d="M14.5 9.5L21 3m0 0h-5m5 0v5"/></svg>,
+  noUniforme: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a3 3 0 016 0v2"/></svg>,
+  alerta: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>,
+  mapa: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 20l-6-2V4l6 2 6-2 6 2v14l-6-2-6 2z"/><path d="M9 4v16M15 6v16"/></svg>,
+  estado: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>,
+}
+// Orden y etiquetas del menú lateral — mismos 11 accesos, mismas claves de
+// vista y la misma función setVista()/router.push('/control') que ya usaba
+// el menú de pestañas: solo cambia la presentación (lateral en vez de
+// tiras horizontales), no la navegación.
+const PHG_NAV_PRINCIPAL = [
+  { v:'resumen', label:'Resumen' },
+  { v:'personal', label:'Personal' },
+  { v:'disponibilidad', label:'Disponibilidad' },
+  { v:'turnos', label:'Guardias' },
+  { v:'edicion', label:'Edición manual' },
+  { v:'rapida', label:'Asignación rápida' },
+]
+const PHG_NAV_SECUNDARIO = [
+  { v:'buscarLegajo', label:'Buscar legajo' },
+  { v:'config', label:'Configuración' },
+  { v:'planillas', label:'Planillas' },
+  { v:'descarga', label:'Planilla Guardia' },
+]
+
 function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, diasMes, mes, anio, turnosDelDia }) {
   const esNuevo = !turno.id
   const [legajoSel, setLegajoSel] = useState(turno.legajo || '')
@@ -2078,7 +2123,14 @@ export default function AdminApp() {
           principales con ícono y línea de color debajo; pestañas
           secundarias más chicas, en texto dorado, abajo de todo). Se
           restaura tal cual estaba — el rediseño anterior (una sola tira
-          con las 10 pestañas) queda descartado. */}
+          con las 10 pestañas) queda descartado.
+          Para HIGA (y solo HIGA — UPA/MODULAR siguen con este mismo
+          encabezado de siempre, sin tocar) se reemplaza por el encabezado
+          con fotos reales + menú lateral que aprobaste en la vista previa.
+          Es solo presentación: usa exactamente los mismos
+          mesSeleccionado/anioSeleccionado/mesBloqueado/toggleBloqueoMes/
+          setVista/router que ya existían — no hay lógica nueva. */}
+      {APP_LUGAR !== 'HIGA' && (
       <div className="topbar" style={{ display:'block', padding:0 }}>
         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',flexWrap:'wrap',gap:10 }}>
           <div style={{ display:'flex',alignItems:'center',gap:14 }}>
@@ -2136,8 +2188,113 @@ export default function AdminApp() {
           </button>
         </div>
       </div>
+      )}
 
-      <div className="content">
+      {APP_LUGAR === 'HIGA' && (<>
+      <style>{`
+        @keyframes phgPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.5;transform:scale(1.3);}}
+        @keyframes phgShimmer{0%{transform:translateX(-120%);}100%{transform:translateX(320%);}}
+        .phg-navbtn{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;color:#93a0c4;font-size:13.5px;font-weight:500;cursor:pointer;border:none;background:transparent;text-align:left;width:100%;transition:background .15s,color .15s;}
+        .phg-navbtn svg{width:17px;height:17px;flex-shrink:0;opacity:.85;}
+        .phg-navbtn:hover{background:rgba(255,255,255,0.05);color:#fff;}
+        .phg-navbtn.phg-activa{background:linear-gradient(90deg,rgba(45,212,191,0.22),rgba(45,212,191,0.06));color:#6EE7DA;font-weight:700;box-shadow:inset 3px 0 0 #2DD4BF;}
+        .phg-salir:hover{background:rgba(224,91,91,0.24) !important;}
+        .phg-acceso:hover{transform:translateY(-2px);}
+        .phg-maingrid{display:flex;align-items:flex-start;gap:18px;margin-bottom:18px;}
+        .phg-col-izq{width:43%;min-width:0;display:flex;flex-direction:column;gap:14px;}
+        .phg-col-der{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;}
+        .phg-grid-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+        .phg-grid-stats .phg-full{grid-column:1 / -1;}
+        .phg-accesos-grid{display:flex;gap:10px;}
+        .phg-acceso{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;flex:1;min-width:0;padding:22px 8px;border-radius:12px;cursor:pointer;font-size:12px;font-weight:700;color:#fff;text-align:center;transition:transform .12s;line-height:1.3;}
+        .phg-acceso svg{width:24px;height:24px;flex-shrink:0;}
+        .phg-stat-icon{width:17px;height:17px;flex-shrink:0;display:inline-flex;}
+        .phg-stat-icon svg{width:100%;height:100%;}
+        @media (max-width:920px){
+          .phg-sidebar{width:64px !important;}
+          .phg-lbl{display:none !important;}
+          .phg-navbtn{justify-content:center;}
+          .phg-sidebar-foot-txt{display:none !important;}
+          .phg-maingrid{flex-direction:column;align-items:stretch;}
+          .phg-col-izq,.phg-col-der{display:contents;}
+          .phg-col-resumen{order:1;}
+          .phg-col-mapa{order:2;}
+          .phg-col-accesos{order:3;}
+          .phg-col-estado{order:4;}
+          .phg-accesos-grid{flex-wrap:wrap;}
+          .phg-acceso{flex:1 1 calc(50% - 8px);}
+          .phg-hero-left,.phg-hero-right{width:100%;justify-content:space-between;}
+        }
+        @media (max-width:480px){
+          .phg-grid-stats{grid-template-columns:1fr;}
+        }
+      `}</style>
+      <div style={{ position:'relative', minHeight:150, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, padding:'18px 28px', flexWrap:'wrap', borderBottom:'1px solid rgba(45,212,191,0.35)', boxShadow:'0 4px 24px rgba(0,0,0,0.5)' }}>
+        <div style={{ position:'absolute', inset:0, backgroundImage:"url('/higa-hero.jpg')", backgroundSize:'cover', backgroundPosition:'center 38%', filter:'saturate(0.85) brightness(0.55)', zIndex:0 }} />
+        <div style={{ position:'absolute', inset:0, zIndex:1, background:'linear-gradient(100deg, rgba(8,12,28,0.94) 0%, rgba(12,22,48,0.88) 30%, rgba(13,35,66,0.55) 60%, rgba(10,16,34,0.9) 100%)' }} />
+        <div className="phg-hero-left" style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', gap:18, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+            <span style={{ fontSize:30, fontWeight:800, letterSpacing:'0.06em', color:'#fff', textShadow:'0 0 18px rgba(45,212,191,0.5)' }}>POLAD</span>
+            <div style={{ width:1, height:34, background:'linear-gradient(180deg, transparent, #2DD4BF, transparent)', boxShadow:'0 0 10px rgba(45,212,191,0.55)' }} />
+            <div style={{ display:'flex', flexDirection:'column', lineHeight:1.15 }}>
+              <span style={{ fontSize:11, letterSpacing:'0.18em', color:'#8fe8dd', fontWeight:700 }}>DESTINO</span>
+              <span style={{ fontSize:21, fontWeight:800, color:'#fff', position:'relative', display:'inline-block' }}>
+                {APP_LUGAR}
+                <span style={{ position:'absolute', left:0, right:0, bottom:-4, height:2, background:'#2DD4BF', boxShadow:'0 0 8px rgba(45,212,191,0.55)', borderRadius:2 }} />
+              </span>
+            </div>
+            <span style={{ width:8, height:8, borderRadius:'50%', background:'#2DD4BF', boxShadow:'0 0 10px 2px rgba(45,212,191,0.55)', animation:'phgPulse 1.8s ease-in-out infinite', marginLeft:4 }} />
+          </div>
+        </div>
+        <div className="phg-hero-right" style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.07)', border:'0.5px solid rgba(255,255,255,0.15)', borderRadius:10, padding:'8px 14px', backdropFilter:'blur(2px)' }}>
+            <select value={mesSeleccionado} disabled={mesBloqueado} onChange={e => { setMesSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ width:'auto', padding:0, background:'transparent', border:'none', color:'#ffd77a', fontSize:13.5, fontWeight:600, outline:'none', cursor: mesBloqueado ? 'not-allowed' : 'pointer', whiteSpace:'nowrap' }}>
+              {MESES_NOMBRES.map((m,i) => <option key={i+1} value={i+1} style={{ background:'#111a33', color:'#fff' }}>{m}</option>)}
+            </select>
+            <select value={anioSeleccionado} disabled={mesBloqueado} onChange={e => { setAnioSeleccionado(parseInt(e.target.value)); setPlanillaEf(null) }} style={{ width:'auto', padding:0, background:'transparent', border:'none', color:'#ffd77a', fontSize:13.5, fontWeight:600, outline:'none', cursor: mesBloqueado ? 'not-allowed' : 'pointer', whiteSpace:'nowrap' }}>
+              {[ANIO_ACTUAL, ANIO_ACTUAL+1].map(a => <option key={a} value={a} style={{ background:'#111a33', color:'#fff' }}>{a}</option>)}
+            </select>
+            <button onClick={toggleBloqueoMes}
+              title={mesBloqueado ? `Mes bloqueado en ${NOMBRE_MES} — click para desbloquear` : 'Bloquear este mes (no se va a cambiar solo al entrar y salir)'}
+              style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:15, padding:'0 2px', opacity: mesBloqueado ? 1 : 0.55 }}>
+              {mesBloqueado ? '🔒' : '🔓'}
+            </button>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(55,138,221,0.18)', border:'0.5px solid rgba(55,138,221,0.5)', borderRadius:10, padding:'8px 14px', fontWeight:600, color:'#bcd9f7', fontSize:13.5 }}>👤 Admin</div>
+          <button className="phg-salir" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}
+            style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(224,91,91,0.14)', border:'0.5px solid rgba(224,91,91,0.4)', color:'#f3b3b3', borderRadius:10, padding:'8px 14px', fontWeight:600, cursor:'pointer', fontSize:13.5 }}>↪ Salir</button>
+        </div>
+      </div>
+      </>)}
+
+      <div style={APP_LUGAR === 'HIGA' ? { display:'flex', alignItems:'flex-start' } : undefined}>
+      {APP_LUGAR === 'HIGA' && (
+        <div className="phg-sidebar" style={{ width:220, flexShrink:0, background:'#0f1830', borderRight:'0.5px solid rgba(255,255,255,0.08)', display:'flex', flexDirection:'column', padding:'14px 10px', gap:2, minHeight:'calc(100vh - 150px)' }}>
+          {PHG_NAV_PRINCIPAL.map(it => (
+            <button key={it.v} className={'phg-navbtn' + (vista===it.v ? ' phg-activa' : '')} onClick={() => setVista(it.v)}>
+              {PHG_ICONOS[it.v]}<span className="phg-lbl">{it.label}</span>
+            </button>
+          ))}
+          <div style={{ height:1, background:'rgba(255,255,255,0.08)', margin:'10px 6px' }} />
+          {PHG_NAV_SECUNDARIO.map(it => (
+            <button key={it.v} className={'phg-navbtn' + (vista===it.v ? ' phg-activa' : '')} onClick={() => setVista(it.v)}>
+              {PHG_ICONOS[it.v]}<span className="phg-lbl">{it.label}</span>
+            </button>
+          ))}
+          <button className="phg-navbtn" onClick={() => router.push('/control')}>
+            {PHG_ICONOS.control}<span className="phg-lbl">Control asistencia</span>
+          </button>
+          <div style={{ marginTop:'auto', display:'flex', alignItems:'center', gap:10, padding:'12px 10px 4px', borderTop:'1px solid rgba(255,255,255,0.08)' }}>
+            <img src="/higa-facade.jpg" alt="HIGA" style={{ width:34, height:34, borderRadius:8, objectFit:'cover', border:'1px solid rgba(45,212,191,0.4)' }} />
+            <div className="phg-sidebar-foot-txt" style={{ fontSize:13, fontWeight:700, color:'#fff' }}>
+              HIGA
+              <span style={{ display:'block', width:26, height:2, background:'#2DD4BF', marginTop:3, boxShadow:'0 0 6px rgba(45,212,191,0.55)' }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="content" style={APP_LUGAR === 'HIGA' ? { flex:1, minWidth:0 } : undefined}>
         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16 }}>
           <div>
             <h2 style={{ fontSize:28,fontWeight:700,color:'#fff',margin:0 }}>Resumen del mes</h2>
@@ -2178,6 +2335,153 @@ export default function AdminApp() {
               </div>
             </div>
           )
+
+          // Cobertura de guardias — mismos 2 paneles con barras segmentadas
+          // de siempre (pedido anterior: título + un título por barra),
+          // sin tocar ningún cálculo. Se muestran para HIGA y para
+          // UPA/MODULAR por igual.
+          const coberturaPanels = (
+            <>
+              <div style={{ fontSize:16, fontWeight:700, color:'#fff', borderLeft:`3px solid ${COLOR_APP}`, paddingLeft:10, marginBottom:14 }}>Cobertura de guardias — {NOMBRE_MES}</div>
+
+              <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:14 }}>
+                <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Guardias asignadas <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {todosLosTurnos.length} turnos · {horasAsignadas} horas ({HORAS_TURNO} hs/guardia)</span></div>
+                <div style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Guardias asignadas por sexo</div>
+                  <div style={segBar}>
+                    {seg(pctSexoNum(masculinosAsignados), AZUL_M, `${masculinosAsignados} · ${pctSexo(masculinosAsignados)}`, true)}
+                    {seg(pctSexoNum(femeninosAsignados), ROSA_F, `${femeninosAsignados} · ${pctSexo(femeninosAsignados)}`, false)}
+                  </div>
+                  <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                    {legendItem(AZUL_M, '♂ Masculinos')}
+                    {legendItem(ROSA_F, '♀ Femeninos')}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Guardias asignadas por tipo de efectivo</div>
+                  <div style={segBar}>
+                    {seg(pctSexoNum(uniformadosAsignados), COLOR_APP, `${uniformadosAsignados} · ${pctSexo(uniformadosAsignados)}`, false)}
+                    {seg(pctSexoNum(servGeneralAsignados), SERVGRAL, `${servGeneralAsignados} · ${pctSexo(servGeneralAsignados)}`, true)}
+                    {seg(pctSexoNum(destacamentoAsignados), DESTACAMENTO, `${destacamentoAsignados} · ${pctSexo(destacamentoAsignados)}`, false)}
+                  </div>
+                  <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                    {legendItem(COLOR_APP, '🎖️ Uniformados')}
+                    {legendItem(SERVGRAL, '🧰 Serv. General')}
+                    {legendItem(DESTACAMENTO, '📍 Destacamento')}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:16 }}>
+                <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Disponibilidad cargada <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {cargaron} efectivos</span></div>
+                {/* Pedido: la barra "por sexo" de este cuadro se sacó porque es
+                    la misma medición que ya muestran las cajitas "Femeninos" /
+                    "Masculinos" de arriba, solo que repetida en otro formato.
+                    La de "por tipo" queda, porque acá desglosa en 3 categorías
+                    (Uniformados/Serv. General/Destacamento) algo que arriba
+                    solo aparece como 2 (Uniformados/No uniformados). */}
+                <div>
+                  <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Disponibilidad cargada por tipo de efectivo</div>
+                  <div style={segBar}>
+                    {seg(pctDispNum(cargaronUniformado), COLOR_APP, `${cargaronUniformado} · ${pctDisp(cargaronUniformado)}`, false)}
+                    {seg(pctDispNum(cargaronServGeneral), SERVGRAL, `${cargaronServGeneral} · ${pctDisp(cargaronServGeneral)}`, true)}
+                    {seg(pctDispNum(cargaronDestacamento), DESTACAMENTO, `${cargaronDestacamento} · ${pctDisp(cargaronDestacamento)}`, false)}
+                  </div>
+                  <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
+                    {legendItem(COLOR_APP, '🎖️ Uniformados')}
+                    {legendItem(SERVGRAL, '🧰 Serv. General')}
+                    {legendItem(DESTACAMENTO, '📍 Destacamento')}
+                  </div>
+                </div>
+              </div>
+            </>
+          )
+
+          if (APP_LUGAR === 'HIGA') {
+            // Rediseño aprobado: tarjetas de colores + accesos rápidos +
+            // mapa de recorridos (imagen de referencia, pendiente de
+            // validar) + estado general con % real. Todos los valores son
+            // los mismos de siempre (guardiasNecesarias, cargaron,
+            // cargaronFemenino, etc. — ya calculados arriba, sin tocar). Los
+            // 2 paneles de "Cobertura de guardias" con barras segmentadas
+            // que ya tenías (con su título y el de cada barra) se
+            // mantienen debajo, sin sacarles nada: tienen el desglose de
+            // Servicio General / Destacamento que las tarjetas nuevas (que
+            // solo separan Uniformados / No uniformados) no muestran.
+            const statCard = (icon, color, label, sub, val, full = false) => (
+              <div key={label} className={full ? 'phg-full' : undefined} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, background:'#15203f', border:'0.5px solid rgba(255,255,255,0.09)', borderLeft:`4px solid ${color}`, borderRadius:11, padding:'10px 12px', minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
+                  <span className="phg-stat-icon" style={{ color }}>{icon}</span>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#e9ecf7', lineHeight:1.25 }}>{label}</div>
+                    <div style={{ fontSize:10, color:'#5f6c93', lineHeight:1.3 }}>{sub}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize:17, fontWeight:800, color, flexShrink:0 }}>{val}</div>
+              </div>
+            )
+            // % real de guardias cubiertas este mes (no es un número fijo:
+            // guardiasNecesarias y guardiasSinCubrir ya están calculados
+            // arriba con el mismo cupo real que usa la planilla).
+            const pctCobertura = guardiasNecesarias ? Math.max(0, Math.min(100, Math.round((guardiasNecesarias - guardiasSinCubrir) / guardiasNecesarias * 100))) : 0
+            return (<>
+              <div className="phg-maingrid">
+                <div className="phg-col-izq">
+                  <div className="phg-col-resumen">
+                    <div className="phg-grid-stats">
+                      {statCard(PHG_ICONOS.calendario, DORADO, 'Guardias a cubrir', NOMBRE_MES, guardiasNecesarias)}
+                      {statCard(PHG_ICONOS.reloj, DORADO, 'Horas a cubrir', NOMBRE_MES, horasNecesarias)}
+                      {statCard(PHG_ICONOS.personal, '#2DD4BF', 'Cargaron disponibilidad', `de ${efectivos.length} efectivos`, cargaron, true)}
+                      {statCard(PHG_ICONOS.femenino, ROSA_F, 'Femeninos', `${pctDisp(cargaronFemenino)} de los que cargaron`, cargaronFemenino)}
+                      {statCard(PHG_ICONOS.masculino, AZUL_M, 'Masculinos', `${pctDisp(cargaronMasculino)} de los que cargaron`, cargaronMasculino)}
+                      {statCard(PHG_ICONOS.turnos, COLOR_APP, 'Uniformados', `${pctDisp(cargaronUniformado)} de los que cargaron`, cargaronUniformado)}
+                      {statCard(PHG_ICONOS.noUniforme, NO_UNIFORME, 'No uniformados', `${pctDisp(noUniformado)} de los que cargaron`, noUniformado)}
+                      {statCard(PHG_ICONOS.alerta, ROJO_ALERTA, 'Guardias sin cubrir', `de ${guardiasNecesarias} necesarias`, guardiasSinCubrir)}
+                      {statCard(PHG_ICONOS.alerta, ROJO_ALERTA, 'Horas sin cubrir', `de ${horasNecesarias} hs necesarias`, horasSinCubrir)}
+                    </div>
+                  </div>
+                  <div className="phg-col-accesos">
+                    <div>
+                      <h3 style={{ fontSize:15, fontWeight:800, color:'#fff', display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>⚡ Accesos rápidos</h3>
+                      <div className="phg-accesos-grid">
+                        <button className="phg-acceso" style={{ background:'rgba(216,165,49,0.14)', border:'0.5px solid rgba(216,165,49,0.4)', color:'#ffd77a' }} onClick={() => setVista('rapida')}>{PHG_ICONOS.rapida}Asignación rápida</button>
+                        <button className="phg-acceso" style={{ background:'rgba(55,138,221,0.14)', border:'0.5px solid rgba(55,138,221,0.4)', color:'#9cc8f2' }} onClick={() => setVista('disponibilidad')}>{PHG_ICONOS.disponibilidad}Cargar disponibilidad</button>
+                        <button className="phg-acceso" style={{ background:'rgba(175,169,236,0.14)', border:'0.5px solid rgba(175,169,236,0.4)', color:'#cfc9f7' }} onClick={() => setVista('planillas')}>{PHG_ICONOS.planillas}Planilla del mes</button>
+                        <button className="phg-acceso" style={{ background:'rgba(29,158,117,0.16)', border:'0.5px solid rgba(29,158,117,0.45)', color:'#7ee0bd' }} onClick={() => setVista('descarga')}>{PHG_ICONOS.descarga}Planilla Guardia</button>
+                        <button className="phg-acceso" style={{ background:'rgba(99,102,241,0.16)', border:'0.5px solid rgba(99,102,241,0.45)', color:'#b4b8f7' }} onClick={() => router.push('/control')}>{PHG_ICONOS.control}Control asistencia</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="phg-col-der">
+                  <div className="phg-col-mapa">
+                    <div style={{ background:'#15203f', border:'0.5px solid rgba(255,255,255,0.09)', borderRadius:14, overflow:'hidden' }}>
+                      <img src="/higa-mapa-referencia.jpg" alt="Recorridos y puestos — referencia" style={{ width:'100%', display:'block' }} />
+                      <div style={{ padding:'10px 16px', fontSize:11, color:'#5f6c93', background:'rgba(255,255,255,0.03)', borderTop:'0.5px solid rgba(255,255,255,0.07)', lineHeight:1.5 }}>
+                        <b style={{ color:'#c9bdf5' }}>Pendiente de validar con vos:</b> esta imagen es la que vos aprobaste como referencia visual. Antes de animarla con los recorridos reales (quién camina por dónde, perímetro exacto) necesito que me confirmes sector por sector si el trazado coincide con el predio real — no quiero inventar un recorrido que no sea el verdadero.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="phg-col-estado">
+                    <div style={{ background:'#15203f', border:'0.5px solid rgba(255,255,255,0.09)', borderRadius:14, padding:'18px 20px' }}>
+                      <h3 style={{ fontSize:14.5, fontWeight:700, color:'#fff', display:'flex', alignItems:'center', gap:8 }}>📅 Estado general</h3>
+                      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', margin:'10px 0 10px' }}>
+                        <span style={{ fontSize:14, color:'#eef1fb' }}>Guardias cubiertas</span>
+                        <span style={{ fontSize:26, fontWeight:800, color:'#6EE7DA' }}>{pctCobertura}%</span>
+                      </div>
+                      <div style={{ height:14, borderRadius:7, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}>
+                        <div style={{ height:'100%', borderRadius:7, background:'linear-gradient(90deg,#1D9E75,#2DD4BF)', width:`${pctCobertura}%`, boxShadow:'0 0 14px rgba(45,212,191,0.5)', position:'relative', overflow:'hidden', transition:'width 1.2s cubic-bezier(.22,.9,.3,1)' }}>
+                          <div style={{ position:'absolute', inset:0, background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)', width:'40%', animation:'phgShimmer 2.4s linear infinite' }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {coberturaPanels}
+            </>)
+          }
+
           return (<>
             <div style={pairWrap}>
               {item('📋', 'Guardias a cubrir', NOMBRE_MES, DORADO, guardiasNecesarias)}
@@ -2205,61 +2509,12 @@ export default function AdminApp() {
               {item('⌛', 'Horas sin cubrir', `de ${horasNecesarias} hs necesarias`, ROJO_ALERTA, horasSinCubrir, 20, true)}
             </div>
 
-            <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:14 }}>
-              <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Disponibilidad cargada <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {cargaron} efectivos</span></div>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por sexo</div>
-                <div style={segBar}>
-                  {seg(pctDispNum(cargaronMasculino), AZUL_M, `${cargaronMasculino} · ${pctDisp(cargaronMasculino)}`, true)}
-                  {seg(pctDispNum(cargaronFemenino), ROSA_F, `${cargaronFemenino} · ${pctDisp(cargaronFemenino)}`, false)}
-                </div>
-                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
-                  {legendItem(AZUL_M, '♂ Masculinos')}
-                  {legendItem(ROSA_F, '♀ Femeninos')}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por tipo</div>
-                <div style={segBar}>
-                  {seg(pctDispNum(cargaronUniformado), COLOR_APP, `${cargaronUniformado} · ${pctDisp(cargaronUniformado)}`, false)}
-                  {seg(pctDispNum(cargaronServGeneral), SERVGRAL, `${cargaronServGeneral} · ${pctDisp(cargaronServGeneral)}`, true)}
-                  {seg(pctDispNum(cargaronDestacamento), DESTACAMENTO, `${cargaronDestacamento} · ${pctDisp(cargaronDestacamento)}`, false)}
-                </div>
-                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
-                  {legendItem(COLOR_APP, '🎖️ Uniformados')}
-                  {legendItem(SERVGRAL, '🧰 Serv. General')}
-                  {legendItem(DESTACAMENTO, '📍 Destacamento')}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ background:'#262a38', border:'0.5px solid rgba(255,255,255,0.11)', borderRadius:14, padding:'18px 20px', marginBottom:16 }}>
-              <div style={{ fontSize:14, fontWeight:600, color:'#e8eaf0', display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>Turnos asignados <span style={{ color:'#7a8099', fontWeight:400, fontSize:12.5 }}>— {todosLosTurnos.length} turnos · {horasAsignadas} horas ({HORAS_TURNO} hs/guardia)</span></div>
-              <div style={{ marginBottom:16 }}>
-                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por sexo</div>
-                <div style={segBar}>
-                  {seg(pctSexoNum(masculinosAsignados), AZUL_M, `${masculinosAsignados} · ${pctSexo(masculinosAsignados)}`, true)}
-                  {seg(pctSexoNum(femeninosAsignados), ROSA_F, `${femeninosAsignados} · ${pctSexo(femeninosAsignados)}`, false)}
-                </div>
-                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
-                  {legendItem(AZUL_M, '♂ Masculinos')}
-                  {legendItem(ROSA_F, '♀ Femeninos')}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize:11, color:'#7a8099', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:7 }}>Por tipo</div>
-                <div style={segBar}>
-                  {seg(pctSexoNum(uniformadosAsignados), COLOR_APP, `${uniformadosAsignados} · ${pctSexo(uniformadosAsignados)}`, false)}
-                  {seg(pctSexoNum(servGeneralAsignados), SERVGRAL, `${servGeneralAsignados} · ${pctSexo(servGeneralAsignados)}`, true)}
-                  {seg(pctSexoNum(destacamentoAsignados), DESTACAMENTO, `${destacamentoAsignados} · ${pctSexo(destacamentoAsignados)}`, false)}
-                </div>
-                <div style={{ display:'flex', gap:18, marginTop:9, flexWrap:'wrap' }}>
-                  {legendItem(COLOR_APP, '🎖️ Uniformados')}
-                  {legendItem(SERVGRAL, '🧰 Serv. General')}
-                  {legendItem(DESTACAMENTO, '📍 Destacamento')}
-                </div>
-              </div>
-            </div>
+            {/* Pedido: "arriba esté Guardias asignadas y abajo Disponibilidad
+                cargada", con un título para la sección y para cada
+                porcentaje — antes los dos cuadros usaban las mismas
+                etiquetas genéricas "Por sexo"/"Por tipo" sin aclarar a cuál
+                de los dos cuadros correspondía cada barra. */}
+            {coberturaPanels}
           </>)
         })()}
 
@@ -3473,6 +3728,7 @@ export default function AdminApp() {
           )
         })()}
 
+      </div>
       </div>
     </div>
   )
