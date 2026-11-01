@@ -62,6 +62,23 @@ const ES_MODULAR = APP_LUGAR === 'MODULAR'
 const TURNOS_LUGAR = ES_MODULAR ? ['m', 't', 'n'] : ['d', 'n']
 const HORAS_TURNO = ES_MODULAR ? 8 : 12
 const MAX_POR_SLOT = ES_MODULAR ? 2 : 2
+// Cupo real por sector y turno en HIGA: Salud Mental y Llaves bajan a 1 de
+// noche porque los otros 2 efectivos forman el Rondín Externo, que es 0 de
+// día (no corresponde cubrirlo de día) y 2 de noche. Donde no hay
+// excepción, el cupo es el de siempre (MAX_POR_SLOT). Mismo criterio que
+// ya usan pages/api/generar-planilla.js y el resumen del dashboard — acá
+// se aplica también a la asignación real, para que el sistema no pueda
+// asignar de más en esos casos.
+const CUPO_POR_SECTOR_TURNO = APP_LUGAR === 'HIGA' ? {
+  'Salud Mental':   { d: 2, n: 1 },
+  'Llaves':         { d: 2, n: 1 },
+  'Rondin Externo': { d: 0, n: 2 },
+} : {}
+function cupoSlot(sector, turno) {
+  const porTurno = CUPO_POR_SECTOR_TURNO[sector]
+  if (porTurno && turno in porTurno) return porTurno[turno]
+  return MAX_POR_SLOT
+}
 const TURNOS_INFO = ES_MODULAR
   ? [
       { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
@@ -462,7 +479,7 @@ export default function AdminApp() {
     const esMod = L === 'MODULAR'
     const turnosLugar = esMod ? ['m','t','n'] : ['d','n']
     const horasTurno = esMod ? 8 : 12
-    const maxSlot = esMod ? 2 : 2
+
 
     // Leer disponibilidad FRESCA desde Supabase (vía endpoint con clave de servicio,
     // para no depender de posibles políticas RLS de la clave pública)
@@ -503,7 +520,7 @@ export default function AdminApp() {
             const yaAsignado = nuevos.some(n => n.legajo === e.legajo && n.turno === turno && n.dia === dia)
             return avail.includes(turno) && !yaAsignado
           }).sort((a, b) => a.hs - b.hs)
-          candidatos.slice(0, maxSlot).forEach(e => {
+          candidatos.slice(0, cupoSlot(sector, turno)).forEach(e => {
             e.hs += horasTurno
             nuevos.push({ legajo: e.legajo, mes: MES, anio: ANIO, dia, turno, sector })
           })
@@ -580,7 +597,7 @@ export default function AdminApp() {
       // Ordenar sectores por los menos usados primero para distribuir parejo
       const sectoresOrdenados = [...SECTORES_APP].sort((a, b) => conteoSector[a] - conteoSector[b])
       for (const s of sectoresOrdenados) {
-        if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < MAX_POR_SLOT) {
+        if ((ocupacion[dia+'-'+turno+'-'+s] || 0) < cupoSlot(s, turno)) {
           conteoSector[s]++
           return s
         }
@@ -812,11 +829,11 @@ export default function AdminApp() {
       }
 
       for (const turno of turnosLugar) {
-        // Armar la lista de lugares libres de este turno (cada sector hasta MAX_POR_SLOT)
+        // Armar la lista de lugares libres de este turno (cada sector hasta su cupo real)
         const slots = []
         for (const sector of sectores) {
           const ocup = ocupacion[dia + '-' + turno + '-' + sector] || 0
-          for (let k = ocup; k < MAX_POR_SLOT; k++) slots.push(sector)
+          for (let k = ocup; k < cupoSlot(sector, turno); k++) slots.push(sector)
         }
         for (const sector of slots) {
           const cands = candidatosTurno(turno)
@@ -1076,7 +1093,7 @@ export default function AdminApp() {
       function getSector24(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < cupoSlot(s, turno)) { conteoSector[s]++; return s }
         }
         return null
       }
@@ -1144,8 +1161,8 @@ export default function AdminApp() {
           if (!par) continue
 
           const sector = sectores.find(s =>
-            (ocupacion[dia + '-' + par[0] + '-' + s] || 0) < MAX_POR_SLOT &&
-            (ocupacion[dia + '-' + par[1] + '-' + s] || 0) < MAX_POR_SLOT
+            (ocupacion[dia + '-' + par[0] + '-' + s] || 0) < cupoSlot(s, par[0]) &&
+            (ocupacion[dia + '-' + par[1] + '-' + s] || 0) < cupoSlot(s, par[1])
           )
           if (!sector) continue
 
@@ -1228,7 +1245,7 @@ export default function AdminApp() {
       function getSector(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
-          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < MAX_POR_SLOT) { conteoSector[s]++; return s }
+          if ((ocupacion[dia + '-' + turno + '-' + s] || 0) < cupoSlot(s, turno)) { conteoSector[s]++; return s }
         }
         return null
       }
@@ -1715,22 +1732,9 @@ export default function AdminApp() {
   // Cuántas guardias hacen falta cubrir este mes en TOTAL (la suma de los
   // cupos reales de cada sector/turno, multiplicada por los días del
   // mes), cuántas ya están cubiertas y cuántas faltan — en guardias y en
-  // horas. El cupo real por sector/turno en HIGA es el mismo que usa
-  // pages/api/generar-planilla.js (Salud Mental y Llaves bajan a 1 de
-  // noche porque los otros 2 forman el Rondín Externo, que es 0 de día y
-  // 2 de noche) — acá se repite el mismo criterio en chico, nada más que
-  // para este cálculo; el sistema general de cupos configurables por
-  // puesto queda para más adelante.
-  const CUPO_POR_SECTOR_TURNO = APP_LUGAR === 'HIGA' ? {
-    'Salud Mental':   { d: 2, n: 1 },
-    'Llaves':         { d: 2, n: 1 },
-    'Rondin Externo': { d: 0, n: 2 },
-  } : {}
-  const cupoSlot = (sector, turno) => {
-    const porTurno = CUPO_POR_SECTOR_TURNO[sector]
-    if (porTurno && turno in porTurno) return porTurno[turno]
-    return MAX_POR_SLOT
-  }
+  // horas. Usa cupoSlot (definido arriba de todo el archivo), el mismo
+  // cupo real por sector/turno que ya usan pages/api/generar-planilla.js
+  // y ahora también la asignación real.
   const slotsPorDia = SECTORES_APP.reduce((acc, sector) => acc + TURNOS_LUGAR.reduce((acc2, turno) => acc2 + cupoSlot(sector, turno), 0), 0)
   const guardiasNecesarias = slotsPorDia * DIAS_MES
   const guardiasSinCubrir = Math.max(0, guardiasNecesarias - todosLosTurnos.length)
@@ -2313,7 +2317,8 @@ export default function AdminApp() {
                           return (
                             <div key={ti.key} style={{ marginBottom:idx<TURNOS_INFO.length-1?8:0,paddingBottom:idx<TURNOS_INFO.length-1?8:0,borderBottom:idx<TURNOS_INFO.length-1?'0.5px solid var(--border)':'' }}>
                               <div style={{ fontSize:10,color:ti.color,fontWeight:500,marginBottom:5 }}>{ti.label.toUpperCase()}</div>
-                              {list.length===0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
+                              {list.length===0 && cupoSlot(sector, ti.key)===0 && <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>No corresponde</div>}
+                              {list.length===0 && cupoSlot(sector, ti.key)>0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
                               {list.map(item => (
                                 <div key={item.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3 }}>
                                   <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
@@ -2323,7 +2328,7 @@ export default function AdminApp() {
                                   </div>
                                 </div>
                               ))}
-                              {list.length>0&&list.length<MAX_POR_SLOT && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color:ti.color,borderColor:`${ti.color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Agregar</button>}
+                              {list.length>0&&list.length<cupoSlot(sector, ti.key) && <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',marginTop:3,color:ti.color,borderColor:`${ti.color}55` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Agregar</button>}
                             </div>
                           )
                         })}
@@ -2346,7 +2351,7 @@ export default function AdminApp() {
                         const yaAsignados = new Set(todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).map(t => t.legajo))
                         const ocupSlots = {}
                         todosLosTurnos.filter(t => t.dia===filtroDia&&t.turno===ti.key).forEach(t => { ocupSlots[t.sector]=(ocupSlots[t.sector]||0)+1 })
-                        const hayLugar = SECTORES_APP.some(s => (ocupSlots[s]||0) < MAX_POR_SLOT)
+                        const hayLugar = SECTORES_APP.some(s => (ocupSlots[s]||0) < cupoSlot(s, ti.key))
                         const dispTurno = dispDia.filter(e => e.disp && e.disp.includes(ti.key) && !yaAsignados.has(e.legajo) && e.hs<180 && hayLugar)
                         return (
                           <div key={ti.key} style={{ padding:'8px 12px 4px' }}>
