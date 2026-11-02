@@ -3092,7 +3092,7 @@ export default function AdminApp() {
                     <thead>
                       <tr>
                         <th style={{ width:130 }}>Sector</th>
-                        {Array.from({ length:DIAS_MES },(_,i) => <th key={i} style={{ width:76,textAlign:'center',padding:'8px 3px' }}>{i+1}</th>)}
+                        {Array.from({ length:DIAS_MES },(_,i) => <th key={i} style={{ width:94,textAlign:'center',padding:'8px 3px' }}>{i+1}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -3102,17 +3102,26 @@ export default function AdminApp() {
                           {Array.from({ length:DIAS_MES },(_,i) => {
                             const dia = i+1
                             return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top' }}>
-                              {TURNOS_INFO.map(ti => {
+                              {TURNOS_INFO.map((ti, tidx) => {
                                 const list = todosLosTurnos.filter(t=>t.dia===dia&&t.turno===ti.key&&t.sector===sector)
+                                // Un encabezado chico con la letra del turno,
+                                // una sola vez por grupo (antes se repetía
+                                // "(M)"/"(T)"/"(N)" al lado de cada nombre, lo
+                                // que alargaba cada línea y hacía más fácil que
+                                // se corten en 2-3 renglones). Una línea
+                                // separadora entre grupos para que se note de
+                                // un vistazo dónde termina un turno y empieza
+                                // el siguiente, sin depender solo del color.
                                 return (
-                                  <div key={ti.key} style={{ marginBottom:5 }}>
+                                  <div key={ti.key} style={{ marginBottom:6, paddingBottom:5, borderBottom: tidx < TURNOS_INFO.length-1 ? '0.5px solid rgba(255,255,255,0.09)' : 'none' }}>
+                                    <div style={{ color:ti.color, fontWeight:800, fontSize:9, letterSpacing:'0.04em', marginBottom:2, opacity:0.9 }}>{ti.key.toUpperCase()}</div>
                                     {list.length ? list.map((t, idx) => (
                                       // Un efectivo por línea (antes iban todos
                                       // separados solo por comas, en una columna
                                       // angosta — con varios nombres se pegaban
                                       // uno con otro y costaba distinguirlos).
-                                      <div key={t.id ?? `${t.legajo}-${idx}`} style={{ color:ti.color, lineHeight:1.6 }}>{nombreCorto(t.legajo)} ({ti.key.toUpperCase()})</div>
-                                    )) : <div style={{ color:ti.color }}>—</div>}
+                                      <div key={t.id ?? `${t.legajo}-${idx}`} style={{ color:ti.color, lineHeight:1.5 }}>{nombreCorto(t.legajo)}</div>
+                                    )) : <div style={{ color:'var(--text-hint)' }}>—</div>}
                                   </div>
                                 )
                               })}
