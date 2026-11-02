@@ -83,7 +83,13 @@ function cupoSlot(sector, turno) {
 const TURNOS_INFO = ES_MODULAR
   ? [
       { key: 'm', label: 'Mañana 08-16', color: '#EF9F27', bg: 'rgba(239,159,39,0.15)', horario: '08:00 a 16:00' },
-      { key: 't', label: 'Tarde 16-24',  color: '#AFA9EC', bg: 'rgba(127,119,221,0.15)', horario: '16:00 a 24:00' },
+      // Antes Tarde usaba #AFA9EC (un violeta claro) — contra el fondo
+      // oscuro se veía muy parecido al celeste de Noche (#85B7EB) y
+      // costaba distinguirlos de un vistazo, en especial en el Cronograma
+      // con letra chica. Se cambia a un verde (#5DCAA5, el mismo que ya se
+      // usa en otras partes para "Serv. General") para que los 3 turnos de
+      // MODULAR queden bien separados: naranja / verde / celeste.
+      { key: 't', label: 'Tarde 16-24',  color: '#5DCAA5', bg: 'rgba(93,202,165,0.15)', horario: '16:00 a 24:00' },
       { key: 'n', label: 'Noche 23:59-08',  color: '#85B7EB', bg: 'rgba(55,138,221,0.15)', horario: '23:59 a 08:00' },
     ]
   : [
@@ -3098,7 +3104,7 @@ export default function AdminApp() {
                             return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top' }}>
                               {TURNOS_INFO.map(ti => {
                                 const list = todosLosTurnos.filter(t=>t.dia===dia&&t.turno===ti.key&&t.sector===sector)
-                                return <div key={ti.key} style={{ color:ti.color,marginBottom:1 }}>{list.map(t=>nombreCorto(t.legajo)).join(', ')||'—'}</div>
+                                return <div key={ti.key} style={{ color:ti.color,marginBottom:1 }}>{list.length ? list.map(t=>`${nombreCorto(t.legajo)} (${ti.key.toUpperCase()})`).join(', ') : '—'}</div>
                               })}
                             </td>
                           })}
