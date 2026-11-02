@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import FirmaEditorModal from '../components/FirmaEditorModal'
+import { infoDiaEspecial } from '../lib/feriadosArgentina'
 
 function _detectLugar() {
   try { if (process.env.NEXT_PUBLIC_LUGAR && ['HIGA','UPA','MODULAR'].includes(process.env.NEXT_PUBLIC_LUGAR)) return process.env.NEXT_PUBLIC_LUGAR } catch(e) {}
@@ -445,6 +446,22 @@ export default function AdminApp() {
   const [lugarDetectado, setLugarDetectado] = useState(APP_LUGAR)
   const [loginAdmin, setLoginAdmin] = useState(null) // null=verificando, false=logueado, {legajo,pass,error,loading}=mostrando form
   const adminLoggedIn = useRef(false)
+  // ── Disponibilidad fuera de término (solo HIGA por ahora): carga/edición
+  // manual de la disponibilidad de UN efectivo, hecha por un administrador,
+  // sin reabrir la ventana de inscripción general — ver abrirDispAdmin()
+  // más abajo. Esta función ya se probó antes y quedó fuera del panel real
+  // porque depende de una sesión de servidor que el login de abajo no
+  // establecía; handleLoginAdmin ahora intenta establecerla como un
+  // agregado de solo lectura, sin tocar en nada el login de siempre.
+  const [modalDispAdmin, setModalDispAdmin] = useState(null) // { legajo, nombre } | null
+  const [dispAdminCargando, setDispAdminCargando] = useState(false)
+  const [dispAdminDiasOriginal, setDispAdminDiasOriginal] = useState({})
+  const [dispAdminDias, setDispAdminDias] = useState({})
+  const [dispAdminTurnosAsignados, setDispAdminTurnosAsignados] = useState([])
+  const [dispAdminMotivo, setDispAdminMotivo] = useState('')
+  const [dispAdminGuardando, setDispAdminGuardando] = useState(false)
+  const [dispAdminResultado, setDispAdminResultado] = useState(null)
+  const [dispAdminPaso, setDispAdminPaso] = useState('editar') // 'editar' | 'confirmar'
 
   useEffect(() => {
     const lugar = _detectLugar()
@@ -1957,6 +1974,18 @@ export default function AdminApp() {
       localStorage.setItem('polad_user', JSON.stringify(data))
       adminLoggedIn.current = true
       setLoginAdmin(false)
+      // Intento best-effort de establecer, además, la sesión de servidor
+      // que necesita la función "Disponibilidad fuera de término" (ver
+      // abrirDispAdmin más abajo). Es un agregado puramente de solo
+      // lectura sobre el login de siempre: si este entorno todavía no
+      // tiene configurada la contraseña de admin del lado del servidor,
+      // esto falla en silencio y el login de arriba (el de siempre) no se
+      // ve afectado en nada — sigue funcionando exactamente igual.
+      fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: loginAdmin.legajo.trim(), password: loginAdmin.pass }),
+      }).catch(() => {})
       const lugar = _detectLugar()
       const now = new Date()
       supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
@@ -1970,6 +1999,109 @@ export default function AdminApp() {
     } catch (err) {
       setLoginAdmin(prev => ({ ...prev, error: 'Error de conexión.', loading: false }))
     }
+  }
+
+  // ── Disponibilidad fuera de término: carga/edición manual de la
+  // disponibilidad de UN efectivo, hecha por un administrador, SIN reabrir
+  // la ventana de inscripción general (eso seguiría afectando a todos los
+  // demás efectivos — ver pedido original). Usa
+  // /api/admin-disponibilidad-override, que ya respeta todo lo que
+  // respetaba cuando se probó: se agrega a la lista de asignación rápida,
+  // nunca toca la tabla de turnos (las guardias ya asignadas que queden en
+  // contradicción se avisan, no se borran), y deja auditoría. Requiere la
+  // sesión de servidor que handleLoginAdmin intenta establecer al
+  // loguearse — si todavía no está disponible en este entorno, se avisa
+  // con un mensaje claro en vez de fallar en silencio o romper algo.
+  async function abrirDispAdmin(e) {
+    setDispAdminResultado(null)
+    setDispAdminMotivo('')
+    setDispAdminPaso('editar')
+    setModalDispAdmin({ legajo: e.legajo, nombre: e.nombre })
+    setDispAdminCargando(true)
+    try {
+      const resp = await fetch(`/api/admin-disponibilidad-override?legajo=${encodeURIComponent(e.legajo)}&lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`)
+      const body = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        if (resp.status === 401) {
+          setDispAdminResultado({ ok: false, error: 'Esta función todavía necesita un paso de configuración único en el sitio. No se modificó nada y el resto del panel sigue funcionando normal — avisale a quien te ayudó a subir el panel.' })
+        } else {
+          setDispAdminResultado({ ok: false, error: body.error || 'No se pudo cargar.' })
+        }
+        setDispAdminCargando(false)
+        return
+      }
+      setDispAdminDiasOriginal(body.dias_actuales || {})
+      setDispAdminDias(body.dias_actuales || {})
+      setDispAdminTurnosAsignados(body.turnos_asignados || [])
+    } catch (err) {
+      setDispAdminResultado({ ok: false, error: 'Error de conexión.' })
+    }
+    setDispAdminCargando(false)
+  }
+
+  function toggleDispAdminDia(dia, key) {
+    setDispAdminDias(prev => {
+      const actual = prev[dia] || ''
+      const keys = actual.split('').filter(Boolean)
+      const idx = keys.indexOf(key)
+      const nuevasKeys = idx >= 0 ? keys.filter(k => k !== key) : [...keys, key].sort((a, b) => TURNOS_LUGAR.indexOf(a) - TURNOS_LUGAR.indexOf(b))
+      const nuevo = nuevasKeys.join('')
+      const next = { ...prev }
+      if (!nuevo) delete next[dia]; else next[dia] = nuevo
+      return next
+    })
+  }
+
+  // Advertencias calculadas en pantalla (antes de guardar), comparando lo
+  // que se está por guardar contra las guardias YA asignadas. El servidor
+  // vuelve a calcularlas igual al guardar — esto es solo para que el
+  // encargado las vea antes de confirmar.
+  function advertenciasDispAdminPreview() {
+    return dispAdminTurnosAsignados.filter(t => {
+      const disp = dispAdminDias[t.dia] || ''
+      return !disp.includes(t.turno)
+    })
+  }
+
+  async function confirmarDispAdmin() {
+    if (!modalDispAdmin) return
+    setDispAdminGuardando(true)
+    setDispAdminResultado(null)
+    try {
+      const resp = await fetch('/api/admin-disponibilidad-override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          legajo: modalDispAdmin.legajo, lugar: lugarDetectado, mes: MES, anio: ANIO,
+          dias: dispAdminDias, motivo: dispAdminMotivo || null, confirmar: true,
+          // Lo que este formulario tenía al abrirse — si ya no coincide con
+          // lo guardado en este momento (otro admin lo cambió mientras
+          // tanto), el servidor rechaza el guardado en vez de pisarlo.
+          dias_antes_esperado: dispAdminDiasOriginal,
+        }),
+      })
+      const body = await resp.json().catch(() => ({}))
+      if (resp.status === 409 && body.conflicto) {
+        setDispAdminDiasOriginal(body.dias_actuales || {})
+        setDispAdminResultado({ ok: false, error: body.error, conflicto: true })
+        setDispAdminPaso('editar')
+      } else if (resp.status === 401) {
+        setDispAdminResultado({ ok: false, error: 'Esta función todavía necesita un paso de configuración único en el sitio. No se guardó nada.' })
+      } else if (!resp.ok) {
+        setDispAdminResultado({ ok: false, error: body.error || 'No se pudo guardar.' })
+      } else {
+        setDispAdminResultado({ ok: true, ...body })
+        // Refleja el cambio en la vista de Disponibilidad sin esperar a
+        // recargar todo.
+        setDisponibilidad(prev => ({
+          ...prev,
+          [normLegajo(modalDispAdmin.legajo)]: Object.fromEntries(Object.entries(dispAdminDias).map(([dia, turno]) => [dia, { turno }]))
+        }))
+      }
+    } catch (err) {
+      setDispAdminResultado({ ok: false, error: 'Error de conexión. No se guardó — revisá e intentá de nuevo.' })
+    }
+    setDispAdminGuardando(false)
   }
 
   const IMAGEN_FONDO = APP_LUGAR === 'UPA' ? '/upa2.webp' : APP_LUGAR === 'MODULAR' ? '/modular.jpeg' : '/higa foto.webp'
@@ -2117,6 +2249,121 @@ export default function AdminApp() {
       )}
 
       {modalPersonal && <ModalPersonal datos={modalPersonal} onClose={() => { setModalPersonal(null); setMsgPersonal(null) }} onGuardar={handleGuardarPersonal} onEliminar={handleEliminarPersonal} guardando={guardandoPersonal} msg={msgPersonal} />}
+
+      {/* Disponibilidad fuera de término (HIGA, UPA y MODULAR — ver botón
+          en la vista "disponibilidad"). No reemplaza ni toca la ventana de
+          inscripción general. */}
+      {modalDispAdmin && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:50,display:'flex',alignItems:'center',justifyContent:'center',padding:20 }}>
+          <div style={{ background:'#13151f',borderRadius:12,border:'0.5px solid rgba(200,168,75,0.4)',width:'100%',maxWidth:560,maxHeight:'90vh',overflow:'auto' }}>
+            <div style={{ padding:'14px 16px',borderBottom:'0.5px solid rgba(200,168,75,0.3)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(200,168,75,0.06)',position:'sticky',top:0,zIndex:1 }}>
+              <h3 style={{ fontSize:14,fontWeight:500,color:'#c8a84b' }}>✎ Disponibilidad fuera de término — {modalDispAdmin.nombre}</h3>
+              <button className="btn btn-sm" onClick={() => { setModalDispAdmin(null); setDispAdminResultado(null) }}>Cerrar</button>
+            </div>
+            <div style={{ padding:16 }}>
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:12 }}>
+                Leg. {modalDispAdmin.legajo} · {APP_LUGAR} · {NOMBRE_MES}. Esto NO reabre la inscripción general: solo guarda la disponibilidad de esta persona para este período. No borra ni modifica guardias ya asignadas.
+              </div>
+
+              {dispAdminCargando ? (
+                <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Cargando...</div>
+              ) : dispAdminResultado?.ok ? (
+                <div>
+                  <div className="alert alert-ok" style={{ marginBottom:12 }}>
+                    Disponibilidad guardada.
+                    {dispAdminResultado.auditoria_id != null && ` Auditoría #${dispAdminResultado.auditoria_id}.`}
+                  </div>
+                  {(dispAdminResultado.advertencias || []).length > 0 && (
+                    <div className="alert alert-warn" style={{ marginBottom:12 }}>
+                      <div style={{ fontWeight:600, marginBottom:6 }}>⚠ Guardias ya asignadas que quedan en contradicción (NO se tocaron):</div>
+                      {dispAdminResultado.advertencias.map((a, i) => <div key={i} style={{ fontSize:11, marginBottom:4 }}>{a.detalle}</div>)}
+                    </div>
+                  )}
+                  <button className="btn" style={{ width:'100%', justifyContent:'center' }} onClick={() => { setModalDispAdmin(null); setDispAdminResultado(null) }}>Cerrar</button>
+                </div>
+              ) : (
+                <>
+                  {dispAdminResultado?.error && <div className="alert alert-err" style={{ marginBottom:12 }}>{dispAdminResultado.error}</div>}
+
+                  {dispAdminPaso === 'editar' && (
+                    <>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
+                        {Array.from({ length: DIAS_MES }, (_, i) => i + 1).map(dia => {
+                          const esp = infoDiaEspecial(dia, MES, ANIO)
+                          return (
+                          <div key={dia} style={{ border: esp.marcar ? '0.5px solid #FFD700' : '0.5px solid rgba(255,255,255,0.1)', borderRadius:6, padding:'4px 6px', minWidth:46, textAlign:'center' }}>
+                            <div style={{ fontSize:10, color: esp.marcar ? '#FFD700' : 'var(--text-muted)', fontWeight: esp.marcar ? 700 : 400, marginBottom:3 }}>{dia}</div>
+                            <div style={{ display:'flex', gap:2, justifyContent:'center' }}>
+                              {TURNOS_LUGAR.map(k => {
+                                const activo = (dispAdminDias[dia] || '').includes(k)
+                                return (
+                                  <button key={k} type="button" onClick={() => toggleDispAdminDia(dia, k)}
+                                    style={{ width:20, height:20, fontSize:9, fontWeight:700, borderRadius:4, cursor:'pointer',
+                                      border: activo ? '1px solid #c8a84b' : '1px solid rgba(255,255,255,0.15)',
+                                      background: activo ? 'rgba(200,168,75,0.3)' : 'rgba(255,255,255,0.04)',
+                                      color: activo ? '#c8a84b' : 'var(--text-muted)' }}>
+                                    {k.toUpperCase()}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          )
+                        })}
+                      </div>
+
+                      <div style={{ marginBottom:14 }}>
+                        <label style={{ fontSize:12, color:'var(--text-muted)', display:'block', marginBottom:5 }}>Motivo (opcional, queda en la auditoría)</label>
+                        <input type="text" value={dispAdminMotivo} onChange={e => setDispAdminMotivo(e.target.value)} placeholder="Ej: no llegó a cargar por licencia"
+                          style={{ width:'100%', padding:'8px 10px', border:'0.5px solid rgba(255,255,255,0.12)', borderRadius:6, fontSize:13, background:'#1e2130', color:'#e8eaf0', outline:'none' }} />
+                      </div>
+
+                      <button className="btn" style={{ width:'100%', justifyContent:'center', background:'rgba(200,168,75,0.15)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)' }}
+                        onClick={() => setDispAdminPaso('confirmar')}>
+                        Ver cambios antes de confirmar →
+                      </button>
+                    </>
+                  )}
+
+                  {dispAdminPaso === 'confirmar' && (() => {
+                    const diasAntes = Object.keys(dispAdminDiasOriginal).map(Number).sort((a,b)=>a-b)
+                    const diasDespues = Object.keys(dispAdminDias).map(Number).sort((a,b)=>a-b)
+                    const advertencias = advertenciasDispAdminPreview()
+                    return (
+                      <div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+                          <div>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:6 }}>Antes ({diasAntes.length} días)</div>
+                            <div style={{ fontSize:12 }}>{diasAntes.length ? diasAntes.map(d => `${d}(${dispAdminDiasOriginal[d]})`).join(', ') : '— sin disponibilidad cargada —'}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:11, color:'#c8a84b', marginBottom:6 }}>Después ({diasDespues.length} días)</div>
+                            <div style={{ fontSize:12 }}>{diasDespues.length ? diasDespues.map(d => `${d}(${dispAdminDias[d]})`).join(', ') : '— sin disponibilidad —'}</div>
+                          </div>
+                        </div>
+                        {advertencias.length > 0 && (
+                          <div className="alert alert-warn" style={{ marginBottom:14 }}>
+                            <div style={{ fontWeight:600, marginBottom:6 }}>⚠ Esto contradice {advertencias.length} guardia(s) ya asignada(s). NO se van a borrar ni reasignar solas — quedan así hasta que decidas qué hacer manualmente.</div>
+                            {advertencias.map((a, i) => (
+                              <div key={i} style={{ fontSize:11, marginBottom:3 }}>Día {a.dia} — turno {a.turno} — {a.sector}</div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display:'flex', gap:8 }}>
+                          <button className="btn btn-sm" style={{ flex:1, justifyContent:'center' }} onClick={() => setDispAdminPaso('editar')} disabled={dispAdminGuardando}>← Volver a editar</button>
+                          <button className="btn btn-success" style={{ flex:1, justifyContent:'center' }} onClick={confirmarDispAdmin} disabled={dispAdminGuardando}>
+                            {dispAdminGuardando ? 'Guardando...' : 'Confirmar y guardar'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Encabezado: diseño que ya habías aprobado antes (marca POLAD /
           DESTINO + lugar, mes/año/candado y Salir arriba; pestañas
@@ -2729,6 +2976,13 @@ export default function AdminApp() {
                             )}
                           </div>
                         </div>
+                        {seleccionado && (
+                          <div style={{ border:'0.5px solid rgba(200,168,75,0.3)', borderTop:'none', borderRadius: cargo ? 0 : '0 0 8px 8px', padding:'8px 12px', background:'rgba(200,168,75,0.04)' }}>
+                            <button className="btn btn-sm" style={{ width:'100%', justifyContent:'center', background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.35)' }} onClick={() => abrirDispAdmin(e)}>
+                              ✎ Cargar/editar disponibilidad (fuera de término)
+                            </button>
+                          </div>
+                        )}
                         {seleccionado && cargo && (
                           <div style={{ border:'0.5px solid #c8a84b', borderTop:'none', borderRadius:'0 0 8px 8px', padding:'10px 12px', background:'rgba(200,168,75,0.05)' }}>
                             <div style={{ fontSize:10, color:'#c8a84b', marginBottom:8, fontWeight:500 }}>{cantDias} días cargados</div>
