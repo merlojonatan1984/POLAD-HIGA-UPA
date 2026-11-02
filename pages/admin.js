@@ -3104,7 +3104,17 @@ export default function AdminApp() {
                             return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top' }}>
                               {TURNOS_INFO.map(ti => {
                                 const list = todosLosTurnos.filter(t=>t.dia===dia&&t.turno===ti.key&&t.sector===sector)
-                                return <div key={ti.key} style={{ color:ti.color,marginBottom:1 }}>{list.length ? list.map(t=>`${nombreCorto(t.legajo)} (${ti.key.toUpperCase()})`).join(', ') : '—'}</div>
+                                return (
+                                  <div key={ti.key} style={{ marginBottom:5 }}>
+                                    {list.length ? list.map((t, idx) => (
+                                      // Un efectivo por línea (antes iban todos
+                                      // separados solo por comas, en una columna
+                                      // angosta — con varios nombres se pegaban
+                                      // uno con otro y costaba distinguirlos).
+                                      <div key={t.id ?? `${t.legajo}-${idx}`} style={{ color:ti.color, lineHeight:1.6 }}>{nombreCorto(t.legajo)} ({ti.key.toUpperCase()})</div>
+                                    )) : <div style={{ color:ti.color }}>—</div>}
+                                  </div>
+                                )
                               })}
                             </td>
                           })}
