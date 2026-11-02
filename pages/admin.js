@@ -100,8 +100,12 @@ const LABELS = { resumen: 'Resumen', personal: 'Personal', disponibilidad: 'Disp
 
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 const BG_APP   = APP_LUGAR === 'HIGA' ? 'rgba(42,37,96,0.5)' : APP_LUGAR === 'UPA' ? 'rgba(80,30,10,0.5)' : 'rgba(10,50,60,0.5)'
+// Usado para armar los nombres de archivo de las fotos del rediseño
+// (/higa-hero.jpg, /upa-hero.jpg, /modular-hero.jpg, etc.) — un solo lugar
+// para esa convención de nombres, en vez de repetir el ternario 3 veces.
+const PHG_SLUG = APP_LUGAR.toLowerCase()
 
-// ===== Rediseño visual HIGA (solo APP_LUGAR==='HIGA') =====
+// ===== Rediseño visual (HIGA, UPA y MODULAR) =====
 // Íconos SVG en línea — no se agregó ninguna librería de íconos nueva
 // (no había ninguna ya disponible en el proyecto), así que se dibujaron a
 // mano, livianos, del mismo estilo que la vista previa aprobada. Se usan
@@ -2377,7 +2381,11 @@ export default function AdminApp() {
           Es solo presentación: usa exactamente los mismos
           mesSeleccionado/anioSeleccionado/mesBloqueado/toggleBloqueoMes/
           setVista/router que ya existían — no hay lógica nueva. */}
-      {APP_LUGAR !== 'HIGA' && (
+      {/* Topbar viejo: reemplazado para los 3 lugares por el encabezado con
+          foto + menú lateral de más abajo. Se deja el código acá, inerte
+          (nunca se renderiza), en vez de borrarlo, por si alguna vez hace
+          falta volver atrás para alguno de los tres. */}
+      {false && (
       <div className="topbar" style={{ display:'block', padding:0 }}>
         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 20px',flexWrap:'wrap',gap:10 }}>
           <div style={{ display:'flex',alignItems:'center',gap:14 }}>
@@ -2437,7 +2445,7 @@ export default function AdminApp() {
       </div>
       )}
 
-      {APP_LUGAR === 'HIGA' && (<>
+      {true && (<>
       <style>{`
         @keyframes phgPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.5;transform:scale(1.3);}}
         @keyframes phgShimmer{0%{transform:translateX(-120%);}100%{transform:translateX(320%);}}
@@ -2477,7 +2485,7 @@ export default function AdminApp() {
         }
       `}</style>
       <div style={{ position:'relative', minHeight:150, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, padding:'18px 28px', flexWrap:'wrap', borderBottom:'1px solid rgba(45,212,191,0.35)', boxShadow:'0 4px 24px rgba(0,0,0,0.5)' }}>
-        <div style={{ position:'absolute', inset:0, backgroundImage:"url('/higa-hero.jpg')", backgroundSize:'cover', backgroundPosition:'center 38%', filter:'saturate(0.85) brightness(0.55)', zIndex:0 }} />
+        <div style={{ position:'absolute', inset:0, backgroundImage:`url('/${PHG_SLUG}-hero.jpg')`, backgroundSize:'cover', backgroundPosition:'center 38%', filter:'saturate(0.85) brightness(0.55)', zIndex:0 }} />
         <div style={{ position:'absolute', inset:0, zIndex:1, background:'linear-gradient(100deg, rgba(8,12,28,0.94) 0%, rgba(12,22,48,0.88) 30%, rgba(13,35,66,0.55) 60%, rgba(10,16,34,0.9) 100%)' }} />
         <div className="phg-hero-left" style={{ position:'relative', zIndex:2, display:'flex', alignItems:'center', gap:18, flexWrap:'wrap' }}>
           <div style={{ display:'flex', alignItems:'center', gap:16 }}>
@@ -2514,8 +2522,8 @@ export default function AdminApp() {
       </div>
       </>)}
 
-      <div style={APP_LUGAR === 'HIGA' ? { display:'flex', alignItems:'flex-start' } : undefined}>
-      {APP_LUGAR === 'HIGA' && (
+      <div style={true ? { display:'flex', alignItems:'flex-start' } : undefined}>
+      {true && (
         <div className="phg-sidebar" style={{ width:220, flexShrink:0, background:'#0f1830', borderRight:'0.5px solid rgba(255,255,255,0.08)', display:'flex', flexDirection:'column', padding:'14px 10px', gap:2, minHeight:'calc(100vh - 150px)' }}>
           {PHG_NAV_PRINCIPAL.map(it => (
             <button key={it.v} className={'phg-navbtn' + (vista===it.v ? ' phg-activa' : '')} onClick={() => setVista(it.v)}>
@@ -2532,16 +2540,16 @@ export default function AdminApp() {
             {PHG_ICONOS.control}<span className="phg-lbl">Control asistencia</span>
           </button>
           <div style={{ marginTop:'auto', display:'flex', alignItems:'center', gap:10, padding:'12px 10px 4px', borderTop:'1px solid rgba(255,255,255,0.08)' }}>
-            <img src="/higa-facade.jpg" alt="HIGA" style={{ width:34, height:34, borderRadius:8, objectFit:'cover', border:'1px solid rgba(45,212,191,0.4)' }} />
+            <img src={`/${PHG_SLUG}-facade.jpg`} alt={APP_LUGAR} style={{ width:34, height:34, borderRadius:8, objectFit:'cover', border:'1px solid rgba(45,212,191,0.4)' }} />
             <div className="phg-sidebar-foot-txt" style={{ fontSize:13, fontWeight:700, color:'#fff' }}>
-              HIGA
+              {APP_LUGAR}
               <span style={{ display:'block', width:26, height:2, background:'#2DD4BF', marginTop:3, boxShadow:'0 0 6px rgba(45,212,191,0.55)' }} />
             </div>
           </div>
         </div>
       )}
 
-      <div className="content" style={APP_LUGAR === 'HIGA' ? { flex:1, minWidth:0 } : undefined}>
+      <div className="content" style={true ? { flex:1, minWidth:0 } : undefined}>
         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16 }}>
           <div>
             <h2 style={{ fontSize:28,fontWeight:700,color:'#fff',margin:0 }}>Resumen del mes</h2>
@@ -2644,7 +2652,7 @@ export default function AdminApp() {
             </>
           )
 
-          if (APP_LUGAR === 'HIGA') {
+          if (true) {
             // Rediseño aprobado: tarjetas de colores + accesos rápidos +
             // mapa de recorridos (imagen de referencia, pendiente de
             // validar) + estado general con % real. Todos los valores son
@@ -2703,7 +2711,7 @@ export default function AdminApp() {
                 <div className="phg-col-der">
                   <div className="phg-col-mapa">
                     <div style={{ background:'#15203f', border:'0.5px solid rgba(255,255,255,0.09)', borderRadius:14, overflow:'hidden' }}>
-                      <img src="/higa-mapa-referencia.jpg" alt="Recorridos y puestos — referencia" style={{ width:'100%', display:'block' }} />
+                      <img src={`/${PHG_SLUG}-mapa-referencia.jpg`} alt="Recorridos y puestos — referencia" style={{ width:'100%', display:'block' }} />
                       <div style={{ padding:'10px 16px', fontSize:11, color:'#5f6c93', background:'rgba(255,255,255,0.03)', borderTop:'0.5px solid rgba(255,255,255,0.07)', lineHeight:1.5 }}>
                         <b style={{ color:'#c9bdf5' }}>Pendiente de validar con vos:</b> esta imagen es la que vos aprobaste como referencia visual. Antes de animarla con los recorridos reales (quién camina por dónde, perímetro exacto) necesito que me confirmes sector por sector si el trazado coincide con el predio real — no quiero inventar un recorrido que no sea el verdadero.
                       </div>
