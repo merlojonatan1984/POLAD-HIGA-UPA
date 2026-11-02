@@ -145,7 +145,14 @@ const PHG_NAV_PRINCIPAL = [
   { v:'resumen', label:'Resumen' },
   { v:'personal', label:'Personal' },
   { v:'disponibilidad', label:'Disponibilidad' },
-  { v:'turnos', label:'Guardias' },
+  // Se saca "Guardias" (vista 'turnos') del menú: mostraba el cronograma
+  // día por día, que ya se ve en Resumen y en la planilla para imprimir,
+  // así que quedaba redundante y confundía. El botón "Generar turnos
+  // automáticamente" que vivía ahí tampoco se usa (los turnos se arman
+  // a mano desde Asignación rápida), así que se va junto con la pantalla.
+  // La vista 'turnos' sigue en el código, solo que ya no hay forma de
+  // llegar a ella desde el menú — así se puede volver atrás fácil si
+  // hiciera falta.
   { v:'edicion', label:'Edición manual' },
   { v:'rapida', label:'Asignación rápida' },
 ]
