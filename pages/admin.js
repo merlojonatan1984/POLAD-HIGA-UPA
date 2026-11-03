@@ -396,6 +396,10 @@ export default function AdminApp() {
   const [msgPersonal, setMsgPersonal] = useState(null)
   const [efDetalle, setEfectivoDetalle] = useState(null)
   const [filtroDia, setFiltroDia] = useState(1)
+  // Arrastrar y soltar en Edición manual (ver handleDropTurno): solo guarda
+  // sobre qué puesto o efectivo está pasando el arrastre ahora mismo, para
+  // resaltarlo — nada de esto se persiste, es puramente visual.
+  const [dragOverKey, setDragOverKey] = useState(null)
   const [config, setConfig] = useState({ totalHoras: 2400, pctUniformados: 60, pctGeneral: 40 })
   const [ventanas, setVentanas] = useState({ dia: '', horaInicio: '08:00', horaFin: '20:00', mesVentana: MES_ACTUAL, anioVentana: ANIO_ACTUAL, mesApertura: MES_ACTUAL, anioApertura: ANIO_ACTUAL })
   const [ventanasGuardadas, setVentanasGuardadas] = useState(false)
@@ -1750,6 +1754,72 @@ export default function AdminApp() {
     const { error } = await supabase.from('turnos').insert([n])
     if (error) { alert('❌ Error guardando: ' + error.message); return }
     setModalTurno(null); await cargarTodo()
+  }
+
+  // Arrastrar y soltar en Edición manual: mover (o intercambiar) un
+  // efectivo de un puesto (sector+turno) a otro del MISMO día, sin tener
+  // que abrir el modal "Cambiar" para cada caso. Pedido: "arrastraba el
+  // efectivo hasta el puesto y automáticamente quedaba en la planilla
+  // mensual y demás, y si había otro efectivo, el efectivo suplantaba el
+  // lugar que dejaba este" — es decir, si el puesto destino ya tiene a
+  // alguien, SE INTERCAMBIAN los dos (cada uno pasa al puesto del otro),
+  // no que uno quede sin asignar.
+  //
+  // origenItem: la fila de turnos que se está arrastrando ({id, legajo,
+  //   sector, turno, dia}).
+  // destino: { sector, turno } — el puesto donde se soltó. ocupanteItem,
+  //   si no es null, es la fila de turnos de quien ya estaba en ESE puesto
+  //   específico (se soltó encima de esa persona = intercambio). Si es
+  //   null, se soltó en un espacio vacío del puesto = mover (respetando
+  //   el cupo del puesto destino).
+  //
+  // En los dos casos se reutiliza el mismo chequeo de "cruce de horario"
+  // que ya usa handleGuardarEdicion/handleAgregarTurno — moverlo de
+  // puesto puede cambiar su horario real (p.ej. de Día a Noche), y eso
+  // puede ahora superponerse con un turno suyo en otro lugar.
+  async function handleDropTurno(origenItem, destino) {
+    if (!origenItem || origenItem.dia !== filtroDia) return
+    if (origenItem.sector === destino.sector && origenItem.turno === destino.turno) return // soltó en el mismo puesto, no hay nada que hacer
+
+    if (destino.ocupanteItem) {
+      // Intercambio: cada uno pasa al puesto del otro.
+      const ocupante = destino.ocupanteItem
+      if (ocupante.id === origenItem.id) return
+      const nombreOrigen = nombreCompleto(origenItem.legajo)
+      const nombreOcupante = nombreCompleto(ocupante.legajo)
+      const [cruceOrigen, cruceOcupante] = await Promise.all([
+        buscarCruceOtroLugar(origenItem.legajo, filtroDia, destino.turno, lugarDeSectorGlobal(destino.sector), MES, ANIO, origenItem.id),
+        buscarCruceOtroLugar(ocupante.legajo, filtroDia, origenItem.turno, lugarDeSectorGlobal(origenItem.sector), MES, ANIO, ocupante.id),
+      ])
+      if (cruceOrigen || cruceOcupante) {
+        const partes = []
+        if (cruceOrigen) partes.push(`${nombreOrigen}: ya tiene "${cruceOrigen.turno}" en ${cruceOrigen.lugar} (${cruceOrigen.sector}) el día ${cruceOrigen.dia}.`)
+        if (cruceOcupante) partes.push(`${nombreOcupante}: ya tiene "${cruceOcupante.turno}" en ${cruceOcupante.lugar} (${cruceOcupante.sector}) el día ${cruceOcupante.dia}.`)
+        const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${partes.join('\n')}\n\n¿Intercambiar igual?`)
+        if (!ok) return
+      }
+      const [{ error: e1 }, { error: e2 }] = await Promise.all([
+        supabase.from('turnos').update({ sector: destino.sector, turno: destino.turno }).eq('id', origenItem.id),
+        supabase.from('turnos').update({ sector: origenItem.sector, turno: origenItem.turno }).eq('id', ocupante.id),
+      ])
+      if (e1 || e2) { alert('❌ Error al intercambiar: ' + (e1?.message || e2?.message)); return }
+    } else {
+      // Mover a un puesto vacío (o con lugar todavía, si el cupo es >1) — respeta el cupo del destino.
+      const ocupadosDestino = todosLosTurnos.filter(t => t.dia === filtroDia && t.turno === destino.turno && t.sector === destino.sector).length
+      if (ocupadosDestino >= cupoSlot(destino.sector, destino.turno)) {
+        alert(`⛔ No hay cupo disponible en ${destino.sector} / ${TURNOS_INFO.find(t => t.key === destino.turno)?.label || destino.turno}.`)
+        return
+      }
+      const cruce = await buscarCruceOtroLugar(origenItem.legajo, filtroDia, destino.turno, lugarDeSectorGlobal(destino.sector), MES, ANIO, origenItem.id)
+      if (cruce) {
+        const nombre = nombreCompleto(origenItem.legajo)
+        const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Mover igual?`)
+        if (!ok) return
+      }
+      const { error } = await supabase.from('turnos').update({ sector: destino.sector, turno: destino.turno }).eq('id', origenItem.id)
+      if (error) { alert('❌ Error al mover: ' + error.message); return }
+    }
+    await cargarTodo()
   }
 
   async function handleGuardarPersonal(datos) {
@@ -3182,13 +3252,38 @@ export default function AdminApp() {
                       <div style={{ padding:10 }}>
                         {TURNOS_INFO.map((ti, idx) => {
                           const list = todosLosTurnos.filter(t=>t.dia===filtroDia&&t.turno===ti.key&&t.sector===sector)
+                          const celdaKey = `${sector}|${ti.key}`
                           return (
-                            <div key={ti.key} style={{ marginBottom:idx<TURNOS_INFO.length-1?8:0,paddingBottom:idx<TURNOS_INFO.length-1?8:0,borderBottom:idx<TURNOS_INFO.length-1?'0.5px solid var(--border)':'' }}>
+                            <div key={ti.key} data-celda={celdaKey} style={{ marginBottom:idx<TURNOS_INFO.length-1?8:0,paddingBottom:idx<TURNOS_INFO.length-1?8:0,borderBottom:idx<TURNOS_INFO.length-1?'0.5px solid var(--border)':'', borderRadius:6, outline: dragOverKey===celdaKey ? `1.5px dashed ${ti.color}` : 'none', outlineOffset:2 }}
+                              // Soltar sobre el espacio del puesto (no sobre una persona puntual) = mover ahí, sin intercambiar a nadie.
+                              onDragOver={e => { e.preventDefault(); setDragOverKey(celdaKey) }}
+                              onDragLeave={() => setDragOverKey(prev => prev===celdaKey ? null : prev)}
+                              onDrop={e => {
+                                e.preventDefault()
+                                setDragOverKey(null)
+                                let origen = null
+                                try { origen = JSON.parse(e.dataTransfer.getData('application/json')) } catch (err) { return }
+                                handleDropTurno(origen, { sector, turno: ti.key, ocupanteItem: null })
+                              }}>
                               <div style={{ fontSize:10,color:ti.color,fontWeight:500,marginBottom:5 }}>{ti.label.toUpperCase()}</div>
                               {list.length===0 && cupoSlot(sector, ti.key)===0 && <div style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>No corresponde</div>}
                               {list.length===0 && cupoSlot(sector, ti.key)>0 && <div style={{ display:'flex',alignItems:'center',gap:6 }}><span style={{ fontSize:11,color:'var(--text-hint)',fontStyle:'italic' }}>Sin cubrir</span><button className="btn btn-sm" style={{ fontSize:10,padding:'2px 8px',color:ti.color,borderColor:`${ti.color}66` }} onClick={() => setModalTurno({ dia:filtroDia,sector,turno:ti.key,legajo:'' })}>+ Asignar</button></div>}
                               {list.map(item => (
-                                <div key={item.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3 }}>
+                                <div key={item.id}
+                                  data-turno-id={item.id}
+                                  draggable
+                                  title="Arrastrá para mover o intercambiar de puesto"
+                                  onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('application/json', JSON.stringify({ id:item.id, legajo:item.legajo, sector:item.sector, turno:item.turno, dia:item.dia })) }}
+                                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item|${item.id}`) }}
+                                  onDragLeave={() => setDragOverKey(prev => prev===`item|${item.id}` ? null : prev)}
+                                  onDrop={e => {
+                                    e.preventDefault(); e.stopPropagation()
+                                    setDragOverKey(null)
+                                    let origen = null
+                                    try { origen = JSON.parse(e.dataTransfer.getData('application/json')) } catch (err) { return }
+                                    handleDropTurno(origen, { sector, turno: ti.key, ocupanteItem: item })
+                                  }}
+                                  style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3, cursor:'grab', outline: dragOverKey===`item|${item.id}` ? '1.5px dashed #c8a84b' : 'none', outlineOffset:1 }}>
                                   <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
                                   <div style={{ display:'flex',gap:4 }}>
                                     <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px' }} onClick={() => setModalTurno(item)}>Cambiar</button>
