@@ -1974,35 +1974,38 @@ export default function AdminApp() {
     e.preventDefault()
     setLoginAdmin(prev => ({ ...prev, error: '', loading: true }))
     try {
-      const { data } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', loginAdmin.legajo.trim())
-        .eq('es_admin', true)
-        .maybeSingle()
-      if (!data) {
-        setLoginAdmin(prev => ({ ...prev, error: 'Legajo no encontrado o sin permisos de admin.', loading: false }))
-        return
-      }
-      if (loginAdmin.pass !== 'admin2025') {
-        setLoginAdmin(prev => ({ ...prev, error: 'Contraseña incorrecta.', loading: false }))
-        return
-      }
-      localStorage.setItem('polad_user', JSON.stringify(data))
-      adminLoggedIn.current = true
-      setLoginAdmin(false)
-      // Intento best-effort de establecer, además, la sesión de servidor
-      // que necesita la función "Disponibilidad fuera de término" (ver
-      // abrirDispAdmin más abajo). Es un agregado puramente de solo
-      // lectura sobre el login de siempre: si este entorno todavía no
-      // tiene configurada la contraseña de admin del lado del servidor,
-      // esto falla en silencio y el login de arriba (el de siempre) no se
-      // ve afectado en nada — sigue funcionando exactamente igual.
-      fetch('/api/auth-login', {
+      // Paso 6 (seguridad): antes esta función traía la fila del
+      // administrador directo de Supabase (con la clave anon, visible en
+      // el navegador) y comparaba acá mismo, en el navegador, contra
+      // 'admin2025' escrito tal cual en el código fuente — cualquiera que
+      // abriera las herramientas de desarrollador, o leyera este archivo,
+      // la veía. Ahora se manda legajo+contraseña a /api/auth-login (el
+      // mismo endpoint que ya usa pages/index.js) y es el servidor el que
+      // busca al administrador y compara la contraseña contra el hash
+      // guardado en ADMIN_PASSWORD_HASH — la contraseña real nunca viaja
+      // al código fuente ni a lo que ve quien inspecciona el navegador.
+      const resp = await fetch('/api/auth-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ legajo: loginAdmin.legajo.trim(), password: loginAdmin.pass }),
-      }).catch(() => {})
+      })
+      const body = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        setLoginAdmin(prev => ({ ...prev, error: body.error || 'Error de conexión.', loading: false }))
+        return
+      }
+      const data = body.usuario
+      localStorage.setItem('polad_user', JSON.stringify(data))
+      adminLoggedIn.current = true
+      setLoginAdmin(false)
+      // (Antes había acá un segundo fetch a /api/auth-login "best effort",
+      // pensado para dejar activada una sesión de cookie que usaría
+      // /api/admin-disponibilidad-override — pero ese archivo y
+      // lib/authServer.js, que esa sesión necesitaría, nunca llegaron a
+      // subirse al repo real. Se saca el fetch duplicado: ya se llamó una
+      // vez arriba para validar la contraseña, y un segundo llamado
+      // idéntico no sumaba nada. "Disponibilidad fuera de término" queda
+      // pendiente como una funcionalidad aparte, no resuelta todavía.)
       const lugar = _detectLugar()
       const now = new Date()
       supabase.from('configuracion').select('*').eq('lugar', lugar).maybeSingle().then(({ data: cfg }) => {
