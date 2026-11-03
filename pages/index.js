@@ -115,6 +115,14 @@ export default function Login() {
       }
 
       localStorage.setItem('polad_user', JSON.stringify(body.usuario))
+      // Paso 6b (seguridad): si es administrador, /api/auth-login ahora
+      // también manda un token de sesión — lo exige /api/admin-db (y
+      // /api/admin-storage-remove) en cada pedido que hace la pantalla de
+      // admin para leer o escribir en la base. Para un efectivo normal no
+      // hace falta (esa pantalla no cambió).
+      if (body.usuario.es_admin && body.sessionToken) {
+        localStorage.setItem('polad_session', body.sessionToken)
+      }
 
       if (body.usuario.es_admin) router.push('/admin')
       else router.push('/efectivo')
