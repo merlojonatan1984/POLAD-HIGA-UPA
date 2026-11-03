@@ -79,38 +79,44 @@ export default function Login() {
     setChecking(false)
   }
 
+  // Paso 6 (seguridad): esta función antes traía la fila completa del
+  // efectivo DIRECTO desde Supabase (con la clave anon, visible en el
+  // navegador) y comparaba la contraseña ACÁ, en el JavaScript que corre en
+  // la computadora de quien está entrando — eso incluía, para un
+  // administrador, la línea "const claveEsperada = data.es_admin ?
+  // 'admin2025' : ..." con la contraseña de administrador escrita TAL CUAL
+  // en el código fuente que se manda a cualquier navegador: cualquiera que
+  // abriera las herramientas de desarrollador, o simplemente leyera este
+  // archivo en GitHub, la veía. Para un efectivo normal, pasaba algo
+  // parecido: se traía toda la fila (incluida su contraseña guardada) al
+  // navegador antes de comparar. Ahora esta función solo manda legajo y
+  // contraseña al servidor (/api/auth-login), y es el servidor el que
+  // busca al efectivo y compara la contraseña — la contraseña real nunca
+  // viaja al código fuente ni quien inspecciona el navegador puede verla.
+  // Se mantiene exactamente el mismo comportamiento de ahí en más
+  // (localStorage.setItem('polad_user', ...) y el mismo router.push),
+  // nada de lo que ya funciona cambia.
   async function handleLogin(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      let { data, error: err } = await supabase
-        .from('efectivos')
-        .select('*')
-        .eq('legajo', legajo.trim())
-        .eq('es_admin', true)
-        .maybeSingle()
+      const resp = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: legajo.trim(), password: pass, lugar }),
+      })
+      const body = await resp.json().catch(() => ({}))
 
-      if (!data) {
-        const res = await supabase
-          .from('efectivos')
-          .select('*')
-          .eq('legajo', legajo.trim())
-          .eq('lugar', lugar)
-          .maybeSingle()
-        data = res.data
-        err = res.error
+      if (!resp.ok) {
+        setError(body.error || 'Error de conexión.')
+        setLoading(false)
+        return
       }
 
-      if (err || !data) { setError('Legajo no encontrado.'); setLoading(false); return }
+      localStorage.setItem('polad_user', JSON.stringify(body.usuario))
 
-      // Clave: si tiene password propio usarlo, sino usar legajo como clave
-      const claveEsperada = data.es_admin ? 'admin2025' : (data.password || legajo.trim())
-      if (pass !== claveEsperada) { setError('Contraseña incorrecta.'); setLoading(false); return }
-
-      localStorage.setItem('polad_user', JSON.stringify(data))
-
-      if (data.es_admin) router.push('/admin')
+      if (body.usuario.es_admin) router.push('/admin')
       else router.push('/efectivo')
     } catch (e) {
       setError('Error de conexión.')
