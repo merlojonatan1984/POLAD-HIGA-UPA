@@ -62,6 +62,28 @@ function verificarPasswordHash(password, hashAlmacenado) {
   }
 }
 
+// Paso 6b (seguridad) — nuevo. Hasta ahora, una vez que entrabas, la
+// pantalla de admin (admin.js) seguía hablando DIRECTO con la base de
+// datos usando la clave pública ("anon"), sin que el servidor pudiera
+// saber si quien mandaba cada pedido realmente había iniciado sesión como
+// administrador o no. Ahora admin.js pasa a hablar con la base a través
+// de /api/admin-db, que exige este token para cada pedido.
+//
+// El token es "<legajo>:<vence>:<firma>" — vence solo (12hs) y la firma
+// se calcula con AUTH_SESSION_SECRET (una clave interna, no es ninguna
+// contraseña de ninguna persona) usando HMAC-SHA256, así que nadie puede
+// armar un token válido sin conocer esa clave, que vive solo acá en el
+// servidor. No hace falta ninguna tabla ni dependencia nueva — todo con
+// lo que ya trae Node.
+function generarTokenSesion(legajo) {
+  const secreto = process.env.AUTH_SESSION_SECRET
+  if (!secreto) return null
+  const vence = Date.now() + 1000 * 60 * 60 * 12 // 12 horas
+  const payload = `${legajo}:${vence}`
+  const firma = crypto.createHmac('sha256', secreto).update(payload).digest('hex')
+  return `${payload}:${firma}`
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' })
 
@@ -100,7 +122,12 @@ export default async function handler(req, res) {
       if (!verificarPasswordHash(password, adminPasswordHash)) {
         return res.status(401).json({ error: 'Contraseña incorrecta.' })
       }
-      return res.status(200).json({ usuario: admin })
+      const sessionToken = generarTokenSesion(legajoTrim)
+      if (!sessionToken) {
+        console.error('[auth-login] Falta configurar AUTH_SESSION_SECRET en las variables de entorno de este despliegue.')
+        return res.status(500).json({ error: 'El panel de administrador todavía necesita un paso de configuración único en el sitio (AUTH_SESSION_SECRET). Contactar a quien administra el despliegue.' })
+      }
+      return res.status(200).json({ usuario: admin, sessionToken })
     }
 
     // 2) Efectivo normal, filtrando por el lugar detectado en el
