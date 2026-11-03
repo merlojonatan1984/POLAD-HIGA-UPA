@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '../lib/supabase'
+// Paso 6b (seguridad): antes esto importaba lib/supabase (cliente que
+// habla DIRECTO con la base usando la clave pública/anon, visible en el
+// navegador). Ahora importa lib/supabaseAdminProxy, que imita la misma
+// forma de escribir (.from().select().eq()...) pero manda cada pedido a
+// /api/admin-db, que es quien de verdad habla con la base, con la clave
+// de servicio (nunca pública) y exigiendo una sesión de administrador
+// válida. No hizo falta tocar ninguno de los lugares de este archivo que
+// usan "supabase.from(...)" — solo esta línea.
+import { supabase } from '../lib/supabaseAdminProxy'
 import FirmaEditorModal from '../components/FirmaEditorModal'
 import { infoDiaEspecial } from '../lib/feriadosArgentina'
 
@@ -2066,6 +2074,13 @@ export default function AdminApp() {
       }
       const data = body.usuario
       localStorage.setItem('polad_user', JSON.stringify(data))
+      // Paso 6b: este token es lo que ahora exige /api/admin-db (y
+      // /api/admin-storage-remove) en cada pedido para aceptar leer o
+      // escribir en la base — sin esto, ningún llamado de los que hace
+      // esta pantalla funcionaría. Vence solo a las 12hs (ver
+      // pages/api/auth-login.js); si venció, lib/supabaseAdminProxy.js lo
+      // detecta solo y manda de vuelta al login.
+      if (body.sessionToken) localStorage.setItem('polad_session', body.sessionToken)
       adminLoggedIn.current = true
       setLoginAdmin(false)
       // (Antes había acá un segundo fetch a /api/auth-login "best effort",
@@ -2496,7 +2511,7 @@ export default function AdminApp() {
                 {mesBloqueado ? '🔒' : '🔓'}
               </button>
             </div>
-            <button className="btn btn-sm" style={{ color:'#b7bcc9',fontSize:14 }} onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}>↪ Salir</button>
+            <button className="btn btn-sm" style={{ color:'#b7bcc9',fontSize:14 }} onClick={() => { localStorage.removeItem('polad_user'); localStorage.removeItem('polad_session'); router.push('/') }}>↪ Salir</button>
           </div>
         </div>
         <div style={{ display:'flex',gap:2,padding:'0 16px',borderBottom:'0.5px solid rgba(255,255,255,0.08)',flexWrap:'nowrap',overflowX:'auto' }}>
@@ -2602,7 +2617,7 @@ export default function AdminApp() {
             </button>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:8, background:'rgba(55,138,221,0.18)', border:'0.5px solid rgba(55,138,221,0.5)', borderRadius:10, padding:'8px 14px', fontWeight:600, color:'#bcd9f7', fontSize:13.5 }}>👤 Admin</div>
-          <button className="phg-salir" onClick={() => { localStorage.removeItem('polad_user'); router.push('/') }}
+          <button className="phg-salir" onClick={() => { localStorage.removeItem('polad_user'); localStorage.removeItem('polad_session'); router.push('/') }}
             style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(224,91,91,0.14)', border:'0.5px solid rgba(224,91,91,0.4)', color:'#f3b3b3', borderRadius:10, padding:'8px 14px', fontWeight:600, cursor:'pointer', fontSize:13.5 }}>↪ Salir</button>
         </div>
       </div>
