@@ -1785,6 +1785,25 @@ export default function AdminApp() {
   // que ya usa handleGuardarEdicion/handleAgregarTurno — moverlo de
   // puesto puede cambiar su horario real (p.ej. de Día a Noche), y eso
   // puede ahora superponerse con un turno suyo en otro lugar.
+  // Pedido nuevo (ronda del arrastre): antes de mover/intercambiar a
+  // alguien a un turno, avisar si esa persona NO cargó disponibilidad
+  // para ESE turno puntual ese día — antes el arrastre solo revisaba
+  // cupo y cruce de horario con otro lugar, no esto. Usa los mismos
+  // datos que ya carga el panel "Disponibles — Día X" de al lado
+  // (dispDelDia, vía /api/admin-disponibilidad), no pide nada nuevo al
+  // servidor. Si todavía no terminó de cargar la disponibilidad de este
+  // día (dispDelDia.dia !== filtroDia, apenas se cambió de día), no se
+  // puede saber todavía — se deja pasar sin avisar en vez de bloquear
+  // por una carga que está en curso.
+  function chequearDisponibilidadTurno(legajo, turnoDestino) {
+    if (dispDelDia.dia !== filtroDia) return null
+    const entrada = (dispDelDia.data || []).find(d => normLegajo(d.legajo) === normLegajo(legajo))
+    const turnoLabel = TURNOS_INFO.find(t => t.key === turnoDestino)?.label || turnoDestino
+    if (!entrada) return `no cargó disponibilidad para el día ${filtroDia}`
+    if (!entrada.turno || !entrada.turno.includes(turnoDestino)) return `cargó disponibilidad para el día ${filtroDia}, pero no para "${turnoLabel}"`
+    return null
+  }
+
   async function handleDropTurno(origenItem, destino) {
     if (!origenItem || origenItem.dia !== filtroDia) return
     if (origenItem.sector === destino.sector && origenItem.turno === destino.turno) return // soltó en el mismo puesto, no hay nada que hacer
@@ -1799,11 +1818,15 @@ export default function AdminApp() {
         buscarCruceOtroLugar(origenItem.legajo, filtroDia, destino.turno, lugarDeSectorGlobal(destino.sector), MES, ANIO, origenItem.id),
         buscarCruceOtroLugar(ocupante.legajo, filtroDia, origenItem.turno, lugarDeSectorGlobal(origenItem.sector), MES, ANIO, ocupante.id),
       ])
-      if (cruceOrigen || cruceOcupante) {
+      const dispOrigen = chequearDisponibilidadTurno(origenItem.legajo, destino.turno)
+      const dispOcupante = chequearDisponibilidadTurno(ocupante.legajo, origenItem.turno)
+      if (cruceOrigen || cruceOcupante || dispOrigen || dispOcupante) {
         const partes = []
         if (cruceOrigen) partes.push(`${nombreOrigen}: ya tiene "${cruceOrigen.turno}" en ${cruceOrigen.lugar} (${cruceOrigen.sector}) el día ${cruceOrigen.dia}.`)
         if (cruceOcupante) partes.push(`${nombreOcupante}: ya tiene "${cruceOcupante.turno}" en ${cruceOcupante.lugar} (${cruceOcupante.sector}) el día ${cruceOcupante.dia}.`)
-        const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${partes.join('\n')}\n\n¿Intercambiar igual?`)
+        if (dispOrigen) partes.push(`${nombreOrigen}: ${dispOrigen}.`)
+        if (dispOcupante) partes.push(`${nombreOcupante}: ${dispOcupante}.`)
+        const ok = confirm(`⚠ ATENCIÓN\n\n${partes.join('\n')}\n\n¿Intercambiar igual?`)
         if (!ok) return
       }
       const [{ error: e1 }, { error: e2 }] = await Promise.all([
@@ -1819,9 +1842,13 @@ export default function AdminApp() {
         return
       }
       const cruce = await buscarCruceOtroLugar(origenItem.legajo, filtroDia, destino.turno, lugarDeSectorGlobal(destino.sector), MES, ANIO, origenItem.id)
-      if (cruce) {
+      const dispAviso = chequearDisponibilidadTurno(origenItem.legajo, destino.turno)
+      if (cruce || dispAviso) {
         const nombre = nombreCompleto(origenItem.legajo)
-        const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Mover igual?`)
+        const partes = []
+        if (cruce) partes.push(`ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.`)
+        if (dispAviso) partes.push(dispAviso + '.')
+        const ok = confirm(`⚠ ATENCIÓN\n\n${nombre}: ${partes.join(' ')}\n\n¿Mover igual?`)
         if (!ok) return
       }
       const { error } = await supabase.from('turnos').update({ sector: destino.sector, turno: destino.turno }).eq('id', origenItem.id)
