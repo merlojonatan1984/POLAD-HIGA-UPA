@@ -53,9 +53,10 @@ function normLegajo(x) { return x === null || x === undefined ? '' : String(x).t
 // con el turno candidato. idExcluir sirve para no comparar un turno contra sí mismo al editar.
 async function buscarCruceOtroLugar(legajo, dia, turno, lugarPropio, mes, anio, idExcluir) {
   if (!legajo) return null
-  const { data: otros } = await supabase
+  const { data: todos } = await supabase
     .from('turnos').select('id, dia, turno, sector, legajo')
-    .eq('mes', mes).eq('anio', anio).eq('legajo', legajo)
+    .eq('mes', mes).eq('anio', anio).limit(10000)
+  const otros = (todos || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo))
   const rangoCand = rangoTurnoGlobal(dia, turno, lugarPropio)
   for (const o of (otros || [])) {
     if (idExcluir && o.id === idExcluir) continue
@@ -65,6 +66,31 @@ async function buscarCruceOtroLugar(legajo, dia, turno, lugarPropio, mes, anio, 
     if (seSuperponenGlobal(rangoCand, rangoO)) return { dia: o.dia, turno: o.turno, sector: o.sector, lugar: lugarO }
   }
   return null
+}
+// Última barrera antes de GUARDAR: quita de `nuevos` (en el mismo arreglo) toda guardia que se superponga en horario real
+// con otra guardia de la misma persona en OTRO lugar, aunque se haya cargado un segundo antes desde otro sitio.
+// Devuelve la lista de las bloqueadas, para avisarlas.
+async function quitarCrucesAntesDeGuardar(nuevos, mes, anio) {
+  if (!nuevos || nuevos.length === 0) return []
+  const { data: todos } = await supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', mes).eq('anio', anio).limit(10000)
+  const porPersona = {}
+  ;(todos || []).forEach(o => { const k = normLegajo(o.legajo); (porPersona[k] = porPersona[k] || []).push(o) })
+  const bloqueadas = []
+  for (let i = nuevos.length - 1; i >= 0; i--) {
+    const n = nuevos[i]
+    const ln = lugarDeSectorGlobal(n.sector)
+    const rn = rangoTurnoGlobal(parseInt(n.dia), n.turno, ln)
+    for (const o of (porPersona[normLegajo(n.legajo)] || [])) {
+      const lo = lugarDeSectorGlobal(o.sector)
+      if (lo === ln) continue
+      if (seSuperponenGlobal(rn, rangoTurnoGlobal(parseInt(o.dia), o.turno, lo))) {
+        bloqueadas.push({ legajo: n.legajo, dia: parseInt(n.dia), turno: n.turno, lugar: ln, diaO: o.dia, turnoO: o.turno, lugarO: lo })
+        nuevos.splice(i, 1)
+        break
+      }
+    }
+  }
+  return bloqueadas.reverse()
 }
 const SECTORES_APP = SECTORES_POR_LUGAR[APP_LUGAR] || SECTORES_POR_LUGAR['HIGA']
 const ES_MODULAR = APP_LUGAR === 'MODULAR'
@@ -440,6 +466,7 @@ export default function AdminApp() {
   const [rapidaLista, setRapidaLista] = useState([])
   const [rapidaCargando, setRapidaCargando] = useState(false)
   const [rapidaProcesando, setRapidaProcesando] = useState(false)
+  const [revisandoCruces, setRevisandoCruces] = useState(false)
   const [rapidaMsg, setRapidaMsg] = useState(null)
   const [rapidaNuevos, setRapidaNuevos] = useState([])
   // Tarjetas de "Sin guardias el mes anterior": cantidad + tipo de turno que
@@ -710,6 +737,8 @@ export default function AdminApp() {
       }
     }
 
+    const bloqueadasGen = await quitarCrucesAntesDeGuardar(nuevos, MES, ANIO)
+    if (bloqueadasGen.length) alert(`⛔ ${bloqueadasGen.length} guardia(s) NO se generaron por cruce de horario con otro lugar:\n` + bloqueadasGen.slice(0, 15).map(b => `   • ${b.legajo} — día ${b.dia}: ya tiene "${b.turnoO}" en ${b.lugarO} (día ${b.diaO})`).join('\n'))
     for (let i = 0; i < nuevos.length; i += 500) {
       const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 500))
       if (error) { setGenerando(false); setMsgGen(null); alert('❌ Error guardando guardias: ' + error.message + '\n\nNo se terminó de generar. Revisá antes de seguir.'); return }
@@ -759,11 +788,23 @@ export default function AdminApp() {
       return
     }
 
-    const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }] = await Promise.all([
+    const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }, { data: turnosMesTodos }] = await Promise.all([
       fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
-      supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000)
+      supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000),
+      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).limit(10000)
     ])
+    // Guardias de ESTA persona en OTROS lugares (mismo legajo aunque cambien espacios o mayúsculas): no se puede asignar nada que se superponga.
+    const turnosOtrosLugares = (turnosMesTodos || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo) && !SECTORES_APP.includes(o.sector))
+    const crucesVistos = new Map()
+    function cruceConOtroLugar(dia, turno) {
+      const rc = rangoTurnoGlobal(dia, turno, lugarDetectado)
+      for (const o of turnosOtrosLugares) {
+        const lo = lugarDeSectorGlobal(o.sector)
+        if (seSuperponenGlobal(rc, rangoTurnoGlobal(parseInt(o.dia), o.turno, lo))) { crucesVistos.set(dia + '-' + turno, { dia, lugar: lo, diaO: o.dia, turnoO: o.turno }); return true }
+      }
+      return false
+    }
     const dispData = dispDataRes.data
 
     const ocupacion = {}
@@ -782,11 +823,13 @@ export default function AdminApp() {
 
     // Verifica descanso 12hs — solo HIGA/UPA con turnos de 12hs
     function cumpleDescanso(dia, turno, asignadosHastaAhora) {
+      if (cruceConOtroLugar(dia, turno)) return false // se superpone con una guardia suya en otro lugar
+      // Lo que ya tiene asignado en este lugar también cuenta (no solo lo que se asigna ahora)
+      const conjunto = [...(turnosEfData || []).map(t => ({ dia: parseInt(t.dia), turno: t.turno })), ...asignadosHastaAhora]
+      if (conjunto.some(a => a.dia === dia)) return false // ya tiene una guardia ese día
       if (ES_MOD) return true
-      const ayer = asignadosHastaAhora.find(a => a.dia === dia - 1)
-      if (ayer && ayer.turno === 'n' && turno === 'd') return false // sale 08hs, entra 08hs → 0hs descanso
-      const manana = asignadosHastaAhora.find(a => a.dia === dia + 1)
-      if (manana && turno === 'n' && manana.turno === 'd') return false
+      if (turno === 'd' && conjunto.some(a => a.dia === dia - 1 && a.turno === 'n')) return false // sale 08hs, entra 08hs → 0hs descanso
+      if (turno === 'n' && conjunto.some(a => a.dia === dia + 1 && a.turno === 'd')) return false
       return true
     }
 
@@ -950,8 +993,9 @@ export default function AdminApp() {
       nuevos.push(...resultado)
     }
 
+    ;(await quitarCrucesAntesDeGuardar(nuevos, MES, ANIO)).forEach(b => crucesVistos.set('b' + b.dia + b.turno, { dia: b.dia, lugar: b.lugarO, diaO: b.diaO, turnoO: b.turnoO }))
     if (nuevos.length === 0) {
-      alert('✗ No se pudo asignar ninguna guardia. Verificá disponibilidad y slots disponibles.')
+      alert('✗ No se pudo asignar ninguna guardia. Verificá disponibilidad, slots disponibles y que no se crucen con otro lugar.')
       setAsignando(false)
       return
     }
@@ -966,6 +1010,10 @@ export default function AdminApp() {
 
     const nombre = efectivos.find(e => e.legajo === legajo)?.nombre?.split(',')[0] || legajo
     let msg = `✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`
+    if (crucesVistos.size > 0) {
+      const lista = [...crucesVistos.values()].sort((a, b) => a.dia - b.dia).slice(0, 8)
+      msg += `\n\n⚠ Se evitaron días por cruce de horario con otro lugar: ` + lista.map(c => `día ${c.dia} (ya tiene turno "${c.turnoO}" en ${c.lugar}, día ${c.diaO})`).join('; ')
+    }
     if (nuevos.length < cantidad) {
       msg += `\n⚠ Se pedían ${cantidad} pero la disponibilidad permitió ${nuevos.length}.`
       if (fijo) msg += ` Tiene puesto fijo en "${fijo.sector}"${fijo.turno ? ` (turno "${fijo.turno}")` : ''} y no se la asigna en otro sector — el resto queda pendiente.`
@@ -1074,6 +1122,8 @@ export default function AdminApp() {
         return `   • ${ti ? ti.label : tk.toUpperCase()}: faltó cubrir ${n} lugar${n > 1 ? 'es' : ''} (no hay más efectivos disponibles)`
       })
 
+      const bloqueadasDia = await quitarCrucesAntesDeGuardar(nuevos, MES, ANIO)
+      if (bloqueadasDia.length) alert(`⛔ ${bloqueadasDia.length} guardia(s) NO se asignaron por cruce de horario con otro lugar:\n` + bloqueadasDia.slice(0, 15).map(b => `   • ${b.legajo} — día ${b.dia}: ya tiene "${b.turnoO}" en ${b.lugarO} (día ${b.diaO})`).join('\n'))
       if (nuevos.length === 0) {
         let m = `Día ${dia}: no se asignó ninguna guardia nueva.`
         m += avisos.length ? `\n\n${avisos.join('\n')}` : ` Ya estaba completo o no hay disponibilidad cargada.`
@@ -1340,15 +1390,20 @@ export default function AdminApp() {
       supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
     ])
     const dispAll = dispAllRes.data
+    // Un mismo legajo puede estar escrito distinto en cada lugar ("340741 " / "340741" / minúsculas). Para que el control de
+    // cruces y de las 180 hs lo reconozca como la misma persona, todo se junta bajo el legajo tal como viene en esta tanda.
+    const canonLeg = {}
+    ;(targets || []).forEach(t => { canonLeg[normLegajo(t.legajo)] = t.legajo })
+    const kLeg = x => canonLeg[normLegajo(x)] ?? x
 
     const ocupacion = {}
     const hsMap = {}
     const turnosPorLegajo = {}
     ;(turnosMes || []).forEach(t => {
       ocupacion[t.dia + '-' + t.turno + '-' + t.sector] = (ocupacion[t.dia + '-' + t.turno + '-' + t.sector] || 0) + 1
-      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + horasTurno
-      if (!turnosPorLegajo[t.legajo]) turnosPorLegajo[t.legajo] = []
-      turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
+      hsMap[kLeg(t.legajo)] = (hsMap[kLeg(t.legajo)] || 0) + horasTurno
+      if (!turnosPorLegajo[kLeg(t.legajo)]) turnosPorLegajo[kLeg(t.legajo)] = []
+      turnosPorLegajo[kLeg(t.legajo)].push({ dia: parseInt(t.dia), turno: t.turno })
     })
     const previasPorLegajo = {}   // guardias que ya tenía cada uno ANTES de esta asignación (para informar bien)
     Object.keys(turnosPorLegajo).forEach(k => { previasPorLegajo[k] = turnosPorLegajo[k].length })
@@ -1367,7 +1422,7 @@ export default function AdminApp() {
 
     ;(turnosOtrosLugares || []).forEach(t => {
       const hsT = sectoresModular.includes(t.sector) ? 8 : 12
-      hsMap[t.legajo] = (hsMap[t.legajo] || 0) + hsT
+      hsMap[kLeg(t.legajo)] = (hsMap[kLeg(t.legajo)] || 0) + hsT
     })
 
     // Cargar turnos de los DOS otros lugares (no solo del "hermano") para detectar
@@ -1384,8 +1439,8 @@ export default function AdminApp() {
 
     const turnosOtrosPorLegajo = {}
     ;(turnosOtrosDetalle || []).forEach(t => {
-      if (!turnosOtrosPorLegajo[t.legajo]) turnosOtrosPorLegajo[t.legajo] = []
-      turnosOtrosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno, lugarOrigen: lugarDeSector(t.sector) })
+      if (!turnosOtrosPorLegajo[kLeg(t.legajo)]) turnosOtrosPorLegajo[kLeg(t.legajo)] = []
+      turnosOtrosPorLegajo[kLeg(t.legajo)].push({ dia: parseInt(t.dia), turno: t.turno, lugarOrigen: lugarDeSector(t.sector) })
     })
 
     // Rango horario real de un turno, en minutos absolutos (día 1 00:00 = minuto 0),
@@ -2180,6 +2235,12 @@ export default function AdminApp() {
       sinUniformado.sort((x, y) => x.dia - y.dia)
     }
 
+    // Última barrera: si en este instante alguna quedó cruzada con otro lugar, NO se guarda y se informa.
+    const bloqueadasFinal = await quitarCrucesAntesDeGuardar(nuevos, MES, ANIO)
+    bloqueadasFinal.forEach(b => {
+      conflictos.push({ legajo: b.legajo, dia: b.dia, turnoOrigen: b.turnoO, lugarOrigen: b.lugarO, diaOrigen: b.diaO })
+      const r = reporte.find(x => normLegajo(x.legajo) === normLegajo(b.legajo)); if (r && r.asignadas > 0) r.asignadas--
+    })
     for (let i = 0; i < nuevos.length; i += 100) {
       const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
       if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
@@ -2265,23 +2326,27 @@ export default function AdminApp() {
     const sinUniformado = etapa2.sinUniformado || []
     const excepciones = etapa1.excepciones || []
     const deMas = etapa2.total
-    // Detalle de las guardias de más: quién las recibió, cuántas, y en qué días/turnos.
-    const extrasPorLegajo = {}
-    ;(etapa2.nuevos || []).forEach(g => { (extrasPorLegajo[g.legajo] = extrasPorLegajo[g.legajo] || []).push(g) })
-    const listaExtras = Object.entries(extrasPorLegajo).map(([leg, gs]) => ({
-      legajo: leg, gs: gs.sort((a, b) => a.dia - b.dia),
-      base: baseDe[leg] ?? 0,
-      total: (etapa1.reporte.find(r => r.legajo === leg)?.previas || 0) + (etapa1.reporte.find(r => r.legajo === leg)?.asignadas || 0) + gs.length,
-    })).sort((a, b) => b.gs.length - a.gs.length)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
     const sectoresV = SECTORES_POR_LUGAR[lugarDetectado] || SECTORES_POR_LUGAR['HIGA']
     const diasMes = new Date(ANIO, MES, 0).getDate()
     const { data: verificacion } = await supabase
-      .from('turnos').select('dia')
+      .from('turnos').select('dia, legajo, turno')
       .eq('mes', MES).eq('anio', ANIO)
       .in('sector', sectoresV).limit(10000)
+    // Quiénes quedaron con MÁS guardias de las que les tocaban (mes anterior o cantidad fija), sin importar de qué etapa vengan.
+    const finalPorLeg = {}
+    ;(verificacion || []).forEach(t => { const k = normLegajo(t.legajo); (finalPorLeg[k] = finalPorLeg[k] || []).push(t) })
+    const nuevasPorLeg = {}
+    ;[...(etapa1.nuevos || []), ...(etapa2.nuevos || [])].forEach(g => { const k = normLegajo(g.legajo); (nuevasPorLeg[k] = nuevasPorLeg[k] || []).push(g) })
+    const listaExtras = rapidaLista.map(it => {
+      const k = normLegajo(it.legajo)
+      const base = baseDe[it.legajo] ?? it.objetivo
+      const total = (finalPorLeg[k] || []).length
+      return { legajo: it.legajo, base, total, extra: total - base, nuevas: (nuevasPorLeg[k] || []).sort((a, b) => a.dia - b.dia) }
+    }).filter(x => x.extra > 0).sort((a, b) => b.extra - a.extra)
+    const totalExtra = listaExtras.reduce((u, x) => u + x.extra, 0)
     const diasCubiertos = new Set((verificacion || []).map(t => parseInt(t.dia)))
     const diasFaltantes = []
     for (let d = 1; d <= diasMes; d++) { if (!diasCubiertos.has(d)) diasFaltantes.push(d) }
@@ -2303,13 +2368,15 @@ export default function AdminApp() {
     }
     if (listaExtras.length) {
       const nt = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
-      m += `\n\n➕ ${deMas} guardia(s) DE MÁS, ya completos todos (equilibrio entre mujeres y varones y lugares vacíos), a ${listaExtras.length} efectivo(s):\n` +
-        listaExtras.slice(0, 30).map(x => {
-          const n = (efectivos.find(e => e.legajo === x.legajo)?.nombre || x.legajo).split(',')[0]
-          const sx = String(efectivos.find(e => e.legajo === x.legajo)?.sexo || '').toLowerCase()
-          return `   • ${n}${sx === 'femenino' ? ' (F)' : sx === 'masculino' ? ' (M)' : ''}: +${x.gs.length} (tenía ${x.base} del mes anterior, queda con ${x.total}) — ${x.gs.map(g => `${g.dia} ${nt(g.turno)}`).join(', ')}`
+      m += `\n\n➕ ${listaExtras.length} efectivo(s) quedaron con MÁS guardias de las que les tocaban (${totalExtra} en total):\n` +
+        listaExtras.slice(0, 40).map(x => {
+          const ef = efectivos.find(e => e.legajo === x.legajo)
+          const n = (ef?.nombre || x.legajo).split(',')[0]
+          const sx = String(ef?.sexo || '').toLowerCase()
+          const det = x.nuevas.length ? ` — sumadas ahora: ${x.nuevas.map(g => `${g.dia} ${nt(g.turno)}`).join(', ')}` : ''
+          return `   • ${n}${sx === 'femenino' ? ' (F)' : sx === 'masculino' ? ' (M)' : ''}: le tocaban ${x.base}, tiene ${x.total} (+${x.extra})${det}`
         }).join('\n')
-      if (listaExtras.length > 30) m += `\n   …y ${listaExtras.length - 30} más.`
+      if (listaExtras.length > 40) m += `\n   …y ${listaExtras.length - 40} más.`
     }
     if (excepciones.length) {
       m += `\n\nℹ ${excepciones.length} guardia(s) se dieron como EXCEPCIÓN (día y noche seguidas, sin el descanso de 12 hs) para cumplir la cantidad fija:\n` +
@@ -2362,8 +2429,8 @@ export default function AdminApp() {
     const cruce = await buscarCruceOtroLugar(t.legajo, parseInt(t.dia), t.turno, lugarDeSectorGlobal(t.sector), MES, ANIO, t.id)
     if (cruce) {
       const nombre = efectivos.find(e => e.legajo === t.legajo)?.nombre || t.legajo
-      const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
-      if (!ok) return
+      alert(`⛔ CRUCE DE HORARIO — no se guardó\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\nUna misma persona no puede tener guardias cruzadas entre lugares.`)
+      return
     }
     await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id)
     setModalTurno(null); await cargarTodo()
@@ -2371,6 +2438,38 @@ export default function AdminApp() {
   // Sacar guardias de UN efectivo desde su tarjeta (vista Disponibilidad). Borra solo esas filas de `turnos`;
   // como el cronograma, las planillas a imprimir y la pantalla del efectivo leen de esa misma tabla,
   // el cambio se ve en todos lados. No toca la disponibilidad ni las guardias de otras personas.
+  // Detecta guardias YA cargadas que se superponen entre lugares (HIGA / UPA / MODULAR) para el mes seleccionado.
+  async function revisarCruces() {
+    setRevisandoCruces(true)
+    try {
+      const [{ data: todos, error }, { data: efs }] = await Promise.all([
+        supabase.from('turnos').select('id, legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).limit(10000),
+        supabase.from('efectivos').select('legajo, nombre').limit(5000)
+      ])
+      if (error) { alert('❌ No se pudo revisar: ' + error.message); return }
+      const nombres = {}
+      ;(efs || []).forEach(e => { if (!nombres[normLegajo(e.legajo)]) nombres[normLegajo(e.legajo)] = e.nombre })
+      const porPersona = {}
+      ;(todos || []).forEach(t => { const k = normLegajo(t.legajo); (porPersona[k] = porPersona[k] || []).push(t) })
+      const nt = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
+      const lineas = []
+      Object.keys(porPersona).forEach(k => {
+        const l = porPersona[k]
+        const par = new Set()
+        for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
+          const a = l[i], b = l[j]
+          const la = lugarDeSectorGlobal(a.sector), lb = lugarDeSectorGlobal(b.sector)
+          if (la === lb) continue
+          if (seSuperponenGlobal(rangoTurnoGlobal(parseInt(a.dia), a.turno, la), rangoTurnoGlobal(parseInt(b.dia), b.turno, lb))) {
+            par.add(`día ${a.dia} ${nt(a.turno)} en ${la} ↔ día ${b.dia} ${nt(b.turno)} en ${lb}`)
+          }
+        }
+        if (par.size) lineas.push(`• ${nombres[k] || k} (${k}): ${[...par].join('; ')}`)
+      })
+      if (lineas.length === 0) alert(`✓ Sin cruces entre lugares en ${NOMBRE_MES}.`)
+      else alert(`⚠ ${lineas.length} efectivo(s) con guardias cruzadas en ${NOMBRE_MES}:\n\n${lineas.join('\n')}\n\nPara corregir: en la tarjeta del efectivo (Disponibilidad) sacá una de las dos guardias con "sacar guardias".`)
+    } finally { setRevisandoCruces(false) }
+  }
   async function quitarGuardiasSeleccionadas(legajo) {
     const ids = quitarSel[legajo] || []
     if (ids.length === 0) return
@@ -2405,8 +2504,8 @@ export default function AdminApp() {
     const cruce = await buscarCruceOtroLugar(n.legajo, parseInt(n.dia), n.turno, lugarDeSectorGlobal(n.sector), n.mes, n.anio, null)
     if (cruce) {
       const nombre = efectivos.find(e => e.legajo === n.legajo)?.nombre || n.legajo
-      const ok = confirm(`⚠ CRUCE DE HORARIO\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\n¿Guardar igual?`)
-      if (!ok) return
+      alert(`⛔ CRUCE DE HORARIO — no se guardó\n\n${nombre} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.\n\nUna misma persona no puede tener guardias cruzadas entre lugares.`)
+      return
     }
     const { error } = await supabase.from('turnos').insert([n])
     if (error) { alert('❌ Error guardando: ' + error.message); return }
@@ -2469,7 +2568,14 @@ export default function AdminApp() {
       ])
       const dispOrigen = chequearDisponibilidadTurno(origenItem.legajo, destino.turno)
       const dispOcupante = chequearDisponibilidadTurno(ocupante.legajo, origenItem.turno)
-      if (cruceOrigen || cruceOcupante || dispOrigen || dispOcupante) {
+      if (cruceOrigen || cruceOcupante) {
+        const pc = []
+        if (cruceOrigen) pc.push(`${nombreOrigen}: ya tiene "${cruceOrigen.turno}" en ${cruceOrigen.lugar} (${cruceOrigen.sector}) el día ${cruceOrigen.dia}.`)
+        if (cruceOcupante) pc.push(`${nombreOcupante}: ya tiene "${cruceOcupante.turno}" en ${cruceOcupante.lugar} (${cruceOcupante.sector}) el día ${cruceOcupante.dia}.`)
+        alert(`⛔ CRUCE DE HORARIO — no se intercambió\n\n${pc.join('\n')}`)
+        return
+      }
+      if (dispOrigen || dispOcupante) {
         const partes = []
         if (cruceOrigen) partes.push(`${nombreOrigen}: ya tiene "${cruceOrigen.turno}" en ${cruceOrigen.lugar} (${cruceOrigen.sector}) el día ${cruceOrigen.dia}.`)
         if (cruceOcupante) partes.push(`${nombreOcupante}: ya tiene "${cruceOcupante.turno}" en ${cruceOcupante.lugar} (${cruceOcupante.sector}) el día ${cruceOcupante.dia}.`)
@@ -2492,7 +2598,11 @@ export default function AdminApp() {
       }
       const cruce = await buscarCruceOtroLugar(origenItem.legajo, filtroDia, destino.turno, lugarDeSectorGlobal(destino.sector), MES, ANIO, origenItem.id)
       const dispAviso = chequearDisponibilidadTurno(origenItem.legajo, destino.turno)
-      if (cruce || dispAviso) {
+      if (cruce) {
+        alert(`⛔ CRUCE DE HORARIO — no se movió\n\n${nombreCompleto(origenItem.legajo)} ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.`)
+        return
+      }
+      if (dispAviso) {
         const nombre = nombreCompleto(origenItem.legajo)
         const partes = []
         if (cruce) partes.push(`ya tiene un turno "${cruce.turno}" en ${cruce.lugar} el día ${cruce.dia} (${cruce.sector}), que se superpone en horario real con este turno.`)
@@ -4330,6 +4440,7 @@ export default function AdminApp() {
                       🗑 Borrar guardias de {APP_LUGAR} · {NOMBRE_MES_SOLO}
                     </button>
                     <button className="btn btn-sm" disabled={rapidaProcesando} onClick={cargarRapida}>↻ Actualizar</button>
+                    <button className="btn btn-sm" disabled={rapidaProcesando || revisandoCruces} onClick={revisarCruces}>{revisandoCruces ? 'Revisando…' : '⚠ Revisar cruces'}</button>
                   </div>
                   {rapidaMsg && <div className="alert alert-ok" style={{ marginBottom:10 }}>{rapidaMsg}</div>}
                   {rapidaCargando ? (
