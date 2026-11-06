@@ -1734,8 +1734,11 @@ export default function AdminApp() {
     const conteosPersona = {} // legajo -> reparto por sector/turno, se conserva entre las dos pasadas
 
     const movibles = new Set() // guardias creadas en esta corrida por la Fase 2 (las únicas que se pueden reacomodar)
-    for (const pasada of ['primero', 'resto']) {
+    // Primero se les cumple TODO a los de cantidad fija (fines de semana y feriados, y después el resto
+    // de sus días) y recién después empiezan los demás: así nadie les ocupa los lugares antes.
+    for (const [pasada, soloFijos] of [['primero', true], ['resto', true], ['primero', false], ['resto', false]]) {
     for (const { legajo, objetivo } of targetsFase2) {
+      if (esCantidadFija({ legajo }) !== soloFijos) continue
       // Puesto fijo (Paso 3B, "Bug 5"): un efectivo con regla activa ya agotó su única
       // fuente de guardias en las fases anteriores (solo, en 24hs o en doble turno,
       // siempre en SU sector). Si no llegó al objetivo, queda PENDIENTE e informado —
