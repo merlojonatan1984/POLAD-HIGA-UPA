@@ -1339,6 +1339,8 @@ export default function AdminApp() {
       if (!turnosPorLegajo[t.legajo]) turnosPorLegajo[t.legajo] = []
       turnosPorLegajo[t.legajo].push({ dia: parseInt(t.dia), turno: t.turno })
     })
+    const previasPorLegajo = {}   // guardias que ya tenía cada uno ANTES de esta asignación (para informar bien)
+    Object.keys(turnosPorLegajo).forEach(k => { previasPorLegajo[k] = turnosPorLegajo[k].length })
 
     // Cargar horas de los OTROS lugares para respetar el tope global de 180hs
     const sectoresModular = ['Modular']
@@ -1702,9 +1704,14 @@ export default function AdminApp() {
       for (let i = 0; i < max; i++) { if (f[i]) out.push(f[i]); if (m[i]) out.push(m[i]) }
       return [...out, ...x]
     }
+    // Los efectivos con CANTIDAD FIJA (la que pone el administrador en Reglas especiales) van
+    // primero de todos, sean o no uniformados, para que consigan exactamente esa cantidad antes
+    // de que se ocupen los lugares; después el resto, de los que más guardias tienen a los que menos.
+    const esCantidadFija = t => !!(legajosCantidadFija && legajosCantidadFija.has(t.legajo))
     const targetsFase2 = [
-      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) === 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
-      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) !== 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
+      ...targets.filter(esCantidadFija).sort((a, b) => b.objetivo - a.objetivo),
+      ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && tipoDe(t.legajo) === 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
+      ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && tipoDe(t.legajo) !== 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
     ]
     // Fines de semana y feriados se cubren primero, y después el resto de los días.
     // Cada efectivo aporta a los fines de semana/feriados la misma proporción que ellos
@@ -1725,7 +1732,7 @@ export default function AdminApp() {
       // siempre en SU sector). Si no llegó al objetivo, queda PENDIENTE e informado —
       // esta fase ya NO lo completa en el resto de los sectores.
       if (fijoPorLegajo[normLegajo(legajo)]) {
-        if (pasada === 'resto') reporte.push({ legajo, objetivo, asignadas: asignadasFase1[legajo] || 0 })
+        if (pasada === 'resto') reporte.push({ legajo, objetivo, asignadas: asignadasFase1[legajo] || 0, previas: previasPorLegajo[legajo] || 0, dias: Object.keys(dispMap[normLegajo(legajo)] || {}).length })
         continue
       }
 
@@ -1836,7 +1843,7 @@ export default function AdminApp() {
         }
       }
       if (pasada === 'primero') extraPrimero[legajo] = asignadas - (asignadasFase1[legajo] || 0)
-      else reporte.push({ legajo, objetivo, asignadas })
+      else reporte.push({ legajo, objetivo, asignadas, previas: previasPorLegajo[legajo] || 0, dias: Object.keys(dispMap[normLegajo(legajo)] || {}).length })
     }
     }
 
@@ -2076,8 +2083,9 @@ export default function AdminApp() {
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
-    let m = `✓ ${nombre}: se asignaron ${r.asignadas} de ${r.objetivo}.`
-    if (r.asignadas < r.objetivo) m += ` Faltaron ${r.objetivo - r.asignadas} (disponibilidad o tope).`
+    const totalU = (r.previas || 0) + r.asignadas
+    let m = `✓ ${nombre}: se asignaron ${r.asignadas} nuevas${r.previas ? ` (ya tenía ${r.previas})` : ''}, queda con ${totalU} de ${r.objetivo}.`
+    if (totalU < r.objetivo) m += ` Faltan ${r.objetivo - totalU}: cargó ${r.dias} día(s) de disponibilidad${r.dias < r.objetivo - (r.previas || 0) ? ', no alcanzan para llegar al número' : ' y en esos días no hubo lugar o no se cumplía el descanso'}.`
     if (conflictos.length) {
       m += `\n\n⚠ ${conflictos.length} día(s) no se asignaron por cruce de horario con otro lugar:\n` +
         conflictos.map(c => `   • Día ${c.dia}: ya tiene turno "${c.turnoOrigen}" en ${c.lugarOrigen} (día ${c.diaOrigen})`).join('\n')
@@ -2107,7 +2115,7 @@ export default function AdminApp() {
     const diasFaltantes = []
     for (let d = 1; d <= diasMes; d++) { if (!diasCubiertos.has(d)) diasFaltantes.push(d) }
 
-    const incompletos = reporte.filter(r => r.asignadas < r.objetivo)
+    const incompletos = reporte.filter(r => (r.previas || 0) + r.asignadas < r.objetivo)
     let m = `✓ Se asignaron ${total} guardias en total.\n\n`
     if (diasFaltantes.length === 0) {
       m += `✅ ${diasMes}/${diasMes} días del mes tienen turnos asignados.`
@@ -2118,7 +2126,7 @@ export default function AdminApp() {
       m += `\n\n⚠ ${incompletos.length} efectivo(s) no llegaron al número:\n` +
         incompletos.slice(0, 12).map(r => {
           const n = (efectivos.find(e => e.legajo === r.legajo)?.nombre || r.legajo).split(',')[0]
-          return `   • ${n}: ${r.asignadas} de ${r.objetivo}`
+          return `   • ${n}: ${(r.previas || 0) + r.asignadas} de ${r.objetivo} (cargó ${r.dias} día${r.dias === 1 ? '' : 's'} de disponibilidad)`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
     }
@@ -4197,6 +4205,30 @@ export default function AdminApp() {
                               Asignar
                             </button>
                           </div>
+                          {/* Detalle compacto de lo asignado a este efectivo en el mes: se actualiza solo al asignar */}
+                          {(() => {
+                            const mias = (turnos[n.legajo] || []).slice().sort((x, y) => parseInt(x.dia) - parseInt(y.dia))
+                            if (mias.length === 0) return null
+                            const porTurno = {}
+                            mias.forEach(t => { (porTurno[t.turno] = porTurno[t.turno] || []).push(t) })
+                            return (
+                              <div style={{ marginTop:4, fontSize:10, color:'var(--text-hint)', lineHeight:1.4 }}>
+                                <span style={{ color:'#1D9E75', fontWeight:600 }}>✓ {mias.length}</span>
+                                {Object.keys(porTurno).map(k => {
+                                  const ti = TURNOS_INFO.find(x => x.key === k)
+                                  return (
+                                    <span key={k} style={{ marginLeft:6 }}>
+                                      <span style={{ color: ti?.color || 'inherit' }}>{ti?.label ? ti.label.split(' ')[0] : k}</span>
+                                      {': '}
+                                      {porTurno[k].map((t, i) => (
+                                        <span key={i} title={t.sector}>{i > 0 ? ', ' : ''}{t.dia}</span>
+                                      ))}
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            )
+                          })()}
                         </div>
                       )
                     })}
