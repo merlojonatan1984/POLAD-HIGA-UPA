@@ -96,20 +96,51 @@ export default async function handler(req, res) {
   }
 
   try {
-    let q = supabaseAdmin.from(tabla)
+    // Supabase devuelve como máximo 1000 filas por consulta aunque se pida más. Para que NUNCA falten datos
+    // (disponibilidad de todos los efectivos, todas las guardias del mes), las consultas de lectura se leen por páginas.
+    const aplicar = (q) => {
+      for (const f of (filtros || [])) {
+        if (!f || typeof f !== 'object') continue
+        if (f.tipo === 'eq' && f.col) q = q.eq(f.col, f.val)
+        else if (f.tipo === 'in' && f.col) q = q.in(f.col, f.val)
+        else if (f.tipo === 'match' && f.val && typeof f.val === 'object') q = q.match(f.val)
+      }
+      if (orden && orden.col) q = q.order(orden.col, { ascending: orden.ascending !== false })
+      return q
+    }
 
-    if (op === 'select') q = q.select(columnas || '*')
-    else if (op === 'insert') q = q.insert(valores).select(columnas || '*')
+    if (op === 'select') {
+      const PAG = 1000
+      const tope = Number(limite) > 0 ? Number(limite) : 100000
+      const base = () => aplicar(supabaseAdmin.from(tabla).select(columnas || '*'))
+      const r1 = await base().range(0, Math.min(PAG, tope) - 1)
+      if (r1.error) {
+        console.error('[admin-db] Error de Supabase:', r1.error)
+        return res.status(400).json({ error: r1.error.message })
+      }
+      let filas = r1.data || []
+      if (filas.length === PAG && tope > PAG) {
+        // Hay más de una página: se vuelve a leer completo, con orden estable (por id) para no repetir ni saltear filas.
+        const todas = []
+        let desde = 0, fallo = false
+        while (todas.length < tope) {
+          const hasta = Math.min(desde + PAG, tope) - 1
+          const rr = await base().order('id', { ascending: true }).range(desde, hasta)
+          if (rr.error) { fallo = true; break }
+          todas.push(...(rr.data || []))
+          if ((rr.data || []).length < hasta - desde + 1) break
+          desde += PAG
+        }
+        if (!fallo) filas = todas
+      }
+      return res.status(200).json({ data: filas })
+    }
+
+    let q = supabaseAdmin.from(tabla)
+    if (op === 'insert') q = q.insert(valores).select(columnas || '*')
     else if (op === 'update') q = q.update(valores).select(columnas || '*')
     else if (op === 'delete') q = q.delete().select(columnas || '*')
-
-    for (const f of (filtros || [])) {
-      if (!f || typeof f !== 'object') continue
-      if (f.tipo === 'eq' && f.col) q = q.eq(f.col, f.val)
-      else if (f.tipo === 'in' && f.col) q = q.in(f.col, f.val)
-      else if (f.tipo === 'match' && f.val && typeof f.val === 'object') q = q.match(f.val)
-    }
-    if (orden && orden.col) q = q.order(orden.col, { ascending: orden.ascending !== false })
+    q = aplicar(q)
     if (limite) q = q.limit(limite)
 
     const { data, error } = await q
