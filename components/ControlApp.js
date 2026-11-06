@@ -12,7 +12,7 @@ function _detectLugar() {
 const APP_LUGAR = _detectLugar()
 
 const SECTORES_POR_LUGAR = {
-  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
+  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','Rondin Externo'],
   'UPA': ['UPA'],
   'MODULAR': ['Modular']
 }
@@ -30,7 +30,7 @@ const TURNOS_INFO = ES_MODULAR
       { key: 'n', label: 'Turno Noche 20-08', color: '#85B7EB', horario: '20:00 a 08:00' },
     ]
 
-const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','UPA':'#D85A30','Modular':'#20A0B0' }
+const SEC_COLORS = { 'Salud Mental':'#378ADD','Giratoria':'#1D9E75','Llaves':'#EF9F27','Guardia':'#D4537E','Estacionamiento':'#7F77DD','Rondin Externo':'#8A8F98','UPA':'#D85A30','Modular':'#20A0B0' }
 const COLOR_APP = APP_LUGAR === 'HIGA' ? '#AFA9EC' : APP_LUGAR === 'UPA' ? '#D85A30' : '#20A0B0'
 const MES_ACTUAL = new Date().getMonth() + 1
 const ANIO_ACTUAL = new Date().getFullYear()
