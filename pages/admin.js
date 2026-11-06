@@ -1269,7 +1269,7 @@ export default function AdminApp() {
       supabase.from('turnos').select('legajo').eq('mes', MES).eq('anio', ANIO).in('sector', sectores).limit(10000),
       supabase.from('efectivo_objetivo_fijo').select('*').eq('lugar', L).eq('activo', true),
     ])
-    const countPrev = {}; (turnosPrev || []).forEach(t => { countPrev[t.legajo] = (countPrev[t.legajo] || 0) + 1 })
+    const countPrev = {}; (turnosPrev || []).forEach(t => { const k = normLegajo(t.legajo); countPrev[k] = (countPrev[k] || 0) + 1 })
     // "Cargó disponibilidad" se define acá EXACTAMENTE igual que en la grilla de Disponibilidad:
     // mismo estado 'disponibilidad', mismo criterio (al menos 1 día cargado). Antes esta pantalla
     // hacía su propia consulta aparte a la base, y aunque el filtro fuera el mismo en el papel,
@@ -1278,7 +1278,7 @@ export default function AdminApp() {
     const cargaron = new Set(
       Object.keys(disponibilidad).filter(legajo => Object.keys(disponibilidad[legajo] || {}).length > 0)
     )
-    const countAct = {}; (turnosAct || []).forEach(t => { countAct[t.legajo] = (countAct[t.legajo] || 0) + 1 })
+    const countAct = {}; (turnosAct || []).forEach(t => { const k = normLegajo(t.legajo); countAct[k] = (countAct[k] || 0) + 1 })
     // Cantidad fija (objetivo individual): si hay una regla activa para este
     // legajo+lugar, su cantidad REEMPLAZA la del mes anterior — nunca se suman
     // ni se restan entre sí. También hace que un efectivo que cargó
@@ -1287,10 +1287,10 @@ export default function AdminApp() {
     const objetivoFijoPorLegajo = {}
     ;(objetivoFijoData || []).forEach(r => { objetivoFijoPorLegajo[normLegajo(r.legajo)] = r.cantidad })
     const lista = efectivos
-      .filter(e => cargaron.has(normLegajo(e.legajo)) && ((countPrev[e.legajo] || 0) > 0 || objetivoFijoPorLegajo[normLegajo(e.legajo)] != null))
+      .filter(e => cargaron.has(normLegajo(e.legajo)) && ((countPrev[normLegajo(e.legajo)] || 0) > 0 || objetivoFijoPorLegajo[normLegajo(e.legajo)] != null))
       .map(e => {
         const fijo = objetivoFijoPorLegajo[normLegajo(e.legajo)]
-        return { legajo: e.legajo, nombre: e.nombre, objetivo: fijo != null ? fijo : countPrev[e.legajo], objetivoFijo: fijo != null, yaAsignadas: countAct[e.legajo] || 0 }
+        return { legajo: e.legajo, nombre: e.nombre, objetivo: fijo != null ? fijo : countPrev[normLegajo(e.legajo)], objetivoFijo: fijo != null, yaAsignadas: countAct[normLegajo(e.legajo)] || 0 }
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
     const nuevos = efectivos
@@ -4465,6 +4465,7 @@ export default function AdminApp() {
                         <tbody>
                           {rapidaLista.map((i, idx) => {
                             const completo = i.yaAsignadas >= i.objetivo
+                            const deMasN = i.yaAsignadas - i.objetivo
                             return (
                               <tr key={i.legajo}>
                                 <td style={{ textAlign:'center', fontSize:11, color:'var(--text-muted)' }}>{idx + 1}</td>
@@ -4496,9 +4497,11 @@ export default function AdminApp() {
                                   {i.objetivo}
                                   {i.objetivoFijo && <div style={{ fontSize:9, color:'#AFA9EC', fontWeight:400 }}>🎯 fijo</div>}
                                 </td>
-                                <td style={{ textAlign:'center', fontWeight:500, color: completo ? '#1D9E75' : i.yaAsignadas > 0 ? '#EF9F27' : 'var(--text-muted)' }}>{i.yaAsignadas}</td>
+                                <td style={{ textAlign:'center', fontWeight:500, color: deMasN > 0 ? '#5B9BF0' : completo ? '#1D9E75' : i.yaAsignadas > 0 ? '#EF9F27' : 'var(--text-muted)' }}>{i.yaAsignadas}</td>
                                 <td style={{ textAlign:'center' }}>
-                                  {completo
+                                  {deMasN > 0
+                                    ? <span style={{ fontSize:10, color:'#5B9BF0', fontWeight:600 }}>➕ {deMasN} de más</span>
+                                    : completo
                                     ? <span style={{ fontSize:10, color:'#1D9E75', fontWeight:500 }}>✓ Completo</span>
                                     : <span style={{ fontSize:10, color:'#EF9F27' }}>Faltan {i.objetivo - i.yaAsignadas}</span>}
                                 </td>
@@ -4512,9 +4515,12 @@ export default function AdminApp() {
                           })}
                           <tr style={{ background:'rgba(255,255,255,0.02)' }}>
                             <td></td>
+                            <td></td>
+                            {APP_LUGAR === 'MODULAR' && <td></td>}
                             <td style={{ fontWeight:500 }}>Total ({rapidaLista.length})</td>
                             <td style={{ textAlign:'center', fontWeight:600, color:COLOR_APP }}>{totalObjetivo}</td>
-                            <td colSpan={3}></td>
+                            <td style={{ textAlign:'center', fontWeight:600 }}>{rapidaLista.reduce((u, x) => u + x.yaAsignadas, 0)}</td>
+                            <td colSpan={2} style={{ fontSize:10, color:'#5B9BF0' }}>{(() => { const n = rapidaLista.filter(x => x.yaAsignadas > x.objetivo); return n.length ? `➕ ${n.length} con guardias de más (${n.reduce((u, x) => u + x.yaAsignadas - x.objetivo, 0)})` : '' })()}</td>
                           </tr>
                         </tbody>
                       </table>
