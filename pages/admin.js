@@ -1326,7 +1326,7 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
-  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set(), legajosCantidadFija = null) {
+  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set(), legajosCantidadFija = null, soloBase = false, esExtra = false) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
@@ -2036,7 +2036,8 @@ export default function AdminApp() {
 
       // ===== Fase 3b: aprovechar los días "Ambos" (ver completarConAmbos, más arriba) =====
       // Para el resto del personal (y para los de cantidad fija que todavía falten) después de las fases anteriores.
-      for (const relajado of [false, true]) for (const { legajo: P } of targetsFase2) {
+      // (En la etapa de guardias de más no se usa: ahí nunca se dan días dobles.)
+      if (!esExtra) for (const relajado of [false, true]) for (const { legajo: P } of targetsFase2) {
         if (relajado && !esCantidadFija({ legajo: P })) continue
         completarConAmbos(P, relajado)
       }
@@ -2050,7 +2051,7 @@ export default function AdminApp() {
       // mujeres y varones, y evitando días pegados a otra guardia suya. Respeta descanso y tope de
       // 180 hs. NO se les suma a quien tiene cantidad fija, ni a los de puesto fijo, 24hs, doble
       // turno o pareja: esos quedan exactamente como se configuraron.
-      if (legajosCantidadFija) {
+      if (legajosCantidadFija && !soloBase) {
         const enEspeciales = new Set()
         ;(especiales || []).forEach(e => { if (e.legajo1) enEspeciales.add(String(e.legajo1)); if (e.legajo2) enEspeciales.add(String(e.legajo2)) })
         const aptos = targetsFase2.map(t => t.legajo).filter(leg =>
@@ -2244,7 +2245,24 @@ export default function AdminApp() {
     const listaAsignar = eq.lista
     if (!confirm(`¿Asignar a ${listaAsignar.length} efectivos?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos, sinUniformado = [], excepciones = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble, new Set(listaAsignar.filter(i => i.objetivoFijo).map(i => i.legajo)))
+    // DOS ETAPAS: primero a cada uno lo que le corresponde (lo del mes anterior, o su cantidad fija), con todo el
+    // orden de prioridades; y SOLO cuando todos están completos se dan guardias de más (equilibrio entre mujeres
+    // y varones, y cubrir lugares vacíos). Así las guardias de más nunca le sacan lugar a nadie.
+    const baseDe = {}
+    rapidaLista.forEach(i => { baseDe[i.legajo] = i.objetivo })
+    const setFijos = new Set(listaAsignar.filter(i => i.objetivoFijo).map(i => i.legajo))
+    const etapa1 = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: baseDe[i.legajo] ?? i.objetivo })), rapida24hs, rapidaDoble, setFijos, true)
+    // Etapa 2: solo personal común (no cantidad fija, ni 24hs/doble/pareja): suben hasta su número equilibrado y después se cubren vacíos.
+    const enParejas = new Set()
+    ;(especiales || []).forEach(e => { if (e.legajo1) enParejas.add(String(e.legajo1)); if (e.legajo2) enParejas.add(String(e.legajo2)) })
+    const comunes = listaAsignar.filter(i => !i.objetivoFijo && !rapida24hs.has(i.legajo) && !rapidaDoble.has(i.legajo) && !enParejas.has(String(i.legajo)))
+    const etapa2 = await procesarRapida(comunes.map(i => ({ legajo: i.legajo, objetivo: Math.max(baseDe[i.legajo] ?? 0, i.objetivo) })), new Set(), new Set(), new Set(), false, true)
+    const total = etapa1.total + etapa2.total
+    const reporte = etapa1.reporte
+    const conflictos = [...etapa1.conflictos, ...etapa2.conflictos]
+    const sinUniformado = etapa2.sinUniformado || []
+    const excepciones = etapa1.excepciones || []
+    const deMas = etapa2.total
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -2259,7 +2277,7 @@ export default function AdminApp() {
     for (let d = 1; d <= diasMes; d++) { if (!diasCubiertos.has(d)) diasFaltantes.push(d) }
 
     const incompletos = reporte.filter(r => (r.previas || 0) + r.asignadas < r.objetivo)
-    let m = `✓ Se asignaron ${total} guardias en total.\n\n`
+    let m = `✓ Se asignaron ${total} guardias en total: ${etapa1.total} a lo que le corresponde a cada uno y ${deMas} de más (equilibrio y lugares vacíos), una vez completos todos.\n\n`
     if (diasFaltantes.length === 0) {
       m += `✅ ${diasMes}/${diasMes} días del mes tienen turnos asignados.`
     } else {
