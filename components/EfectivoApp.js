@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 const SECTORES_POR_LUGAR = {
-  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento'],
+  'HIGA': ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','Rondin Externo'],
   'UPA': ['UPA'],
   'MODULAR': ['Modular']
 }
@@ -89,7 +89,25 @@ export default function EfectivoApp() {
     const parsed = JSON.parse(u)
     if (parsed.es_admin) { router.push('/admin'); return }
     setUsuario(parsed)
+    // Si la ficha fue dada de baja, se cierra la sesión que quedó guardada
+    verificarSesion(parsed).then(ok => {
+      if (ok === false) { localStorage.removeItem('polad_user'); router.push('/') }
+    })
   }, [])
+
+  // true = la ficha sigue activa, false = fue dada de baja, null = no se pudo verificar
+  async function verificarSesion(u) {
+    try {
+      const resp = await fetch('/api/verificar-sesion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legajo: u.legajo, id: u.id, lugar: detectLugar() }),
+      })
+      if (!resp.ok) return null
+      const body = await resp.json()
+      return body.ok === true
+    } catch (e) { return null }
+  }
 
   useEffect(() => {
     if (usuario && appLugar) {
@@ -177,6 +195,13 @@ export default function EfectivoApp() {
 
   async function guardar() {
     if (!usuario) return
+    const sesionOk = await verificarSesion(usuario)
+    if (sesionOk === false) {
+      localStorage.removeItem('polad_user')
+      alert('Tu usuario ya no está activo. Consultá con el encargado.')
+      router.push('/')
+      return
+    }
     if (Object.keys(disponibilidad).length === 0) {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
