@@ -56,6 +56,7 @@ export default function EfectivoApp() {
   const [turnos, setTurnos] = useState([])
   const [loading, setLoading] = useState(true)
   const [appLugar, setAppLugar] = useState('HIGA')
+  const [acceso, setAcceso] = useState('verificando') // 'verificando' | 'abierto' | 'cerrado' (pantalla en negro)
   const [isMobile, setIsMobile] = useState(false)
   const [modalClave, setModalClave] = useState(false)
   const [claveActual, setClaveActual] = useState('')
@@ -89,13 +90,21 @@ export default function EfectivoApp() {
     const parsed = JSON.parse(u)
     if (parsed.es_admin) { router.push('/admin'); return }
     setUsuario(parsed)
-    // Si la ficha fue dada de baja, se cierra la sesión que quedó guardada
-    verificarSesion(parsed).then(ok => {
-      if (ok === false) { localStorage.removeItem('polad_user'); router.push('/') }
-    })
+    // Revisa con el servidor (1) que la ficha siga activa y (2) que la carga esté abierta.
+    // Se repite cada minuto: si cierra el horario con la pantalla abierta, se pone en negro.
+    let vivo = true
+    async function revisar() {
+      const r = await verificarSesion(parsed)
+      if (!vivo) return
+      if (r && r.ok === false) { localStorage.removeItem('polad_user'); router.push('/'); return }
+      setAcceso(r && r.ok && r.abierta ? 'abierto' : 'cerrado')
+    }
+    revisar()
+    const timer = setInterval(revisar, 60000)
+    return () => { vivo = false; clearInterval(timer) }
   }, [])
 
-  // true = la ficha sigue activa, false = fue dada de baja, null = no se pudo verificar
+  // Devuelve { ok, abierta } o null si no se pudo verificar (en ese caso la pantalla queda en negro)
   async function verificarSesion(u) {
     try {
       const resp = await fetch('/api/verificar-sesion', {
@@ -104,16 +113,15 @@ export default function EfectivoApp() {
         body: JSON.stringify({ legajo: u.legajo, id: u.id, lugar: detectLugar() }),
       })
       if (!resp.ok) return null
-      const body = await resp.json()
-      return body.ok === true
+      return await resp.json()
     } catch (e) { return null }
   }
 
   useEffect(() => {
-    if (usuario && appLugar) {
+    if (usuario && appLugar && acceso === 'abierto') {
       cargarDatos(usuario.legajo, mes, anio, appLugar)
     }
-  }, [usuario, appLugar])
+  }, [usuario, appLugar, acceso])
 
   async function cargarDatos(legajo, m, a, lugar) {
     setLoading(true)
@@ -262,6 +270,9 @@ export default function EfectivoApp() {
   const abierta = esVentanaAbierta()
   const totalSeleccionados = Object.keys(disponibilidad).length
   const totalHoras = turnos.length * HORAS_POR_TURNO
+
+  // Fuera del horario de apertura (o sin poder verificarlo): pantalla negra, igual que el ingreso.
+  if (acceso !== 'abierto') return <div style={{ minHeight:'100vh', background:'#000' }} />
 
   if (loading) return <div className="loading">Cargando...</div>
 
