@@ -826,7 +826,7 @@ export default function AdminApp() {
       if (cruceConOtroLugar(dia, turno)) return false // se superpone con una guardia suya en otro lugar
       // Lo que ya tiene asignado en este lugar también cuenta (no solo lo que se asigna ahora)
       const conjunto = [...(turnosEfData || []).map(t => ({ dia: parseInt(t.dia), turno: t.turno })), ...asignadosHastaAhora]
-      if (conjunto.some(a => a.dia === dia)) return false // ya tiene una guardia ese día
+      if (conjunto.some(a => a.dia === dia && a.turno === turno)) return false // ese mismo turno ya lo tiene (día + noche del mismo día sí se pueden cargar en pasadas distintas)
       if (ES_MOD) return true
       if (turno === 'd' && conjunto.some(a => a.dia === dia - 1 && a.turno === 'n')) return false // sale 08hs, entra 08hs → 0hs descanso
       if (turno === 'n' && conjunto.some(a => a.dia === dia + 1 && a.turno === 'd')) return false
@@ -902,6 +902,23 @@ export default function AdminApp() {
         }
         if (!encontrado) break // no hay más días disponibles
       }
+      // BARRIDO: el espaciado solo mira hacia adelante y puede dejar días libres atrás. Si todavía falta, se recorren TODOS los
+      // días que cargó el efectivo (del 1 al fin de mes) y se completa con cualquiera que cumpla todo (turno, descanso, lugar libre).
+      if (resultado.length < cantidadPedida) {
+        for (const { dia, turno: dispTurno } of diasDisponibles) {
+          if (resultado.length >= cantidadPedida) break
+          if ((yaAsignadosPorTurno[turnoKey]||new Set()).has(dia)) continue
+          if (resultado.find(r => r.dia === dia && r.turno === turnoKey)) continue
+          if (!dispTurno.includes(turnoKey)) continue
+          if (!cumpleDescanso(dia, turnoKey, asignados)) continue
+          const s = getSector(dia, turnoKey)
+          if (!s) continue
+          resultado.push({ legajo, mes: MES, anio: ANIO, dia, turno: turnoKey, sector: s })
+          asignados.push({ dia, turno: turnoKey })
+          ocupacion[dia+'-'+turnoKey+'-'+s] = (ocupacion[dia+'-'+turnoKey+'-'+s] || 0) + 1
+          ;(yaAsignadosPorTurno[turnoKey] || new Set()).add(dia)
+        }
+      }
       return resultado
     }
 
@@ -915,26 +932,25 @@ export default function AdminApp() {
         .sort((a, b) => a.dia - b.dia)
 
       const diasElegidos = []
-      let idxD = 0
+      const asignadosDoble = [] // lo ya elegido (todos los turnos de cada día) para controlar el descanso entre días
+      const okDia = (dia, dispTurno) => TURNOS_LUGAR.every(tk => dispTurno.includes(tk) && cumpleDescanso(dia, tk, asignadosDoble))
+      const elegir = (dia, dispTurno) => { diasElegidos.push({ dia, turno: dispTurno }); TURNOS_LUGAR.forEach(tk => asignadosDoble.push({ dia, turno: tk })) }
       const intervaloD = diasCandidatos.length > cantidad ? Math.floor(diasCandidatos.length / cantidad) : 1
-
-      for (let i = idxD; i < diasCandidatos.length && diasElegidos.length < cantidad; i += intervaloD) {
+      // Pasada espaciada
+      for (let i = 0; i < diasCandidatos.length && diasElegidos.length < cantidad; i += intervaloD) {
         const { dia, turno: dispTurno } = diasCandidatos[i]
-        let todoOk = true
-        for (const tk of TURNOS_LUGAR) {
-          if (!dispTurno.includes(tk)) { todoOk = false; break }
-          if (!cumpleDescanso(dia, tk, nuevos)) { todoOk = false; break }
+        if (okDia(dia, dispTurno)) { elegir(dia, dispTurno); continue }
+        for (let j = i + 1; j < diasCandidatos.length; j++) {
+          const { dia: d2, turno: t2 } = diasCandidatos[j]
+          if (diasElegidos.some(x => x.dia === d2)) continue
+          if (okDia(d2, t2)) { elegir(d2, t2); break }
         }
-        if (!todoOk) {
-          // Intentar el siguiente
-          for (let j = i + 1; j < diasCandidatos.length && diasElegidos.length < cantidad; j++) {
-            const { dia: d2, turno: t2 } = diasCandidatos[j]
-            let ok2 = TURNOS_LUGAR.every(tk => t2.includes(tk) && cumpleDescanso(d2, tk, nuevos))
-            if (ok2) { diasElegidos.push({ dia: d2, turno: t2 }); break }
-          }
-        } else {
-          diasElegidos.push({ dia, turno: dispTurno })
-        }
+      }
+      // BARRIDO: si faltan, se recorren todos los días con día+noche cargados
+      for (const { dia, turno: dispTurno } of diasCandidatos) {
+        if (diasElegidos.length >= cantidad) break
+        if (diasElegidos.some(x => x.dia === dia)) continue
+        if (okDia(dia, dispTurno)) elegir(dia, dispTurno)
       }
 
       for (const { dia, turno: dispTurno } of diasElegidos) {
@@ -981,6 +997,27 @@ export default function AdminApp() {
           } else { idxM++ }
         } else { idxM++ }
       }
+      // BARRIDO: si faltan, se recorren todos los días cargados desde el 1 (el salto de espaciado puede haber dejado días libres atrás).
+      if (nuevos.length < cantidad) {
+        for (const { dia, turno: dispTurno } of diasCandidatos) {
+          if (nuevos.length >= cantidad) break
+          if (asignadosMixto.some(a => a.dia === dia)) continue
+          const turnosOk = TURNOS_LUGAR.filter(tk =>
+            dispTurno.includes(tk) &&
+            !(yaAsignadosPorTurno[tk]||new Set()).has(dia) &&
+            cumpleDescanso(dia, tk, asignadosMixto)
+          )
+          if (turnosOk.length === 0) continue
+          const tk = turnosOk.sort((a, b) => conteoTurnos[a] - conteoTurnos[b])[0]
+          const s = getSector(dia, tk)
+          if (!s) continue
+          nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+          asignadosMixto.push({ dia, turno: tk })
+          ocupacion[dia+'-'+tk+'-'+s] = (ocupacion[dia+'-'+tk+'-'+s] || 0) + 1
+          conteoTurnos[tk]++
+          ;(yaAsignadosPorTurno[tk]||new Set()).add(dia)
+        }
+      }
 
     } else {
       // Turno específico — espaciado con búsqueda de alternativas
@@ -1015,7 +1052,27 @@ export default function AdminApp() {
       msg += `\n\n⚠ Se evitaron días por cruce de horario con otro lugar: ` + lista.map(c => `día ${c.dia} (ya tiene turno "${c.turnoO}" en ${c.lugar}, día ${c.diaO})`).join('; ')
     }
     if (nuevos.length < cantidad) {
-      msg += `\n⚠ Se pedían ${cantidad} pero la disponibilidad permitió ${nuevos.length}.`
+      msg += `\n⚠ Se pedían ${cantidad} pero se pudieron asignar ${nuevos.length}.`
+      // Motivo de cada día cargado que quedó sin usar (se revisaron TODOS los días del mes que cargó el efectivo)
+      const turnosRev = (tipoTurno === 'doble' || tipoTurno === 'mixto') ? TURNOS_LUGAR : [tipoTurno]
+      const usados = [...(turnosEfData || []).map(t => ({ dia: parseInt(t.dia), turno: t.turno })), ...nuevos.map(t => ({ dia: parseInt(t.dia), turno: t.turno }))]
+      const porMotivo = {}
+      Object.keys(dispMap).map(d => parseInt(d)).sort((x, y) => x - y).forEach(dia => {
+        if (nuevos.some(t => parseInt(t.dia) === dia)) return // los días usados en esta corrida no se informan
+        const dt = dispMap[dia] || ''
+        const cargados = turnosRev.filter(tk => dt.includes(tk))
+        const rel = cargados.filter(tk => !usados.some(u => u.dia === dia && u.turno === tk))
+        let m1 = null
+        if (cargados.length === 0) m1 = 'no cargó ese turno'
+        else if (rel.length === 0) m1 = 'ya la tiene cargada'
+        else if (rel.every(tk => cruceConOtroLugar(dia, tk))) m1 = 'cruce con otro lugar'
+        else if (rel.every(tk => (tk === 'd' && usados.some(u => u.dia === dia - 1 && u.turno === 'n')) || (tk === 'n' && usados.some(u => u.dia === dia + 1 && u.turno === 'd')))) m1 = 'sin descanso de 12 hs'
+        else if (!rel.some(tk => (fijo ? [fijo.sector] : SECTORES_APP).some(sx => (ocupacion[dia+'-'+tk+'-'+sx] || 0) < cupoSlot(sx, tk) && (!fijo || !fijo.turno || fijo.turno === tk)))) m1 = 'sin lugar libre en el cronograma'
+        else m1 = 'libre'
+        ;(porMotivo[m1] = porMotivo[m1] || []).push(dia)
+      })
+      const partesM = Object.entries(porMotivo).filter(([k]) => k !== 'no cargó ese turno').map(([k, v]) => `${v.length} día${v.length === 1 ? '' : 's'} ${k === 'libre' ? 'libre(s) sin usar' : k} (${v.slice(0, 10).join(', ')}${v.length > 10 ? '…' : ''})`)
+      if (partesM.length) msg += `\nDías cargados que no se usaron: ` + partesM.join('; ') + '.'
       if (fijo) msg += ` Tiene puesto fijo en "${fijo.sector}"${fijo.turno ? ` (turno "${fijo.turno}")` : ''} y no se la asigna en otro sector — el resto queda pendiente.`
     }
     alert(msg)
