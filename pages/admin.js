@@ -3676,6 +3676,23 @@ export default function AdminApp() {
                                     </div>
                                   </div>
                                 )}
+                                {especiales.filter(e => !(e.tipo === '24hs' || e.tipo === 'pareja' || (e.tipo === 'doble' && APP_LUGAR === 'MODULAR'))).length > 0 && (
+                                  <div style={{ flex:'1 1 240px' }}>
+                                    <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:6 }}>OTROS GUARDADOS</div>
+                                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                      {especiales.filter(e => !(e.tipo === '24hs' || e.tipo === 'pareja' || (e.tipo === 'doble' && APP_LUGAR === 'MODULAR'))).map(e => {
+                                        const ef1 = efectivos.find(x => String(x.legajo) === String(e.legajo1))
+                                        const ef2 = e.legajo2 ? efectivos.find(x => String(x.legajo) === String(e.legajo2)) : null
+                                        return (
+                                          <div key={e.id} style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 8px', background:'rgba(138,143,152,0.12)', border:'0.5px solid rgba(138,143,152,0.35)', borderRadius:14 }}>
+                                            <span style={{ fontSize:11 }}>{(ef1?.nombre || e.legajo1 || '').split(',')[0]}{e.legajo2 ? ' + ' + (ef2?.nombre || e.legajo2).split(',')[0] : ''} · {e.tipo || 'sin tipo'}</span>
+                                            <button style={{ fontSize:10, color:'#F09595', background:'none', border:'none', cursor:'pointer', padding:0 }} onClick={() => quitarEspecial(e.id)}>✕</button>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               <div style={{ paddingTop:8, borderTop:'0.5px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
                                 <select value={nuevoEspecialTipo} onChange={e => { setNuevoEspecialTipo(e.target.value); setNuevoEspecialLeg1(''); setNuevoEspecialLeg2('') }}
