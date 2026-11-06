@@ -2750,6 +2750,22 @@ export default function AdminApp() {
   const horasSinCubrir = Math.max(0, horasNecesarias - horasAsignadas)
   const nombreCompleto = leg => { const e = efectivos.find(x => x.legajo === leg); return e ? e.nombre : leg }
   const nombreCorto = leg => nombreCompleto(leg).split(',')[0]
+  // Marcas en cada nombre de las tarjetas: círculo rosa ♀ / azul ♂ y etiqueta UNIF / S/U (no uniformado)
+  const marcaSexo = leg => {
+    const e = efectivos.find(x => x.legajo === leg)
+    const sx = String(e?.sexo || '').trim().toLowerCase()
+    if (sx !== 'femenino' && sx !== 'masculino') return null
+    const f = sx === 'femenino'
+    return <span title={f ? 'Femenino' : 'Masculino'} style={{ display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,borderRadius:'50%',fontSize:11,fontWeight:700,color:'#10131c',background:f ? '#E8829E' : '#5B9BD5',flexShrink:0 }}>{f ? '♀' : '♂'}</span>
+  }
+  const marcaTipo = leg => {
+    const e = efectivos.find(x => x.legajo === leg)
+    if (!e || !e.tipo) return null
+    const unif = e.tipo === 'Uniformado'
+    return <span title={e.tipo} style={{ fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:4,flexShrink:0,
+      background: unif ? 'rgba(245,197,24,0.18)' : 'rgba(232,147,90,0.15)', color: unif ? '#F5C518' : '#E8935A',
+      border: '1px solid ' + (unif ? 'rgba(245,197,24,0.45)' : 'rgba(232,147,90,0.4)') }}>{unif ? 'UNIF' : 'S/U'}</span>
+  }
 
   return (
     <div>
@@ -3763,7 +3779,11 @@ export default function AdminApp() {
                                     handleDropTurno(origen, { sector, turno: ti.key, ocupanteItem: item })
                                   }}
                                   style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 8px',background:ti.bg,borderRadius:6,marginBottom:3, cursor:'grab', outline: dragOverKey===`item|${item.id}` ? '1.5px dashed #c8a84b' : 'none', outlineOffset:1 }}>
-                                  <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
+                                  <span style={{ display:'flex',alignItems:'center',gap:6,minWidth:0 }}>
+                                    {marcaSexo(item.legajo)}
+                                    <span style={{ fontSize:12,fontWeight:500 }}>{nombreCompleto(item.legajo)}</span>
+                                    {marcaTipo(item.legajo)}
+                                  </span>
                                   <div style={{ display:'flex',gap:4 }}>
                                     <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px' }} onClick={() => setModalTurno(item)}>Cambiar</button>
                                     <button className="btn btn-sm" style={{ fontSize:10,padding:'2px 6px',color:'#F09595',borderColor:'rgba(240,149,149,0.3)' }} onClick={() => handleEliminarTurno(item)}>✕</button>
