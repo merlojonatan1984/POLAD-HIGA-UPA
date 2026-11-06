@@ -1703,31 +1703,50 @@ export default function AdminApp() {
       return [...out, ...x]
     }
     const targetsFase2 = [
-      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) === 'Uniformado')),
-      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) !== 'Uniformado')),
+      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) === 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
+      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) !== 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
     ]
+    // Fines de semana y feriados se cubren primero, y después el resto de los días.
+    // Cada efectivo aporta a los fines de semana/feriados la misma proporción que ellos
+    // tienen en el mes (por ejemplo 11 de 31 días ≈ 35 % de sus guardias).
+    const diasDelMes = new Date(ANIO, MES, 0).getDate()
+    const esDiaPrimero = dia => infoDiaEspecial(dia, MES, ANIO).marcar
+    let diasPrimero = 0
+    for (let d = 1; d <= diasDelMes; d++) if (esDiaPrimero(d)) diasPrimero++
+    const fraccionPrimero = diasPrimero / diasDelMes
+    const extraPrimero = {}   // legajo -> guardias que ya se le dieron en la primera pasada
+    const conteosPersona = {} // legajo -> reparto por sector/turno, se conserva entre las dos pasadas
 
+    const movibles = new Set() // guardias creadas en esta corrida por la Fase 2 (las únicas que se pueden reacomodar)
+    for (const pasada of ['primero', 'resto']) {
     for (const { legajo, objetivo } of targetsFase2) {
       // Puesto fijo (Paso 3B, "Bug 5"): un efectivo con regla activa ya agotó su única
       // fuente de guardias en las fases anteriores (solo, en 24hs o en doble turno,
       // siempre en SU sector). Si no llegó al objetivo, queda PENDIENTE e informado —
       // esta fase ya NO lo completa en el resto de los sectores.
       if (fijoPorLegajo[normLegajo(legajo)]) {
-        reporte.push({ legajo, objetivo, asignadas: asignadasFase1[legajo] || 0 })
+        if (pasada === 'resto') reporte.push({ legajo, objetivo, asignadas: asignadasFase1[legajo] || 0 })
         continue
       }
 
       const hsActuales = hsMap[legajo] || 0
       const cupoPorTope = Math.floor((MAX_HS - hsActuales) / horasTurno)
-      const meta = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
+      const metaTotal = Math.max(0, Math.min(objetivo - (turnosPorLegajo[legajo] || []).length, cupoPorTope))
+      const meta = pasada === 'primero' ? Math.min(metaTotal, Math.ceil(metaTotal * fraccionPrimero)) : metaTotal
 
       const dmap = dispMap[normLegajo(legajo)] || {}
       const diasCandidatos = Object.keys(dmap).map(d => parseInt(d)).sort((a, b) => a - b)
         .map(dia => ({ dia, turno: dmap[dia] }))
         .filter(({ dia, turno }) => turnosLugar.some(tk => turno.includes(tk)))
+        .filter(({ dia }) => pasada !== 'primero' || esDiaPrimero(dia))
 
-      const conteoSector = {}; sectores.forEach(s => { conteoSector[s] = 0 })
-      const conteoTurnos = {}; turnosLugar.forEach(tk => { conteoTurnos[tk] = 0 })
+      if (!conteosPersona[legajo]) {
+        conteosPersona[legajo] = { s: {}, t: {} }
+        sectores.forEach(x => { conteosPersona[legajo].s[x] = 0 })
+        turnosLugar.forEach(tk => { conteosPersona[legajo].t[tk] = 0 })
+      }
+      const conteoSector = conteosPersona[legajo].s
+      const conteoTurnos = conteosPersona[legajo].t
       function getSector(dia, turno) {
         const orden = [...sectores].sort((a, b) => conteoSector[a] - conteoSector[b])
         for (const s of orden) {
@@ -1756,7 +1775,7 @@ export default function AdminApp() {
         return mejor
       }
 
-      const asignadasPrevias = asignadasFase1[legajo] || 0
+      const asignadasPrevias = (asignadasFase1[legajo] || 0) + (extraPrimero[legajo] || 0)
       let asignadas = asignadasPrevias
       const probados = new Set()
       // Intenta asignar un día; devuelve true si lo logró.
@@ -1768,10 +1787,17 @@ export default function AdminApp() {
         )
         if (turnosOk.length === 0) return false
         // Entre los turnos posibles ese día, el que más ayuda al equilibrio; si empatan, el menos usado.
-        const tk = turnosOk.sort((a, b) => (puntosTurno(dia, b) - puntosTurno(dia, a)) || (conteoTurnos[a] - conteoTurnos[b]))[0]
-        const s = getSector(dia, tk)
+        // Se prueba primero el turno que más ayuda; si ese turno ya no tiene lugar, se prueba el otro.
+        const ordenados = turnosOk.sort((a, b) => (puntosTurno(dia, b) - puntosTurno(dia, a)) || (conteoTurnos[a] - conteoTurnos[b]))
+        let tk = null, s = null
+        for (const t of ordenados) {
+          const ss = getSector(dia, t)
+          if (ss) { tk = t; s = ss; break }
+        }
         if (!s) return false
-        nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+        const guardiaNueva = { legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s }
+        nuevos.push(guardiaNueva)
+        movibles.add(guardiaNueva)
         if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
         turnosPorLegajo[legajo].push({ dia, turno: tk })
         ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
@@ -1809,7 +1835,157 @@ export default function AdminApp() {
           }
         }
       }
-      reporte.push({ legajo, objetivo, asignadas })
+      if (pasada === 'primero') extraPrimero[legajo] = asignadas - (asignadasFase1[legajo] || 0)
+      else reporte.push({ legajo, objetivo, asignadas })
+    }
+    }
+
+    // ===== Fase 3: completar a los que quedaron cortos =====
+    // Si a alguien le faltan guardias porque los lugares de sus días ya se llenaron, se busca
+    // a otro efectivo de ESTA MISMA corrida que ocupe uno de esos lugares y pueda pasar a otro
+    // día/turno con lugar libre (y que esté disponible ese día): él mantiene su cantidad y el
+    // que estaba corto se completa. Solo se mueven guardias recién creadas por esta asignación;
+    // nada de lo que ya estaba asignado se modifica. Se respeta descanso, tope de horas y que
+    // haya un Uniformado en cada turno (el que entra es del mismo tipo que el que sale).
+    {
+      const libreSector = (dia, t) => sectores.find(x => (ocupacion[dia + '-' + t + '-' + x] || 0) < cupoSlot(x, t)) || null
+      const sinChoque = (leg, dia, t) => {
+        const prev = turnosPorLegajo[leg] || []
+        if (prev.some(a => a.dia === dia)) return false
+        if ((diasBloqueados24hs[leg] || new Set()).has(dia)) return false
+        if ((diasBloqueadosDoble[leg] || new Set()).has(dia)) return false
+        if (conflictoOtroLugar(leg, dia, t)) return false
+        if (L !== 'MODULAR') {
+          const ayer = prev.find(a => a.dia === dia - 1)
+          if (ayer && ayer.turno === 'n' && t === 'd') return false
+          const manana = prev.find(a => a.dia === dia + 1)
+          if (manana && t === 'n' && manana.turno === 'd') return false
+        }
+        return true
+      }
+      const quitarDe = (leg, dia, t) => { turnosPorLegajo[leg] = (turnosPorLegajo[leg] || []).filter(a => !(a.dia === dia && a.turno === t)) }
+      const faltaLeg = leg => (turnosPorLegajo[leg] || []).length < (objetivoPorLegajo[leg] ?? 0) && (hsMap[leg] || 0) + horasTurno <= MAX_HS
+      const cortos = targetsFase2.filter(t => !fijoPorLegajo[normLegajo(t.legajo)] && !legajos24hs.has(t.legajo) && !legajosDoble.has(t.legajo))
+      for (const { legajo: P } of cortos) {
+        let seguir = true
+        while (seguir && faltaLeg(P)) {
+          seguir = false
+          const dmapP = dispMap[normLegajo(P)] || {}
+          const dias = Object.keys(dmapP).map(d => parseInt(d)).sort((a, b) => (esDiaPrimero(b) - esDiaPrimero(a)) || (a - b))
+          const unifP = tipoDe(P) === 'Uniformado', sexoP = sexoDe(P)
+          buscar:
+          for (const dia of dias) {
+            for (const t of turnosLugar) {
+              if (!(dmapP[dia] || '').includes(t) || !sinChoque(P, dia, t)) continue
+              let sectorP = libreSector(dia, t)
+              let movida = null
+              if (!sectorP) {
+                // Lugar lleno: ver si alguno de los que lo ocupan puede pasar a otro lado.
+                const ocupantes = nuevos
+                  .filter(g => movibles.has(g) && g.dia === dia && g.turno === t && g.legajo !== P &&
+                    !legajos24hs.has(g.legajo) && !legajosDoble.has(g.legajo) && !fijoPorLegajo[normLegajo(g.legajo)] &&
+                    (tipoDe(g.legajo) === 'Uniformado') === unifP)
+                  .sort((a, b) => (sexoDe(b.legajo) === sexoP) - (sexoDe(a.legajo) === sexoP))
+                for (const g of ocupantes) {
+                  const Q = g.legajo
+                  const dmapQ = dispMap[normLegajo(Q)] || {}
+                  quitarDe(Q, g.dia, g.turno)
+                  let destino = null
+                  for (const d2 of Object.keys(dmapQ).map(x => parseInt(x)).sort((a, b) => a - b)) {
+                    for (const t2 of turnosLugar) {
+                      if ((d2 === dia && t2 === t) || !(dmapQ[d2] || '').includes(t2) || !sinChoque(Q, d2, t2)) continue
+                      const s2 = libreSector(d2, t2)
+                      if (s2) { destino = { d2, t2, s2 }; break }
+                    }
+                    if (destino) break
+                  }
+                  if (!destino) { turnosPorLegajo[Q].push({ dia: g.dia, turno: g.turno }); continue }
+                  // Mover a Q a su nuevo lugar y dejar libre el suyo para P.
+                  sectorP = g.sector
+                  ocupacion[dia + '-' + t + '-' + g.sector]--
+                  g.dia = destino.d2; g.turno = destino.t2; g.sector = destino.s2
+                  ocupacion[destino.d2 + '-' + destino.t2 + '-' + destino.s2] = (ocupacion[destino.d2 + '-' + destino.t2 + '-' + destino.s2] || 0) + 1
+                  turnosPorLegajo[Q].push({ dia: destino.d2, turno: destino.t2 })
+                  movida = g
+                  break
+                }
+              }
+              if (!sectorP) continue
+              const guardiaP = { legajo: P, mes: MES, anio: ANIO, dia, turno: t, sector: sectorP }
+              nuevos.push(guardiaP); movibles.add(guardiaP)
+              if (!turnosPorLegajo[P]) turnosPorLegajo[P] = []
+              turnosPorLegajo[P].push({ dia, turno: t })
+              ocupacion[dia + '-' + t + '-' + sectorP] = (ocupacion[dia + '-' + t + '-' + sectorP] || 0) + 1
+              hsMap[P] = (hsMap[P] || 0) + horasTurno
+              const rr = reporte.find(r => r.legajo === P)
+              if (rr) rr.asignadas++
+              seguir = true
+              break buscar
+            }
+          }
+        }
+      }
+
+      // ===== Fase 4: pulido del equilibrio entre mujeres y varones =====
+      // Se intercambian de lugar dos efectivos de ESTA MISMA corrida (una mujer y un varón)
+      // cuando eso deja más parejos los dos turnos. El lugar y el sector no cambian: solo
+      // cambia quién lo ocupa, así que los cupos, las cantidades de cada uno y las horas
+      // quedan igual. Se exige que ambos estén disponibles, que cumplan el descanso, que no
+      // queden pegados a otra guardia suya y que cada turno conserve su Uniformado.
+      {
+        const bal = calcularBalance()
+        const clave = (d, t) => d + '-' + t
+        const cuenta = (d, t) => bal[clave(d, t)] || { femenino: 0, masculino: 0, uniformados: 0 }
+        const desb = c => Math.abs(c.femenino - c.masculino)
+        const vecinas = (leg, dia, ignorar) => (turnosPorLegajo[leg] || []).filter(a => (a.dia === dia - 1 || a.dia === dia + 1) && !(ignorar && a.dia === ignorar.dia && a.turno === ignorar.turno)).length
+        const puedeIr = (leg, desde, hacia) => {
+          const dm = dispMap[normLegajo(leg)] || {}
+          if (!(dm[hacia.dia] || '').includes(hacia.turno)) return false
+          const guardado = turnosPorLegajo[leg]
+          turnosPorLegajo[leg] = guardado.filter(a => !(a.dia === desde.dia && a.turno === desde.turno))
+          const ok = sinChoque(leg, hacia.dia, hacia.turno)
+          const pegada = vecinas(leg, hacia.dia) > vecinas(leg, desde.dia, desde) + 0 && vecinas(leg, hacia.dia) > 0
+          turnosPorLegajo[leg] = guardado
+          return ok && !pegada
+        }
+        const pool = () => nuevos.filter(g => movibles.has(g) && !legajos24hs.has(g.legajo) && !legajosDoble.has(g.legajo) && !fijoPorLegajo[normLegajo(g.legajo)] && sexoDe(g.legajo))
+        for (let vuelta = 0; vuelta < 6; vuelta++) {
+          let cambios = 0
+          const lista = pool()
+          for (const g1 of lista) {
+            const X = g1.legajo, a = sexoDe(X), b = a === 'femenino' ? 'masculino' : 'femenino'
+            const c1 = cuenta(g1.dia, g1.turno)
+            if (c1[a] - c1[b] < 1) continue                   // en este turno, X no sobra
+            for (const g2 of lista) {
+              const Y = g2.legajo
+              if (sexoDe(Y) !== b || X === Y) continue
+              if (g2.dia === g1.dia && g2.turno === g1.turno) continue
+              const c2 = cuenta(g2.dia, g2.turno)
+              if (c2[b] - c2[a] < 1) continue                 // en el otro, Y no sobra
+              const antes = desb(c1) + desb(c2)
+              const despues = Math.abs((c1[a] - 1) - (c1[b] + 1)) + Math.abs((c2[a] + 1) - (c2[b] - 1))
+              if (despues >= antes) continue
+              const uX = tipoDe(X) === 'Uniformado', uY = tipoDe(Y) === 'Uniformado'
+              if (uX !== uY) {
+                if (uX && c1.uniformados - 1 < 1) continue
+                if (uY && c2.uniformados - 1 < 1) continue
+              }
+              const p1 = { dia: g1.dia, turno: g1.turno }, p2 = { dia: g2.dia, turno: g2.turno }
+              if (!puedeIr(X, p1, p2) || !puedeIr(Y, p2, p1)) continue
+              // Intercambio: cada uno pasa al lugar del otro.
+              g1.legajo = Y; g2.legajo = X
+              turnosPorLegajo[X] = turnosPorLegajo[X].filter(a2 => !(a2.dia === p1.dia && a2.turno === p1.turno)).concat([p2])
+              turnosPorLegajo[Y] = turnosPorLegajo[Y].filter(a2 => !(a2.dia === p2.dia && a2.turno === p2.turno)).concat([p1])
+              c1[a]--; c1[b]++; c2[a]++; c2[b]--
+              if (uX !== uY) { if (uX) { c1.uniformados--; c2.uniformados++ } else { c1.uniformados++; c2.uniformados-- } }
+              bal[clave(p1.dia, p1.turno)] = c1; bal[clave(p2.dia, p2.turno)] = c2
+              cambios++
+              break
+            }
+          }
+          if (cambios === 0) break
+        }
+      }
     }
 
     // Aviso: turnos que quedaron con personal pero SIN ningún Uniformado.
