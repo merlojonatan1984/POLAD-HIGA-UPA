@@ -1240,6 +1240,81 @@ export default function AdminApp() {
     setRapidaLista(lista); setRapidaCargando(false)
   }
 
+  // ── Equilibrio entre varones y mujeres (pedido) ──
+  // Solo se usa en "Asignar todos". Toma la lista de objetivos (cuántas guardias le toca a cada
+  // uno) y, SIN cambiar el total de guardias, le sube la cantidad al sexo que tiene menos guardias
+  // y se la baja al que tiene más, hasta que ambos sumen lo mismo. Reglas:
+  //  - Nunca se toca a quien tiene "cantidad fija" ni a quien no tiene el sexo cargado en la ficha.
+  //  - Nadie baja de lo que ya tiene asignado este mes, ni de 1 guardia (si tenía objetivo).
+  //  - Nadie sube más allá de los días que cargó como disponibles ni del tope de 180 hs.
+  //  - Si no alcanza la disponibilidad para llegar a la paridad, se llega lo más cerca posible.
+  // No borra ni cambia nada ya asignado: solo cambia cuántas guardias NUEVAS se intentan asignar.
+  function equilibrarObjetivos(lista) {
+    const maxGuardias = Math.floor(180 / (lugarDetectado === 'MODULAR' ? 8 : 12))
+    const sexoDe = {}
+    efectivos.forEach(e => { sexoDe[normLegajo(e.legajo)] = String(e.sexo || '').trim().toLowerCase() })
+    const grupos = { femenino: [], masculino: [] }
+    let fijoF = 0, fijoM = 0
+    lista.forEach((it, idx) => {
+      const sx = sexoDe[normLegajo(it.legajo)]
+      if (sx !== 'femenino' && sx !== 'masculino') return
+      if (it.objetivoFijo) { if (sx === 'femenino') fijoF += it.objetivo; else fijoM += it.objetivo; return }
+      const yaTiene = it.yaAsignadas || 0
+      const dias = Object.keys(disponibilidad[normLegajo(it.legajo)] || {}).length
+      const hi = Math.max(yaTiene, Math.min(maxGuardias, dias), 0)
+      const lo = Math.min(hi, Math.max(yaTiene, it.objetivo > 0 ? 1 : 0))
+      grupos[sx].push({ idx, w: Math.max(it.objetivo, 0), lo, hi })
+    })
+    const F = grupos.femenino, M = grupos.masculino
+    const suma = (g, f) => g.reduce((a, x) => a + f(x), 0)
+    const sinCambio = { lista, cambio: false }
+    if (!F.length || !M.length) return sinCambio
+    const objF = suma(F, x => x.w), objM = suma(M, x => x.w)
+    const T = objF + objM
+    const totF = objF + fijoF, totM = objM + fijoM
+    if (totF === totM) return sinCambio
+
+    // Reparte S guardias entre un grupo, proporcional al objetivo de cada uno y respetando mínimos y máximos.
+    function repartir(g, S) {
+      const sumLo = suma(g, x => x.lo), sumHi = suma(g, x => x.hi)
+      S = Math.max(sumLo, Math.min(S, sumHi))
+      const val = k => g.map(x => Math.min(x.hi, Math.max(x.lo, x.w * k)))
+      let a = 0, b = 1000
+      for (let i = 0; i < 60; i++) { const m = (a + b) / 2; if (val(m).reduce((u, v) => u + v, 0) < S) a = m; else b = m }
+      const v = val(b)
+      const base = v.map(Math.floor)
+      let resto = S - base.reduce((u, w) => u + w, 0)
+      v.map((x, i) => ({ i, f: x - Math.floor(x) })).sort((p, q) => q.f - p.f).forEach(({ i }) => {
+        if (resto > 0 && base[i] < g[i].hi) { base[i]++; resto-- }
+      })
+      for (let pasada = 0; resto > 0 && pasada < 30; pasada++) {
+        for (let i = 0; i < base.length && resto > 0; i++) if (base[i] < g[i].hi) { base[i]++; resto-- }
+      }
+      return base
+    }
+
+    const menor = totM < totF ? 'masculino' : 'femenino'
+    const gMenor = menor === 'masculino' ? M : F
+    const gMayor = menor === 'masculino' ? F : M
+    const fijoMenor = menor === 'masculino' ? fijoM : fijoF
+    const fijoMayor = menor === 'masculino' ? fijoF : fijoM
+    const origMenor = suma(gMenor, x => x.w)
+    const deseado = Math.round((T + fijoMenor + fijoMayor) / 2 - fijoMenor)
+    const asigMenor = repartir(gMenor, Math.max(deseado, Math.min(origMenor, suma(gMenor, x => x.hi))))
+    const asigMayor = repartir(gMayor, T - suma(asigMenor, x => x))
+
+    const nueva = lista.map(it => ({ ...it }))
+    gMenor.forEach((x, i) => { nueva[x.idx].objetivo = asigMenor[i] })
+    gMayor.forEach((x, i) => { nueva[x.idx].objetivo = asigMayor[i] })
+    const nuevoF = (menor === 'femenino' ? asigMenor : asigMayor).reduce((u, v) => u + v, 0) + fijoF
+    const nuevoM = (menor === 'masculino' ? asigMenor : asigMayor).reduce((u, v) => u + v, 0) + fijoM
+    const cambio = nueva.some((it, i) => it.objetivo !== lista[i].objetivo)
+    return {
+      lista: nueva, cambio,
+      resumen: { antesF: totF, antesM: totM, despuesF: nuevoF, despuesM: nuevoM, personasF: F.length, personasM: M.length },
+    }
+  }
+
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
   async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set()) {
@@ -1268,7 +1343,7 @@ export default function AdminApp() {
     // Cargar horas de los OTROS lugares para respetar el tope global de 180hs
     const sectoresModular = ['Modular']
     const sectoresUPA     = ['UPA']
-    const sectoresHIGA    = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento']
+    const sectoresHIGA    = ['Salud Mental','Giratoria','Llaves','Guardia','Estacionamiento','Rondin Externo']
     const sectoresOtros   = L === 'MODULAR' ? [...sectoresUPA, ...sectoresHIGA]
                           : L === 'UPA'     ? [...sectoresModular, ...sectoresHIGA]
                           : [...sectoresModular, ...sectoresUPA]
@@ -1585,7 +1660,54 @@ export default function AdminApp() {
     // Incluye también a los marcados para 24hs: si la Fase 1 no les cubrió todo su objetivo
     // (o no les armó ningún bloque, p.ej. por falta de disponibilidad de día completo),
     // acá se completa con turnos sueltos en vez de dejarlos sin nada.
-    for (const { legajo, objetivo } of targets) {
+    //
+    // EQUILIBRIO (pedido): se aplican dos preferencias, en este orden de importancia:
+    //   1) En cada turno tiene que haber al menos un Uniformado (el personal de Serv. General
+    //      y Destacamento no porta arma y no puede cubrir un turno solo).
+    //   2) Reparto parejo de sexos dentro de cada turno, contando a TODO el personal.
+    // Son preferencias de ORDEN: nunca cambian cuántas guardias tiene cada persona ni los días
+    // que cargó como disponibles, y nunca dejan un turno sin cubrir por perseguir el equilibrio
+    // (si ese día solo hay un sexo o ningún uniformado disponible, se asigna igual).
+    const infoPorLegajo = {}
+    ;(efectivos || []).forEach(e => {
+      infoPorLegajo[normLegajo(e.legajo)] = { tipo: e.tipo, sexo: String(e.sexo || '').trim().toLowerCase() }
+    })
+    const tipoDe = l => infoPorLegajo[normLegajo(l)]?.tipo || null
+    const sexoDe = l => { const x = infoPorLegajo[normLegajo(l)]?.sexo; return (x === 'femenino' || x === 'masculino') ? x : null }
+    // Cuenta, por día+turno, cuántas mujeres, varones y uniformados hay ya asignados
+    // (lo que había antes + lo que ya se asignó en esta corrida).
+    function calcularBalance() {
+      const b = {}
+      Object.keys(turnosPorLegajo).forEach(leg => {
+        const esUnif = tipoDe(leg) === 'Uniformado'
+        const sx = sexoDe(leg)
+        ;(turnosPorLegajo[leg] || []).forEach(a => {
+          const k = a.dia + '-' + a.turno
+          if (!b[k]) b[k] = { femenino: 0, masculino: 0, uniformados: 0 }
+          if (sx) b[k][sx]++
+          if (esUnif) b[k].uniformados++
+        })
+      })
+      return b
+    }
+    // Orden de procesamiento: primero los Uniformados (así tienen primera elección de días y
+    // se asegura uno por turno), intercalando mujeres y varones; después el resto, también
+    // intercalado. Antes se recorría `targets` en el orden en que vinieron.
+    function intercalarPorSexo(lista) {
+      const f = lista.filter(t => sexoDe(t.legajo) === 'femenino')
+      const m = lista.filter(t => sexoDe(t.legajo) === 'masculino')
+      const x = lista.filter(t => !sexoDe(t.legajo))
+      const out = []
+      const max = Math.max(f.length, m.length)
+      for (let i = 0; i < max; i++) { if (f[i]) out.push(f[i]); if (m[i]) out.push(m[i]) }
+      return [...out, ...x]
+    }
+    const targetsFase2 = [
+      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) === 'Uniformado')),
+      ...intercalarPorSexo(targets.filter(t => tipoDe(t.legajo) !== 'Uniformado')),
+    ]
+
+    for (const { legajo, objetivo } of targetsFase2) {
       // Puesto fijo (Paso 3B, "Bug 5"): un efectivo con regla activa ya agotó su única
       // fuente de guardias en las fases anteriores (solo, en 24hs o en doble turno,
       // siempre en SU sector). Si no llegó al objetivo, queda PENDIENTE e informado —
@@ -1614,43 +1736,97 @@ export default function AdminApp() {
         return null
       }
 
-      let asignadas = asignadasFase1[legajo] || 0
-      const intervalo = diasCandidatos.length > meta && meta > 0 ? Math.floor(diasCandidatos.length / meta) : 1
-      let idx = 0; let vueltas = 0
-      while (asignadas - (asignadasFase1[legajo] || 0) < meta && vueltas < diasCandidatos.length * 2) {
-        vueltas++
-        if (idx >= diasCandidatos.length) idx = 0
-        const { dia, turno: dispTurno } = diasCandidatos[idx]
+      const balance = calcularBalance()
+      const sexoEf = sexoDe(legajo)
+      const esUnif = tipoDe(legajo) === 'Uniformado'
+      const opuesto = sexoEf === 'femenino' ? 'masculino' : 'femenino'
+      // Puntaje de un día+turno para esta persona (mayor = mejor lugar para ponerla).
+      function puntosTurno(dia, tk) {
+        const c = balance[dia + '-' + tk]
+        const sinUnif = !c || c.uniformados === 0
+        let p = 0
+        if (esUnif && sinUnif) p += 1000   // un Uniformado va primero a los turnos que todavía no tienen ninguno
+        if (!esUnif && sinUnif) p -= 500   // alguien sin arma, a los turnos donde ya hay un Uniformado
+        if (sexoEf && c) p += c[opuesto] - c[sexoEf] // se completa el sexo que falta
+        return p
+      }
+      function prioridadDia({ dia, turno: dispTurno }) {
+        let mejor = -Infinity
+        turnosLugar.forEach(tk => { if (dispTurno.includes(tk)) mejor = Math.max(mejor, puntosTurno(dia, tk)) })
+        return mejor
+      }
+
+      const asignadasPrevias = asignadasFase1[legajo] || 0
+      let asignadas = asignadasPrevias
+      const probados = new Set()
+      // Intenta asignar un día; devuelve true si lo logró.
+      function intentarDia({ dia, turno: dispTurno }) {
         const turnosOk = turnosLugar.filter(tk =>
           dispTurno.includes(tk) &&
           !(turnosPorLegajo[legajo] || []).some(a => a.dia === dia && a.turno === tk) &&
           cumpleDescanso(legajo, dia, tk)
         )
-        if (turnosOk.length > 0) {
-          const tk = turnosOk.sort((a, b) => conteoTurnos[a] - conteoTurnos[b])[0]
-          const s = getSector(dia, tk)
-          if (s) {
-            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
-            if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
-            turnosPorLegajo[legajo].push({ dia, turno: tk })
-            ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
-            conteoTurnos[tk]++
-            hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
-            asignadas++
-            idx += intervalo
-            continue
+        if (turnosOk.length === 0) return false
+        // Entre los turnos posibles ese día, el que más ayuda al equilibrio; si empatan, el menos usado.
+        const tk = turnosOk.sort((a, b) => (puntosTurno(dia, b) - puntosTurno(dia, a)) || (conteoTurnos[a] - conteoTurnos[b]))[0]
+        const s = getSector(dia, tk)
+        if (!s) return false
+        nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+        if (!turnosPorLegajo[legajo]) turnosPorLegajo[legajo] = []
+        turnosPorLegajo[legajo].push({ dia, turno: tk })
+        ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
+        conteoTurnos[tk]++
+        hsMap[legajo] = (hsMap[legajo] || 0) + horasTurno
+        const k = dia + '-' + tk
+        if (!balance[k]) balance[k] = { femenino: 0, masculino: 0, uniformados: 0 }
+        if (sexoEf) balance[k][sexoEf]++
+        if (esUnif) balance[k].uniformados++
+        asignadas++
+        return true
+      }
+      // Se reparte a lo largo del mes como antes: el mes se divide en tantos tramos como
+      // guardias faltan, y en cada tramo se prueba primero el día que mejor equilibra.
+      const faltan = () => meta - (asignadas - asignadasPrevias)
+      if (meta > 0 && diasCandidatos.length > 0) {
+        const tramos = Math.min(meta, diasCandidatos.length)
+        for (let t = 0; t < tramos && faltan() > 0; t++) {
+          const desde = Math.floor(t * diasCandidatos.length / tramos)
+          const hasta = Math.floor((t + 1) * diasCandidatos.length / tramos)
+          const tramo = diasCandidatos.slice(desde, hasta).sort((x, y) => prioridadDia(y) - prioridadDia(x))
+          for (const d of tramo) {
+            if (probados.has(d.dia)) continue
+            probados.add(d.dia)
+            if (intentarDia(d)) break
           }
         }
-        idx++
+        // Si algún tramo no pudo asignar, se completa con los días que quedaron sin probar.
+        if (faltan() > 0) {
+          const resto = diasCandidatos.filter(d => !probados.has(d.dia)).sort((x, y) => prioridadDia(y) - prioridadDia(x))
+          for (const d of resto) {
+            if (faltan() <= 0) break
+            probados.add(d.dia)
+            intentarDia(d)
+          }
+        }
       }
       reporte.push({ legajo, objetivo, asignadas })
+    }
+
+    // Aviso: turnos que quedaron con personal pero SIN ningún Uniformado.
+    const sinUniformado = []
+    {
+      const b = calcularBalance()
+      Object.keys(b).forEach(k => {
+        if (b[k].uniformados === 0) { const [d, t] = k.split('-'); sinUniformado.push({ dia: parseInt(d), turno: t }) }
+      })
+      sinUniformado.sort((x, y) => x.dia - y.dia)
     }
 
     for (let i = 0; i < nuevos.length; i += 100) {
       const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
       if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
     }
-    return { total: nuevos.length, reporte, conflictos }
+    return { total: nuevos.length, reporte, conflictos, sinUniformado }
   }
 
   async function asignarUnoRapida(item) {
@@ -1672,9 +1848,11 @@ export default function AdminApp() {
     if (rapidaLista.length === 0) return
     const aviso24hs = rapida24hs.size > 0 ? `\n\n${rapida24hs.size} marcado(s) para guardias de 24hs.` : ''
     const avisoDoble = rapidaDoble.size > 0 ? `\n${rapidaDoble.size} marcado(s) para doble turno.` : ''
-    if (!confirm(`¿Asignar a ${rapidaLista.length} efectivos la misma cantidad de guardias que el mes anterior?${aviso24hs}${avisoDoble}`)) return
+    const eq = equilibrarObjetivos(rapidaLista) // siempre activo: reparto parejo entre varones y mujeres
+    const listaAsignar = eq.lista
+    if (!confirm(`¿Asignar a ${listaAsignar.length} efectivos?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos } = await procesarRapida(rapidaLista.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble)
+    const { total, reporte, conflictos, sinUniformado = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -1702,6 +1880,12 @@ export default function AdminApp() {
           return `   • ${n}: ${r.asignadas} de ${r.objetivo}`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
+    }
+    if (sinUniformado.length) {
+      const nombreTurno = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
+      m += `\n\n⚠ ${sinUniformado.length} turno(s) quedaron SIN ningún uniformado (no había uniformados disponibles):\n` +
+        sinUniformado.slice(0, 15).map(x => `   • Día ${x.dia} — ${nombreTurno(x.turno)}`).join('\n')
+      if (sinUniformado.length > 15) m += `\n   …y ${sinUniformado.length - 15} más.`
     }
     if (conflictos.length) {
       m += `\n\n⚠ ${conflictos.length} guardia(s) NO se asignaron por cruce de horario con otro lugar:\n` +
