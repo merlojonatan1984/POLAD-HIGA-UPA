@@ -1719,8 +1719,12 @@ export default function AdminApp() {
     const esCantidadFija = t => !!(legajosCantidadFija && legajosCantidadFija.has(t.legajo))
     const targetsFase2 = [
       ...targets.filter(esCantidadFija).sort((a, b) => b.objetivo - a.objetivo),
-      ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && tipoDe(t.legajo) === 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
-      ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && tipoDe(t.legajo) !== 'Uniformado').sort((a, b) => b.objetivo - a.objetivo)),
+      // El resto, estrictamente de los que MÁS guardias tienen a los que MENOS. Entre los que tienen la misma
+      // cantidad, primero los uniformados (que cada turno tenga uno) y alternando mujeres y varones.
+      ...[...new Set(targets.filter(t => !esCantidadFija(t)).map(t => t.objetivo))].sort((x, y) => y - x).flatMap(obj => [
+        ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && t.objetivo === obj && tipoDe(t.legajo) === 'Uniformado')),
+        ...intercalarPorSexo(targets.filter(t => !esCantidadFija(t) && t.objetivo === obj && tipoDe(t.legajo) !== 'Uniformado')),
+      ]),
     ]
     // Fines de semana y feriados se cubren primero, y después el resto de los días.
     // Cada efectivo aporta a los fines de semana/feriados la misma proporción que ellos
