@@ -1730,7 +1730,8 @@ export default function AdminApp() {
   async function descargarPlanilla(turno) {
     try {
       const url = `/api/generar-planilla?lugar=${lugarDetectado}&turno=${turno}&mes=${MES}&anio=${ANIO}`
-      const res = await fetch(url)
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + (localStorage.getItem('polad_session') || '') } })
+      if (res.status === 401) throw new Error('Tu sesión venció. Salí y volvé a entrar.')
       if (!res.ok) throw new Error('Error al generar')
       const blob = await res.blob(); const a = document.createElement('a')
       a.href = URL.createObjectURL(blob); a.download = `${APP_LUGAR}_${turno}_${NOMBRE_MES}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
@@ -4132,14 +4133,15 @@ export default function AdminApp() {
             setDescargando('planilla')
             try {
               const url = `/api/generar-planilla?lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`
-              const r = await fetch(url)
+              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + (localStorage.getItem('polad_session') || '') } })
+              if (r.status === 401) throw new Error('Tu sesión venció. Salí y volvé a entrar.')
               if (!r.ok) throw new Error('Error al generar')
               const blob = await r.blob()
               const a = document.createElement('a')
               a.href = URL.createObjectURL(blob)
               a.download = `POLAD_${lugarDetectado}_${NOMBRE_MES.replace(' ','_')}.xlsx`
               a.click()
-            } catch(e) { alert('Error al generar la planilla') }
+            } catch(e) { alert(e.message && e.message.startsWith('Tu sesión') ? e.message : 'Error al generar la planilla') }
             setDescargando(null)
           }
           return (
