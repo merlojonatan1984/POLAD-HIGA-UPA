@@ -2584,11 +2584,11 @@ export default function AdminApp() {
     setModalDispAdmin({ legajo: e.legajo, nombre: e.nombre })
     setDispAdminCargando(true)
     try {
-      const resp = await fetch(`/api/admin-disponibilidad-override?legajo=${encodeURIComponent(e.legajo)}&lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`)
+      const resp = await fetch(`/api/admin-disponibilidad-override?legajo=${encodeURIComponent(e.legajo)}&lugar=${lugarDetectado}&mes=${MES}&anio=${ANIO}`, { headers: { Authorization: 'Bearer ' + (localStorage.getItem('polad_session') || '') } })
       const body = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         if (resp.status === 401) {
-          setDispAdminResultado({ ok: false, error: 'Esta función todavía necesita un paso de configuración único en el sitio. No se modificó nada y el resto del panel sigue funcionando normal — avisale a quien te ayudó a subir el panel.' })
+          setDispAdminResultado({ ok: false, error: 'Tu sesión de administrador venció. Salí y volvé a entrar. No se modificó nada.' })
         } else {
           setDispAdminResultado({ ok: false, error: body.error || 'No se pudo cargar.' })
         }
@@ -2635,7 +2635,7 @@ export default function AdminApp() {
     try {
       const resp = await fetch('/api/admin-disponibilidad-override', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('polad_session') || '') },
         body: JSON.stringify({
           legajo: modalDispAdmin.legajo, lugar: lugarDetectado, mes: MES, anio: ANIO,
           dias: dispAdminDias, motivo: dispAdminMotivo || null, confirmar: true,
@@ -2651,7 +2651,7 @@ export default function AdminApp() {
         setDispAdminResultado({ ok: false, error: body.error, conflicto: true })
         setDispAdminPaso('editar')
       } else if (resp.status === 401) {
-        setDispAdminResultado({ ok: false, error: 'Esta función todavía necesita un paso de configuración único en el sitio. No se guardó nada.' })
+        setDispAdminResultado({ ok: false, error: 'Tu sesión de administrador venció. Salí y volvé a entrar. No se modificó nada.' })
       } else if (!resp.ok) {
         setDispAdminResultado({ ok: false, error: body.error || 'No se pudo guardar.' })
       } else {
