@@ -2216,13 +2216,15 @@ export default function AdminApp() {
 
   async function asignarUnoRapida(item) {
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { reporte, conflictos } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs, rapidaDoble)
+    const { reporte, conflictos, excepciones = [] } = await procesarRapida([{ legajo: item.legajo, objetivo: item.objetivo }], rapida24hs, rapidaDoble, item.objetivoFijo ? new Set([item.legajo]) : null)
     await cargarTodo(lugarDetectado); await cargarRapida()
     const r = reporte[0]
     const nombre = (efectivos.find(e => e.legajo === item.legajo)?.nombre || item.legajo).split(',')[0]
     const totalU = (r.previas || 0) + r.asignadas
     let m = `✓ ${nombre}: se asignaron ${r.asignadas} nuevas${r.previas ? ` (ya tenía ${r.previas})` : ''}, queda con ${totalU} de ${r.objetivo}.`
     if (totalU < r.objetivo) m += ` Faltan ${r.objetivo - totalU}: cargó ${r.dias} día(s) de disponibilidad${r.dias < r.objetivo - (r.previas || 0) ? ', no alcanzan para llegar al número' : ' y en esos días no hubo lugar o no se cumplía el descanso'}.`
+        if (excepciones.length) m += `\n\nℹ EXCEPCIÓN (cantidad fija): ${excepciones.map(x => `día ${x.dia}`).join(', ')} — día y noche seguidas / sin el descanso de 12 hs, para llegar al número.`
+    if (totalU < r.objetivo && r.motivo) m += `\nMotivo: ${r.motivo}.`
     if (conflictos.length) {
       m += `\n\n⚠ ${conflictos.length} día(s) no se asignaron por cruce de horario con otro lugar:\n` +
         conflictos.map(c => `   • Día ${c.dia}: ya tiene turno "${c.turnoOrigen}" en ${c.lugarOrigen} (día ${c.diaOrigen})`).join('\n')
