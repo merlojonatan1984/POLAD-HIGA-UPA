@@ -12,6 +12,7 @@
 // Si algo de eso falla, no se guarda nada.
 
 import { createClient } from '@supabase/supabase-js'
+import { ventanaAbierta } from '../../lib/ventanaCarga'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -19,23 +20,6 @@ const supabase = createClient(
 )
 
 const LUGARES = ['HIGA', 'UPA', 'MODULAR']
-const OFFSET_AR_HS = 3 // Argentina es UTC-3 todo el año (sin horario de verano)
-
-function ahoraArgentina() {
-  const d = new Date(Date.now() - OFFSET_AR_HS * 3600 * 1000)
-  return { mes: d.getUTCMonth() + 1, anio: d.getUTCFullYear() }
-}
-
-// Instante (en ms UTC) de una fecha/hora escrita en hora de Argentina
-function instanteAR(anio, mes, dia, hora, minuto) {
-  return Date.UTC(anio, mes - 1, dia, hora + OFFSET_AR_HS, minuto)
-}
-
-function partesHora(txt, porDefecto) {
-  const [h, m] = (txt || porDefecto).split(':').map(Number)
-  return [Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0]
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' })
 
@@ -88,16 +72,8 @@ export default async function handler(req, res) {
       return res.status(403).json({ codigo: 'cerrado', error: 'La carga de disponibilidad está cerrada.' })
     }
 
-    // 3) Este momento tiene que caer dentro de la ventana
-    const hoy = ahoraArgentina()
-    const mesAp = cfg.mes_apertura || hoy.mes
-    const anioAp = cfg.anio_apertura || hoy.anio
-    const [hIni, mIni] = partesHora(cfg.hora_inicio, '08:00')
-    const [hFin, mFin] = partesHora(cfg.hora_fin, '20:00')
-    const inicio = instanteAR(anioAp, mesAp, parseInt(cfg.dia, 10), hIni, mIni)
-    const fin = instanteAR(anioAp, mesAp, parseInt(cfg.dia, 10), hFin, mFin)
-    const ahora = Date.now()
-    if (ahora < inicio || ahora > fin) {
+    // 3) Este momento tiene que caer dentro de la ventana (reloj del servidor, hora de Argentina)
+    if (!ventanaAbierta(cfg)) {
       return res.status(403).json({ codigo: 'cerrado', error: 'La carga de disponibilidad está cerrada en este momento.' })
     }
 
