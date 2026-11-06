@@ -150,7 +150,6 @@ const PHG_ICONOS = {
 // el menú de pestañas: solo cambia la presentación (lateral en vez de
 // tiras horizontales), no la navegación.
 const PHG_NAV_PRINCIPAL = [
-  { v:'resumen', label:'Resumen' },
   { v:'personal', label:'Personal' },
   { v:'disponibilidad', label:'Disponibilidad' },
   // Se saca "Guardias" (vista 'turnos') del menú: mostraba el cronograma
@@ -389,7 +388,7 @@ export default function AdminApp() {
   const DIAS_MES = new Date(ANIO, MES, 0).getDate()
   const NOMBRE_MES = MESES_NOMBRES[MES-1] + ' ' + ANIO
   const NOMBRE_MES_SOLO = MESES_NOMBRES[MES-1]
-  const [vista, setVista] = useState('resumen')
+  const [vista, setVista] = useState('personal')
   const [efectivos, setEfectivos] = useState([])
   const [disponibilidad, setDisponibilidad] = useState({})
   const [turnos, setTurnos] = useState({})
@@ -2544,7 +2543,6 @@ export default function AdminApp() {
         </div>
         <div style={{ display:'flex',gap:2,padding:'0 16px',borderBottom:'0.5px solid rgba(255,255,255,0.08)',flexWrap:'nowrap',overflowX:'auto' }}>
           {[
-            { v:'resumen', icon:'📊', label:'Resumen' },
             { v:'personal', icon:'👥', label:'Personal' },
             { v:'disponibilidad', icon:'📅', label:'Disponibilidad' },
             { v:'turnos', icon:'🛡️', label:'Guardias' },
