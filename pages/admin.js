@@ -1733,7 +1733,59 @@ export default function AdminApp() {
     const extraPrimero = {}   // legajo -> guardias que ya se le dieron en la primera pasada
     const conteosPersona = {} // legajo -> reparto por sector/turno, se conserva entre las dos pasadas
 
+    const excepciones = [] // días-doble que se dieron sin descanso a pedido del administrador (solo cantidad fija)
     const movibles = new Set() // guardias creadas en esta corrida por la Fase 2 (las únicas que se pueden reacomodar)
+    // Aprovechar los días que cargaron "Ambos" (día y noche): si alguien no llega a su número y cargó Ambos en
+    // un día donde ya tiene UNA guardia, se le suma la otra (día + noche seguidas, 24 hs), de a una por vez y
+    // solo hasta su número. Con relajado=false se respeta el descanso de 12 hs (el día siguiente no puede entrar
+    // de día, el anterior no puede haber terminado con noche). Con relajado=true (EXCEPCIÓN, solo cantidad fija)
+    // se admite igual y queda anotado en `excepciones` para el aviso final. Siempre: lugar libre en el turno,
+    // tope de 180 hs y nada en otro lugar. Solo HIGA/UPA (MODULAR usa "doble turno"). No toca nada ya asignado.
+    const especialesAmb = new Set()
+    ;(especiales || []).forEach(e => { if (e.legajo1) especialesAmb.add(String(e.legajo1)); if (e.legajo2) especialesAmb.add(String(e.legajo2)) })
+    function completarConAmbos(P, relajado) {
+      if (L === 'MODULAR') return
+      if (fijoPorLegajo[normLegajo(P)] || legajos24hs.has(P) || legajosDoble.has(P) || especialesAmb.has(String(P))) return
+      const unifP = tipoDe(P) === 'Uniformado'
+      const libre = (dia, t) => sectores.find(x => (ocupacion[dia + '-' + t + '-' + x] || 0) < cupoSlot(x, t)) || null
+      while ((turnosPorLegajo[P] || []).length < (objetivoPorLegajo[P] ?? 0) && (hsMap[P] || 0) + horasTurno <= MAX_HS) {
+        const dmapP = dispMap[normLegajo(P)] || {}
+        const prevP = turnosPorLegajo[P] || []
+        const bal3b = calcularBalance()
+        let mejor = null
+        for (const dia of Object.keys(dmapP).map(d => parseInt(d))) {
+          if (!(turnosLugar.every(tk => (dmapP[dia] || '').includes(tk)))) continue          // cargó Ambos ese día
+          const hoy = prevP.filter(a => a.dia === dia)
+          if (hoy.length !== 1) continue                                                    // tiene una sola; falta la otra
+          if ((diasBloqueados24hs[P] || new Set()).has(dia) || (diasBloqueadosDoble[P] || new Set()).has(dia)) continue
+          const t1 = turnosLugar.find(tk => tk !== hoy[0].turno)
+          if (!t1) continue
+          const mananaP = prevP.find(a => a.dia === dia + 1)
+          if (!relajado && mananaP && mananaP.turno === 'd') continue                       // terminaría a las 08 y entra a las 08
+          const ayer = prevP.find(a => a.dia === dia - 1)
+          if (!relajado && ayer && ayer.turno === 'n') continue                             // saldría de noche y entra a las 08
+          if (conflictoOtroLugar(P, dia, t1)) continue
+          const sec = libre(dia, t1)
+          if (!sec) continue
+          const c = bal3b[dia + '-' + t1]
+          const sinUnif = !c || c.uniformados === 0
+          let p = 0
+          if (esDiaPrimero(dia)) p += 5000
+          if (unifP && sinUnif) p += 1000
+          if (!unifP && sinUnif) p -= 500
+          if (!mejor || p > mejor.p) mejor = { dia, t1, sec, p }
+        }
+        if (!mejor) break
+        const g = { legajo: P, mes: MES, anio: ANIO, dia: mejor.dia, turno: mejor.t1, sector: mejor.sec }
+        nuevos.push(g); movibles.add(g)
+        turnosPorLegajo[P].push({ dia: mejor.dia, turno: mejor.t1 })
+        ocupacion[mejor.dia + '-' + mejor.t1 + '-' + mejor.sec] = (ocupacion[mejor.dia + '-' + mejor.t1 + '-' + mejor.sec] || 0) + 1
+        hsMap[P] = (hsMap[P] || 0) + horasTurno
+        const rr = reporte.find(r => r.legajo === P)
+        if (rr) rr.asignadas++
+        if (relajado) excepciones.push({ legajo: P, dia: mejor.dia })
+      }
+    }
     // Primero se les cumple TODO a los de cantidad fija (fines de semana y feriados, y después el resto
     // de sus días) y recién después empiezan los demás: así nadie les ocupa los lugares antes.
     for (const [pasada, soloFijos] of [['primero', true], ['resto', true], ['primero', false], ['resto', false]]) {
@@ -1857,6 +1909,11 @@ export default function AdminApp() {
       if (pasada === 'primero') extraPrimero[legajo] = asignadas - (asignadasFase1[legajo] || 0)
       else reporte.push({ legajo, objetivo, asignadas, previas: previasPorLegajo[legajo] || 0, dias: Object.keys(dispMap[normLegajo(legajo)] || {}).length })
     }
+    // Los de cantidad fija se cierran por completo ANTES de que empiece el resto: primero con descanso y,
+    // si todavía no llegan, con la excepción (día y noche seguidas) usando los días que cargaron "Ambos".
+    if (pasada === 'resto' && soloFijos) {
+      for (const relajado of [false, true]) for (const { legajo: P } of targetsFase2) if (esCantidadFija({ legajo: P })) completarConAmbos(P, relajado)
+    }
     }
 
     // ===== Fase 3: completar a los que quedaron cortos =====
@@ -1945,6 +2002,13 @@ export default function AdminApp() {
         }
       }
 
+
+      // ===== Fase 3b: aprovechar los días "Ambos" (ver completarConAmbos, más arriba) =====
+      // Para el resto del personal (y para los de cantidad fija que todavía falten) después de las fases anteriores.
+      for (const relajado of [false, true]) for (const { legajo: P } of targetsFase2) {
+        if (relajado && !esCantidadFija({ legajo: P })) continue
+        completarConAmbos(P, relajado)
+      }
 
       // ===== Fase 5: cubrir todo lo posible =====
       // Con todos ya asignados a su cantidad, los lugares que sigan vacíos se llenan con efectivos
@@ -2086,7 +2150,7 @@ export default function AdminApp() {
       const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
       if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
     }
-    return { total: nuevos.length, reporte, conflictos, sinUniformado }
+    return { total: nuevos.length, reporte, conflictos, sinUniformado, excepciones }
   }
 
   async function asignarUnoRapida(item) {
@@ -2113,7 +2177,7 @@ export default function AdminApp() {
     const listaAsignar = eq.lista
     if (!confirm(`¿Asignar a ${listaAsignar.length} efectivos?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos, sinUniformado = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble, new Set(listaAsignar.filter(i => i.objetivoFijo).map(i => i.legajo)))
+    const { total, reporte, conflictos, sinUniformado = [], excepciones = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble, new Set(listaAsignar.filter(i => i.objetivoFijo).map(i => i.legajo)))
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -2141,6 +2205,13 @@ export default function AdminApp() {
           return `   • ${n}: ${(r.previas || 0) + r.asignadas} de ${r.objetivo} (cargó ${r.dias} día${r.dias === 1 ? '' : 's'} de disponibilidad)`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
+    }
+    if (excepciones.length) {
+      m += `\n\nℹ ${excepciones.length} guardia(s) se dieron como EXCEPCIÓN (día y noche seguidas, sin el descanso de 12 hs) para cumplir la cantidad fija:\n` +
+        excepciones.slice(0, 12).map(x => {
+          const n = (efectivos.find(e => e.legajo === x.legajo)?.nombre || x.legajo).split(',')[0]
+          return `   • ${n} — día ${x.dia}`
+        }).join('\n')
     }
     if (sinUniformado.length) {
       const nombreTurno = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
