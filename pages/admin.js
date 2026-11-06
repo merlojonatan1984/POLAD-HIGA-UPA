@@ -752,6 +752,20 @@ export default function AdminApp() {
     cantidad = parseInt(cantidad) || 0
     if (cantidad <= 0) { alert('Ingresá una cantidad válida.'); setAsignando(false); return }
 
+    // Desde diciembre 2026 (noviembre 2026 y anteriores: igual que siempre):
+    //  - la cantidad es el TOTAL deseado en el mes en este lugar (se descuentan las que ya tiene),
+    //  - si el turno pedido no alcanza se completa con los otros turnos que cargó, informándolo,
+    //  - un solo turno por fecha, descanso de 12 hs por horario real entre los tres lugares (y entre meses),
+    //  - tope de 180 hs sumando los tres lugares, cupos, puesto fijo y cruces.
+    const COMPLETAR_EXACTO = Number(ANIO) > 2026 || (Number(ANIO) === 2026 && Number(MES) >= 12)
+    let avisoDoble = ''
+    if (COMPLETAR_EXACTO && tipoTurno === 'doble') {
+      // En esta asignación individual no se cargan varios turnos el mismo día. Los casos especiales (24 hs, doble turno)
+      // siguen en la asignación masiva, que no se tocó.
+      tipoTurno = 'mixto'
+      avisoDoble = '\nℹ "Todos los turnos del día" no carga varios turnos en una misma fecha en la asignación individual: se tomó un turno por día (como "Mixto"). Los casos especiales de 24 hs y doble turno se asignan desde la asignación masiva.'
+    }
+
     const ES_MOD = lugarDetectado === 'MODULAR'
     const horasTurno = ES_MOD ? 8 : 12
     const MAX_HS = 180
@@ -764,7 +778,7 @@ export default function AdminApp() {
       setAsignando(false)
       return
     }
-    if (cantidad > maxGuardiasPorTope) {
+    if (!COMPLETAR_EXACTO && cantidad > maxGuardiasPorTope) {
       cantidad = maxGuardiasPorTope
       alert(`⚠ Se ajustó la cantidad a ${cantidad} guardias para no superar el tope de ${MAX_HS}hs.\n(Tiene ${hsActuales}hs asignadas, le quedan ${hsDisponibles}hs disponibles)`)
     }
@@ -788,14 +802,63 @@ export default function AdminApp() {
       return
     }
 
-    const [dispDataRes, { data: turnosEfData }, { data: turnosTodos }, { data: turnosMesTodos }] = await Promise.all([
-      fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
+    // Desde diciembre 2026 también se leen las guardias del mes anterior y del siguiente (descanso entre meses) y la
+    // cantidad fija del efectivo (única excepción autorizada al descanso). Solo lectura.
+    const mesAntD = Number(MES) === 1 ? 12 : Number(MES) - 1, anioAntD = Number(MES) === 1 ? Number(ANIO) - 1 : Number(ANIO)
+    const mesSigD = Number(MES) === 12 ? 1 : Number(MES) + 1, anioSigD = Number(MES) === 12 ? Number(ANIO) + 1 : Number(ANIO)
+    const [dispDataRes, { data: turnosEfDataExacto }, { data: turnosTodos }, { data: turnosMesTodos }, { data: turnosMesAnt }, { data: turnosMesSig }, { data: objetivoFijoRows }] = await Promise.all([
+      COMPLETAR_EXACTO
+        // Se lee toda la disponibilidad del lugar y se filtra por legajo normalizado (un espacio o una minúscula no hace perder días).
+        ? fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}`).then(r => r.json())
+            .then(j => ({ ...j, data: (j.data || []).filter(d => normLegajo(d.legajo) === normLegajo(legajo)) }))
+        : fetch(`/api/admin-disponibilidad?mes=${MES}&anio=${ANIO}&lugar=${lugarDetectado}&legajo=${encodeURIComponent(legajo)}`).then(r => r.json()),
       supabase.from('turnos').select('dia, turno, sector').eq('legajo', legajo).eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(1000),
       supabase.from('turnos').select('dia, turno, sector').eq('mes', MES).eq('anio', ANIO).in('sector', SECTORES_APP).limit(10000),
-      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).limit(10000)
+      supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', MES).eq('anio', ANIO).limit(10000),
+      COMPLETAR_EXACTO ? supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', mesAntD).eq('anio', anioAntD).limit(10000) : Promise.resolve({ data: [] }),
+      COMPLETAR_EXACTO ? supabase.from('turnos').select('legajo, dia, turno, sector').eq('mes', mesSigD).eq('anio', anioSigD).limit(10000) : Promise.resolve({ data: [] }),
+      COMPLETAR_EXACTO ? supabase.from('efectivo_objetivo_fijo').select('legajo, cantidad, lugar, activo').eq('lugar', lugarDetectado).eq('activo', true) : Promise.resolve({ data: [] }),
     ])
+    // Guardias que ya tiene en ESTE lugar. Desde diciembre 2026 se toman por legajo normalizado (antes, por legajo exacto).
+    const turnosEfData = COMPLETAR_EXACTO
+      ? (turnosMesTodos || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo) && SECTORES_APP.includes(o.sector))
+      : turnosEfDataExacto
     // Guardias de ESTA persona en OTROS lugares (mismo legajo aunque cambien espacios o mayúsculas): no se puede asignar nada que se superponga.
     const turnosOtrosLugares = (turnosMesTodos || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo) && !SECTORES_APP.includes(o.sector))
+
+    // Desde diciembre 2026: la cantidad es el TOTAL deseado en este lugar y mes. Se descuentan las que ya tiene;
+    // si ya tiene esa cantidad o más, no se agrega ni se quita nada.
+    const totalPedido = cantidad
+    const yaTenia = COMPLETAR_EXACTO ? (turnosEfData || []).length : 0
+    if (COMPLETAR_EXACTO) {
+      if (yaTenia >= totalPedido) {
+        alert(`ℹ ${efectivos.find(e => normLegajo(e.legajo) === normLegajo(legajo))?.nombre?.split(',')[0] || legajo} ya tiene ${yaTenia} guardia${yaTenia === 1 ? '' : 's'} en ${lugarDetectado} este mes y pediste un total de ${totalPedido}. No se agregó ni se quitó nada.`)
+        setAsignando(false)
+        return
+      }
+      cantidad = totalPedido - yaTenia
+    }
+
+    // Desde diciembre 2026: tope de 180 hs sumando las guardias de los TRES lugares (antes solo contaba este lugar).
+    // Nunca se baja de lo ya asignado: solo se recorta cuántas guardias NUEVAS se intentan.
+    let avisoTope = ''
+    let maxNuevasPorTope = Infinity
+    if (COMPLETAR_EXACTO) {
+      const hsTotales = (turnosMesTodos || [])
+        .filter(o => normLegajo(o.legajo) === normLegajo(legajo))
+        .reduce((acc, o) => acc + (lugarDeSectorGlobal(o.sector) === 'MODULAR' ? 8 : 12), 0)
+      const maxPorTopeTotal = Math.floor((MAX_HS - hsTotales) / horasTurno)
+      maxNuevasPorTope = maxPorTopeTotal
+      if (maxPorTopeTotal <= 0) {
+        alert(`⛔ ${efectivos.find(e => normLegajo(e.legajo) === normLegajo(legajo))?.nombre?.split(',')[0] || legajo} ya tiene ${hsTotales} hs sumando los tres lugares: alcanzó el tope de ${MAX_HS} hs. No se asignó nada.`)
+        setAsignando(false)
+        return
+      }
+      if (cantidad > maxPorTopeTotal) {
+        avisoTope = `\n⚠ Para llegar al total faltaban ${cantidad}, pero tiene ${hsTotales} hs sumando los tres lugares: para no pasar ${MAX_HS} hs se pueden agregar como máximo ${maxPorTopeTotal}.`
+        cantidad = maxPorTopeTotal
+      }
+    }
     const crucesVistos = new Map()
     function cruceConOtroLugar(dia, turno) {
       const rc = rangoTurnoGlobal(dia, turno, lugarDetectado)
@@ -819,7 +882,33 @@ export default function AdminApp() {
     })
 
     const dispMap = {}
-    ;(dispData || []).forEach(d => { dispMap[parseInt(d.dia)] = d.turno })
+    ;(dispData || []).forEach(d => {
+      const k = parseInt(d.dia)
+      // Desde diciembre 2026: si un día tiene más de una fila (p. ej. una "d" y otra "n"), se juntan; antes quedaba solo la última.
+      if (COMPLETAR_EXACTO && dispMap[k]) {
+        dispMap[k] = TURNOS_LUGAR.filter(tk => (dispMap[k] + (d.turno || '')).includes(tk)).join('')
+      } else {
+        dispMap[k] = d.turno
+      }
+    })
+
+    // Desde diciembre 2026: descanso de 12 hs por horario REAL entre todas sus guardias de los tres lugares, incluyendo
+    // el mes anterior y el siguiente. Horarios: los mismos de siempre (rangoTurnoGlobal).
+    // Única excepción autorizada: efectivo con "cantidad fija" en este lugar (no se le exige el descanso; nunca superposición).
+    const excepcionDescanso = COMPLETAR_EXACTO && (objetivoFijoRows || []).some(r => normLegajo(r.legajo) === normLegajo(legajo))
+    const diasMesActD = new Date(Number(ANIO), Number(MES), 0).getDate()
+    const diasMesAntD = new Date(anioAntD, mesAntD, 0).getDate()
+    const rangosPropiosD = !COMPLETAR_EXACTO ? [] : [
+      ...(turnosMesTodos || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo)).map(o => rangoTurnoGlobal(parseInt(o.dia), o.turno, lugarDeSectorGlobal(o.sector))),
+      ...(turnosMesAnt || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo)).map(o => rangoTurnoGlobal(parseInt(o.dia) - diasMesAntD, o.turno, lugarDeSectorGlobal(o.sector))),
+      ...(turnosMesSig || []).filter(o => normLegajo(o.legajo) === normLegajo(legajo)).map(o => rangoTurnoGlobal(parseInt(o.dia) + diasMesActD, o.turno, lugarDeSectorGlobal(o.sector))),
+    ]
+    function descansoRealOk(dia, turno, asignadosHastaAhora) {
+      const rc = rangoTurnoGlobal(dia, turno, lugarDetectado)
+      const margen = excepcionDescanso ? 0 : 12 * 60
+      const nuevosR = (asignadosHastaAhora || []).map(a => rangoTurnoGlobal(parseInt(a.dia), a.turno, lugarDetectado))
+      return [...rangosPropiosD, ...nuevosR].every(r => rc[0] >= r[1] + margen || r[0] >= rc[1] + margen)
+    }
 
     // Verifica descanso 12hs — solo HIGA/UPA con turnos de 12hs
     function cumpleDescanso(dia, turno, asignadosHastaAhora) {
@@ -827,6 +916,13 @@ export default function AdminApp() {
       // Lo que ya tiene asignado en este lugar también cuenta (no solo lo que se asigna ahora)
       const conjunto = [...(turnosEfData || []).map(t => ({ dia: parseInt(t.dia), turno: t.turno })), ...asignadosHastaAhora]
       if (conjunto.some(a => a.dia === dia && a.turno === turno)) return false // ese mismo turno ya lo tiene (día + noche del mismo día sí se pueden cargar en pasadas distintas)
+      // Desde diciembre 2026 (salvo el pedido "Todos"/doble, que es día+noche a propósito): nunca dos guardias en la misma
+      // fecha, ni en este lugar ni en otro. Así no se arma día + noche en una misma fecha.
+      if (COMPLETAR_EXACTO && tipoTurno !== 'doble') {
+        if (conjunto.some(a => a.dia === dia)) return false
+        if (turnosOtrosLugares.some(o => parseInt(o.dia) === dia)) return false
+        return descansoRealOk(dia, turno, asignadosHastaAhora)
+      }
       if (ES_MOD) return true
       if (turno === 'd' && conjunto.some(a => a.dia === dia - 1 && a.turno === 'n')) return false // sale 08hs, entra 08hs → 0hs descanso
       if (turno === 'n' && conjunto.some(a => a.dia === dia + 1 && a.turno === 'd')) return false
@@ -925,6 +1021,8 @@ export default function AdminApp() {
     const nuevos = []
 
     if (tipoTurno === 'doble') {
+      // Desde diciembre 2026: cada día pedido suma todos los turnos del día; se recorta para no pasar las 180 hs (tres lugares).
+      const cantDias = COMPLETAR_EXACTO ? Math.min(cantidad, Math.floor(maxNuevasPorTope / TURNOS_LUGAR.length)) : cantidad
       // Todos los turnos del día — buscar días donde el efectivo tiene TODOS los turnos
       const diasCandidatos = Object.entries(dispMap)
         .filter(([dia, turno]) => TURNOS_LUGAR.every(tk => turno.includes(tk)))
@@ -935,9 +1033,9 @@ export default function AdminApp() {
       const asignadosDoble = [] // lo ya elegido (todos los turnos de cada día) para controlar el descanso entre días
       const okDia = (dia, dispTurno) => TURNOS_LUGAR.every(tk => dispTurno.includes(tk) && cumpleDescanso(dia, tk, asignadosDoble))
       const elegir = (dia, dispTurno) => { diasElegidos.push({ dia, turno: dispTurno }); TURNOS_LUGAR.forEach(tk => asignadosDoble.push({ dia, turno: tk })) }
-      const intervaloD = diasCandidatos.length > cantidad ? Math.floor(diasCandidatos.length / cantidad) : 1
+      const intervaloD = diasCandidatos.length > cantDias ? Math.floor(diasCandidatos.length / cantDias) : 1
       // Pasada espaciada
-      for (let i = 0; i < diasCandidatos.length && diasElegidos.length < cantidad; i += intervaloD) {
+      for (let i = 0; i < diasCandidatos.length && diasElegidos.length < cantDias; i += intervaloD) {
         const { dia, turno: dispTurno } = diasCandidatos[i]
         if (okDia(dia, dispTurno)) { elegir(dia, dispTurno); continue }
         for (let j = i + 1; j < diasCandidatos.length; j++) {
@@ -948,7 +1046,7 @@ export default function AdminApp() {
       }
       // BARRIDO: si faltan, se recorren todos los días con día+noche cargados
       for (const { dia, turno: dispTurno } of diasCandidatos) {
-        if (diasElegidos.length >= cantidad) break
+        if (diasElegidos.length >= cantDias) break
         if (diasElegidos.some(x => x.dia === dia)) continue
         if (okDia(dia, dispTurno)) elegir(dia, dispTurno)
       }
@@ -1028,6 +1126,28 @@ export default function AdminApp() {
 
       const resultado = asignarEspaciado(diasCandidatos, cantidad, tipoTurno)
       nuevos.push(...resultado)
+
+      // Desde diciembre 2026: si el turno pedido no alcanzó, se completa con los otros turnos que cargó, recorriendo
+      // TODOS sus días del mes. Un solo turno por día (nunca día y noche juntos), y con las mismas reglas de siempre:
+      // descanso de 12 hs, cupo del sector, cruce con otro lugar y puesto fijo. No toca nada ya asignado.
+      if (COMPLETAR_EXACTO && nuevos.length < cantidad) {
+        const otrosTurnos = TURNOS_LUGAR.filter(tk => tk !== tipoTurno)
+        const ocupadoEseDia = dia => (turnosEfData || []).some(t => parseInt(t.dia) === dia) || nuevos.some(n => n.dia === dia)
+        const diasOrden = Object.keys(dispMap).map(d => parseInt(d)).sort((a, b) => a - b)
+        for (const tk of otrosTurnos) {
+          for (const dia of diasOrden) {
+            if (nuevos.length >= cantidad) break
+            if (!(dispMap[dia] || '').includes(tk)) continue
+            if (ocupadoEseDia(dia)) continue
+            if (!cumpleDescanso(dia, tk, nuevos.map(n => ({ dia: n.dia, turno: n.turno })))) continue
+            const s = getSector(dia, tk)
+            if (!s) continue
+            nuevos.push({ legajo, mes: MES, anio: ANIO, dia, turno: tk, sector: s })
+            ocupacion[dia + '-' + tk + '-' + s] = (ocupacion[dia + '-' + tk + '-' + s] || 0) + 1
+            ;(yaAsignadosPorTurno[tk] || new Set()).add(dia)
+          }
+        }
+      }
     }
 
     ;(await quitarCrucesAntesDeGuardar(nuevos, MES, ANIO)).forEach(b => crucesVistos.set('b' + b.dia + b.turno, { dia: b.dia, lugar: b.lugarO, diaO: b.diaO, turnoO: b.turnoO }))
@@ -1046,15 +1166,27 @@ export default function AdminApp() {
     await cargarTodo(lugarDetectado)
 
     const nombre = efectivos.find(e => e.legajo === legajo)?.nombre?.split(',')[0] || legajo
-    let msg = `✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`
+    let msg = COMPLETAR_EXACTO
+      ? `✓ Se agregaron ${nuevos.length} guardia${nuevos.length === 1 ? '' : 's'} a ${nombre}. Tenía ${yaTenia}, pediste un total de ${totalPedido}: queda con ${yaTenia + nuevos.length}.` + avisoTope + avisoDoble
+      : `✓ Se asignaron ${nuevos.length} guardias a ${nombre}.`
+    if (COMPLETAR_EXACTO && tipoTurno !== 'doble' && tipoTurno !== 'mixto') {
+      const otros = nuevos.filter(t => t.turno !== tipoTurno)
+      if (otros.length > 0) {
+        const nomT = tk => (TURNOS_INFO.find(x => x.key === tk)?.label || tk)
+        msg += `\nℹ El turno pedido (${nomT(tipoTurno)}) no alcanzaba: se completó con ${otros.length} en otro turno según su disponibilidad: ` +
+          otros.sort((a, b) => a.dia - b.dia).map(t => `día ${t.dia} ${nomT(t.turno)}`).join(', ') + '.'
+      }
+    }
     if (crucesVistos.size > 0) {
       const lista = [...crucesVistos.values()].sort((a, b) => a.dia - b.dia).slice(0, 8)
       msg += `\n\n⚠ Se evitaron días por cruce de horario con otro lugar: ` + lista.map(c => `día ${c.dia} (ya tiene turno "${c.turnoO}" en ${c.lugar}, día ${c.diaO})`).join('; ')
     }
     if (nuevos.length < cantidad) {
-      msg += `\n⚠ Se pedían ${cantidad} pero se pudieron asignar ${nuevos.length}.`
+      msg += COMPLETAR_EXACTO
+        ? `\n⚠ Para llegar a ${totalPedido} faltaban ${cantidad}, pero se pudieron agregar ${nuevos.length}.`
+        : `\n⚠ Se pedían ${cantidad} pero se pudieron asignar ${nuevos.length}.`
       // Motivo de cada día cargado que quedó sin usar (se revisaron TODOS los días del mes que cargó el efectivo)
-      const turnosRev = (tipoTurno === 'doble' || tipoTurno === 'mixto') ? TURNOS_LUGAR : [tipoTurno]
+      const turnosRev = (tipoTurno === 'doble' || tipoTurno === 'mixto' || COMPLETAR_EXACTO) ? TURNOS_LUGAR : [tipoTurno]
       const usados = [...(turnosEfData || []).map(t => ({ dia: parseInt(t.dia), turno: t.turno })), ...nuevos.map(t => ({ dia: parseInt(t.dia), turno: t.turno }))]
       const porMotivo = {}
       Object.keys(dispMap).map(d => parseInt(d)).sort((x, y) => x - y).forEach(dia => {
@@ -1065,8 +1197,11 @@ export default function AdminApp() {
         let m1 = null
         if (cargados.length === 0) m1 = 'no cargó ese turno'
         else if (rel.length === 0) m1 = 'ya la tiene cargada'
+        else if (COMPLETAR_EXACTO && tipoTurno !== 'doble' && usados.some(u => u.dia === dia)) m1 = 'ya tiene otra guardia ese día'
         else if (rel.every(tk => cruceConOtroLugar(dia, tk))) m1 = 'cruce con otro lugar'
-        else if (rel.every(tk => (tk === 'd' && usados.some(u => u.dia === dia - 1 && u.turno === 'n')) || (tk === 'n' && usados.some(u => u.dia === dia + 1 && u.turno === 'd')))) m1 = 'sin descanso de 12 hs'
+        else if (COMPLETAR_EXACTO && tipoTurno !== 'doble' && turnosOtrosLugares.some(o => parseInt(o.dia) === dia)) m1 = 'ya tiene guardia ese día en otro lugar'
+        else if (COMPLETAR_EXACTO && rel.every(tk => !descansoRealOk(dia, tk, nuevos))) m1 = 'sin descanso de 12 hs'
+        else if (!COMPLETAR_EXACTO && rel.every(tk => (tk === 'd' && usados.some(u => u.dia === dia - 1 && u.turno === 'n')) || (tk === 'n' && usados.some(u => u.dia === dia + 1 && u.turno === 'd')))) m1 = 'sin descanso de 12 hs'
         else if (!rel.some(tk => (fijo ? [fijo.sector] : SECTORES_APP).some(sx => (ocupacion[dia+'-'+tk+'-'+sx] || 0) < cupoSlot(sx, tk) && (!fijo || !fijo.turno || fijo.turno === tk)))) m1 = 'sin lugar libre en el cronograma'
         else m1 = 'libre'
         ;(porMotivo[m1] = porMotivo[m1] || []).push(dia)
@@ -3182,7 +3317,7 @@ export default function AdminApp() {
               </div>
               <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14 }}>
                 <div>
-                  <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>Cantidad de guardias</label>
+                  <label style={{ fontSize:12,color:'var(--text-muted)',marginBottom:6,display:'block' }}>{(Number(ANIO) > 2026 || (Number(ANIO) === 2026 && Number(MES) >= 12)) ? 'Total de guardias en el mes (incluye las que ya tiene)' : 'Cantidad de guardias'}</label>
                   <input type="number" min="1" max="31" value={modalAsignar.cantidad||''} onChange={e => setModalAsignar(prev => ({...prev,cantidad:parseInt(e.target.value)||''}))} placeholder="Ej: 9" style={{ width:'100%',padding:'9px 11px',border:'0.5px solid rgba(255,255,255,0.12)',borderRadius:8,fontSize:14,background:'#1e2130',color:'#e8eaf0',outline:'none',textAlign:'center' }} />
                 </div>
                 <div>
@@ -4594,7 +4729,7 @@ export default function AdminApp() {
                           <div style={{ display:'flex', gap:4 }}>
                             <input type="number" min="1" max="31" value={campo.cantidad}
                               onChange={e => setCamposRapidaNuevos(prev => ({ ...prev, [n.legajo]: { ...campo, cantidad: parseInt(e.target.value) || '' } }))}
-                              placeholder="Cant." title="Cantidad de guardias"
+                              placeholder={(Number(ANIO) > 2026 || (Number(ANIO) === 2026 && Number(MES) >= 12)) ? 'Total' : 'Cant.'} title={(Number(ANIO) > 2026 || (Number(ANIO) === 2026 && Number(MES) >= 12)) ? 'Total de guardias en el mes (incluye las que ya tiene)' : 'Cantidad de guardias'}
                               style={{ width:48, padding:'4px 6px', fontSize:11, border:'0.5px solid var(--border)', borderRadius:6, background:'var(--surface)', color:'var(--text)', outline:'none' }} />
                             <select value={campo.tipoTurno} title="Tipo de turno"
                               onChange={e => setCamposRapidaNuevos(prev => ({ ...prev, [n.legajo]: { ...campo, tipoTurno: e.target.value } }))}
