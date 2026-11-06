@@ -2961,6 +2961,19 @@ export default function AdminApp() {
           const uniformados = efectivos.filter(e => e.tipo === 'Uniformado')
           const servGeneral = efectivos.filter(e => e.tipo === 'Serv. General')
           const destacamento = efectivos.filter(e => e.tipo === 'Destacamento')
+          // Cuántos masculinos y femeninos hay en cada grupo (los que no tienen
+          // el sexo cargado en la ficha se cuentan aparte, como "sin dato")
+          const textoSexo = lista => {
+            let m = 0, f = 0, sd = 0
+            lista.forEach(e => {
+              const x = String(e.sexo || '').trim().toLowerCase()
+              if (x === 'masculino') m++
+              else if (x === 'femenino') f++
+              else sd++
+            })
+            return `${m} ${m === 1 ? 'masculino' : 'masculinos'} · ${f} ${f === 1 ? 'femenino' : 'femeninos'}` + (sd > 0 ? ` · ${sd} sin dato` : '')
+          }
+          const detalleSexo = lista => <span style={{ fontSize:12,fontWeight:400,opacity:0.9,marginLeft:12 }}>({textoSexo(lista)})</span>
           const renderFichas = lista => lista.map(e => {
             const hs = horasAsig[e.legajo] || 0
             const pct = Math.round(hs / 180 * 100)
@@ -3046,16 +3059,16 @@ export default function AdminApp() {
                 <button className="btn btn-sm" style={{ background:'rgba(200,168,75,0.15)',color:'#c8a84b',border:'0.5px solid rgba(200,168,75,0.4)' }} onClick={() => { setMsgPersonal(null); setModalPersonal({ legajo:'',nombre:'',tipo:'Uniformado',email:'',sector:'Sin asignar',lugar:APP_LUGAR }) }}>+ Dar de alta efectivo</button>
               </div>
               <div className="panel" style={{ marginBottom:16 }}>
-                <div className="panel-header" style={{ background:BG_APP }}><h3 style={{ color:COLOR_APP }}>Uniformados — {uniformados.length} efectivos</h3></div>
+                <div className="panel-header" style={{ background:BG_APP }}><h3 style={{ color:COLOR_APP }}>Uniformados — {uniformados.length} efectivos{detalleSexo(uniformados)}</h3></div>
                 <div style={{ padding:14,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10 }}>{renderFichas(uniformados)}</div>
               </div>
               <div className="panel">
-                <div className="panel-header" style={{ background:'rgba(13,51,40,0.5)' }}><h3 style={{ color:'#5DCAA5' }}>Servicio General — {servGeneral.length} efectivos</h3></div>
+                <div className="panel-header" style={{ background:'rgba(13,51,40,0.5)' }}><h3 style={{ color:'#5DCAA5' }}>Servicio General — {servGeneral.length} efectivos{detalleSexo(servGeneral)}</h3></div>
                 <div style={{ padding:14,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10 }}>{renderFichas(servGeneral)}</div>
               </div>
               {destacamento.length > 0 && (
                 <div className="panel" style={{ marginTop:16 }}>
-                  <div className="panel-header" style={{ background:'rgba(80,70,0,0.4)' }}><h3 style={{ color:'#F5C518' }}>Destacamento — {destacamento.length} efectivos</h3></div>
+                  <div className="panel-header" style={{ background:'rgba(80,70,0,0.4)' }}><h3 style={{ color:'#F5C518' }}>Destacamento — {destacamento.length} efectivos{detalleSexo(destacamento)}</h3></div>
                   <div style={{ padding:14,display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10 }}>{renderFichas(destacamento)}</div>
                 </div>
               )}
