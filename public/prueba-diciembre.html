@@ -1,1 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba de diciembre</title>
+<style>
+  body{margin:0;background:#0f1218;color:#e8eaf0;font-family:system-ui,Arial,sans-serif}
+  .w{max-width:640px;margin:0 auto;padding:24px 16px}
+  h1{font-size:22px;margin:0 0 4px}
+  p{color:#aab0bf;line-height:1.5;margin:6px 0 16px}
+  .card{background:#171c26;border:1px solid #262d3b;border-radius:12px;padding:16px;margin-bottom:14px}
+  button{font-size:16px;padding:12px 16px;border-radius:10px;border:0;cursor:pointer;font-weight:600;width:100%;margin-top:8px}
+  .b1{background:#2a3347;color:#e8eaf0}
+  .b2{background:#2e7d4f;color:#fff}
+  .b3{background:#8a2c2c;color:#fff}
+  button:disabled{opacity:.5;cursor:wait}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:15px}
+  th,td{padding:8px;text-align:right;border-bottom:1px solid #262d3b}
+  th:first-child,td:first-child{text-align:left}
+  th{color:#aab0bf;font-weight:600;font-size:13px}
+  td,th{font-size:14px}
+  .msg{padding:12px;border-radius:10px;margin-top:12px;font-size:15px}
+  .ok{background:#16301f;color:#9be3b3}
+  .err{background:#3a1c1c;color:#ffb3b3}
+  input{width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:1px solid #333b4d;background:#0f1218;color:#e8eaf0;font-size:16px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Prueba de diciembre 2026</h1>
+  <p>Carga una disponibilidad de prueba en diciembre, con los mismos efectivos que cargaron en noviembre y con días parecidos. En HIGA se suman efectivos que no cargaron en noviembre hasta llegar a 78-83 (columna Sumados). Hay que haber entrado antes como administrador en esta misma computadora.</p>
 
+  <div class="card">
+    <b>1. Ver qué se cargaría</b>
+    <p>No cambia nada. Solo muestra los números.</p>
+    <button class="b1" id="bVista">Ver qué se cargaría</button>
+    <div id="tabla"></div>
+  </div>
+
+  <div class="card">
+    <b>2. Cargar la disponibilidad de prueba</b>
+    <p>Si diciembre ya tiene disponibilidad, no carga nada para no mezclar.</p>
+    <button class="b2" id="bCargar">Cargar disponibilidad de diciembre</button>
+  </div>
+
+  <div class="card">
+    <b>3. Borrar todo diciembre (cuando termines la prueba)</b>
+    <p>Borra la disponibilidad, las guardias, la asistencia, la planilla manual y las firmas de diciembre 2026. No toca noviembre ni a los efectivos. Para confirmar, escribí <b>BORRAR DICIEMBRE</b>.</p>
+    <input id="conf" placeholder="BORRAR DICIEMBRE" autocomplete="off">
+    <button class="b3" id="bBorrar">Borrar diciembre</button>
+  </div>
+
+  <div id="msg"></div>
+</div>
+<script>
+  function sesion(){ try{ return localStorage.getItem('polad_session')||'' }catch(e){ return '' } }
+  function mostrar(texto, ok){ var m=document.getElementById('msg'); m.innerHTML='<div class="msg '+(ok?'ok':'err')+'"></div>'; m.firstChild.textContent=texto }
+  function tabla(resumen){
+    var h='<table><tr><th>Lugar</th><th>Cargaron en noviembre</th><th>Se cargan en diciembre</th><th>Sumados</th><th>Filas</th></tr>'
+    resumen.forEach(function(r){ h+='<tr><td>'+r.lugar+'</td><td>'+r.cargaronNoviembre+'</td><td>'+r.efectivosEnDiciembre+'</td><td>'+(r.sumadosQueNoCargaron||0)+'</td><td>'+r.filasDiciembre+'</td></tr>' })
+    document.getElementById('tabla').innerHTML=h+'</table>'
+  }
+  async function llamar(body, btn){
+    btn.disabled=true
+    try{
+      var r=await fetch('/api/prueba-disponibilidad',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+sesion()},body:JSON.stringify(body)})
+      var j=await r.json().catch(function(){return {}})
+      if(!r.ok) throw new Error(j.error||'No se pudo hacer')
+      return j
+    } finally { btn.disabled=false }
+  }
+  document.getElementById('bVista').onclick=async function(){
+    try{ var j=await llamar({accion:'vista'},this); tabla(j.resumen); mostrar(j.filasYaEnDiciembre>0?('Ojo: diciembre ya tiene '+j.filasYaEnDiciembre+' filas de disponibilidad.'):'Diciembre está vacío. Listo para cargar.', j.filasYaEnDiciembre===0) }catch(e){ mostrar(e.message,false) }
+  }
+  document.getElementById('bCargar').onclick=async function(){
+    try{ var j=await llamar({accion:'cargar'},this); tabla(j.resumen); mostrar('Listo: disponibilidad de diciembre cargada.',true) }catch(e){ mostrar(e.message,false) }
+  }
+  document.getElementById('bBorrar').onclick=async function(){
+    try{
+      var j=await llamar({accion:'borrar',confirmar:document.getElementById('conf').value.trim()},this)
+      var b=j.borrado, t=Object.keys(b).map(function(k){return k+': '+b[k]}).join(' · ')
+      mostrar('Diciembre borrado. '+t,true); document.getElementById('conf').value=''
+    }catch(e){ mostrar(e.message,false) }
+  }
+</script>
+</body>
+</html>
