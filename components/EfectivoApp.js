@@ -195,28 +195,46 @@ export default function EfectivoApp() {
 
   async function guardar() {
     if (!usuario) return
-    const sesionOk = await verificarSesion(usuario)
-    if (sesionOk === false) {
-      localStorage.removeItem('polad_user')
-      alert('Tu usuario ya no está activo. Consultá con el encargado.')
-      router.push('/')
-      return
-    }
     if (Object.keys(disponibilidad).length === 0) {
       if (!confirm('No seleccionaste ningún día. ¿Confirmar disponibilidad vacía?')) return
     }
     setGuardando(true)
-    const h = window.location.hostname
-    const lugar = h.includes('polad-modular') ? 'MODULAR' : h === 'polad-higa-upa.vercel.app' ? 'UPA' : 'HIGA'
+    const lugar = detectLugar()
 
-    await supabase.from('disponibilidad').delete()
-      .eq('legajo', usuario.legajo).eq('mes', mes).eq('anio', anio).eq('lugar', lugar)
+    // El guardado pasa por el servidor: es él quien comprueba que la ficha
+    // siga activa y que la carga esté abierta (día, horario y mes habilitados).
+    let resp, body
+    try {
+      resp = await fetch('/api/guardar-disponibilidad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          legajo: usuario.legajo,
+          id: usuario.id,
+          password: usuario.password || usuario.legajo,
+          lugar, mes, anio, disponibilidad,
+        }),
+      })
+      body = await resp.json().catch(() => ({}))
+    } catch (e) {
+      setMsg('✗ No se pudo guardar. Revisá tu conexión y probá de nuevo.')
+      setTimeout(() => setMsg(null), 4000)
+      setGuardando(false)
+      return
+    }
 
-    const inserts = Object.entries(disponibilidad).map(([dia, turno]) => ({
-      legajo: usuario.legajo, dia: parseInt(dia), turno, mes, anio, lugar
-    }))
-
-    if (inserts.length > 0) await supabase.from('disponibilidad').insert(inserts)
+    if (!resp.ok) {
+      if (body.codigo === 'baja') {
+        localStorage.removeItem('polad_user')
+        alert(body.error)
+        router.push('/')
+        return
+      }
+      setMsg('✗ ' + (body.error || 'No se pudo guardar.'))
+      setTimeout(() => setMsg(null), 5000)
+      setGuardando(false)
+      return
+    }
 
     setMsg('✓ Disponibilidad guardada para ' + lugar)
     setTimeout(() => setMsg(null), 3000)
@@ -312,7 +330,7 @@ export default function EfectivoApp() {
       </div>
 
       <div className="content" style={{ padding: isMobile ? '10px 8px' : undefined }}>
-        {msg && <div className="alert alert-ok" style={{ marginBottom:14 }}>{msg}</div>}
+        {msg && <div className={`alert ${msg.startsWith('✓') ? 'alert-ok' : 'alert-err'}`} style={{ marginBottom:14 }}>{msg}</div>}
 
         {!abierta && ventana?.dia && (
           <div className="alert alert-warn" style={{ marginBottom:14 }}>
