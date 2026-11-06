@@ -163,6 +163,15 @@ const PHG_NAV_PRINCIPAL = [
   { v:'edicion', label:'Edición manual' },
   { v:'rapida', label:'Asignación rápida' },
 ]
+// Texto del motivo de un día marcado: deja claro si es feriado nacional, día no laborable o feriado local.
+function motivoDia(esp) {
+  if (!esp || !esp.marcar) return undefined
+  if (!esp.nombre) return 'Fin de semana'
+  if (/^Día no laborable/i.test(esp.nombre)) return esp.nombre
+  if (/Mar del Plata/i.test(esp.nombre)) return 'Feriado local: ' + esp.nombre
+  return 'Feriado nacional: ' + esp.nombre
+}
+const DIAS_SEMANA_NOMBRES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']
 const PHG_NAV_SECUNDARIO = [
   { v:'buscarLegajo', label:'Buscar legajo' },
   { v:'config', label:'Configuración' },
@@ -3675,7 +3684,10 @@ export default function AdminApp() {
                     <thead>
                       <tr>
                         <th style={{ width:130 }}>Sector</th>
-                        {Array.from({ length:DIAS_MES },(_,i) => <th key={i} style={{ width:94,textAlign:'center',padding:'8px 3px' }}>{i+1}</th>)}
+                        {Array.from({ length:DIAS_MES },(_,i) => {
+                          const esp = infoDiaEspecial(i+1, MES, ANIO)
+                          return <th key={i} title={motivoDia(esp)} style={{ width:94,textAlign:'center',padding:'8px 3px', background: esp.marcar ? 'rgba(255,215,0,0.18)' : undefined, color: esp.marcar ? '#FFD700' : undefined }}>{i+1}</th>
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -3684,7 +3696,8 @@ export default function AdminApp() {
                           <td><span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:11 }}><span className="dot" style={{ background:SEC_COLORS[sector] }}></span>{sector}</span></td>
                           {Array.from({ length:DIAS_MES },(_,i) => {
                             const dia = i+1
-                            return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top' }}>
+                            const esp = infoDiaEspecial(dia, MES, ANIO)
+                            return <td key={i} style={{ padding:'3px',fontSize:10,verticalAlign:'top', background: esp.marcar ? 'rgba(255,215,0,0.08)' : undefined }}>
                               {TURNOS_INFO.map((ti, tidx) => {
                                 const list = todosLosTurnos.filter(t=>t.dia===dia&&t.turno===ti.key&&t.sector===sector)
                                 // Un encabezado chico con la letra del turno,
@@ -3725,13 +3738,23 @@ export default function AdminApp() {
             <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:16,flexWrap:'wrap' }}>
               <span style={{ fontSize:12,color:'var(--text-muted)' }}>Día:</span>
               <div style={{ display:'flex',gap:3,flexWrap:'wrap' }}>
-                {Array.from({ length:DIAS_MES },(_,i) => i+1).map(d => (
-                  <button key={d} className="btn btn-sm" style={{ minWidth:32,padding:'4px 6px',fontSize:11,background:d===filtroDia?'rgba(200,168,75,0.15)':'transparent',color:d===filtroDia?'#c8a84b':'var(--text-muted)',border:d===filtroDia?'0.5px solid rgba(200,168,75,0.6)':'0.5px solid rgba(255,255,255,0.1)' }} onClick={() => setFiltroDia(d)}>{d}</button>
-                ))}
+                {Array.from({ length:DIAS_MES },(_,i) => i+1).map(d => {
+                  const esp = infoDiaEspecial(d, MES, ANIO)
+                  const activo = d === filtroDia
+                  return (
+                    <button key={d} className="btn btn-sm" title={motivoDia(esp)} style={{ minWidth:32,padding:'4px 6px',fontSize:11,
+                      background: activo ? 'rgba(200,168,75,0.15)' : (esp.marcar ? 'rgba(255,215,0,0.12)' : 'transparent'),
+                      color: activo ? '#c8a84b' : (esp.marcar ? '#FFD700' : 'var(--text-muted)'),
+                      border: activo ? '0.5px solid rgba(200,168,75,0.6)' : (esp.marcar ? '0.5px solid rgba(255,215,0,0.5)' : '0.5px solid rgba(255,255,255,0.1)'),
+                      fontWeight: esp.marcar ? 700 : 400 }} onClick={() => setFiltroDia(d)}>{d}</button>
+                  )
+                })}
               </div>
             </div>
             <div style={{ marginBottom:12,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-              <h3 style={{ fontSize:14,fontWeight:500 }}>Día {filtroDia} — {NOMBRE_MES} — {APP_LUGAR}</h3>
+              <h3 style={{ fontSize:14,fontWeight:500 }}>{DIAS_SEMANA_NOMBRES[new Date(ANIO, MES-1, filtroDia).getDay()]} {filtroDia} — {NOMBRE_MES} — {APP_LUGAR}
+                {infoDiaEspecial(filtroDia, MES, ANIO).nombre && <span style={{ color:'#FFD700', fontWeight:600 }}> · {motivoDia(infoDiaEspecial(filtroDia, MES, ANIO))}</span>}
+              </h3>
               <div style={{ display:'flex',gap:8 }}>
                 {lugarDetectado === 'HIGA' && (
                   <button className="btn btn-sm" disabled={rellenandoDia === filtroDia}
@@ -4519,15 +4542,16 @@ export default function AdminApp() {
                             <thead><tr><th style={{ width:50 }}>Día</th><th>Horario</th><th style={{ width:80 }}>Horas</th><th style={{ width:120 }}>Sector</th><th style={{ width:80 }}>Estado</th></tr></thead>
                             <tbody>
                               {filas.map(f => {
+                                const esp = infoDiaEspecial(f.dia, MES, ANIO)
                                 if (f.entradas.length===0) return (
                                   <tr key={f.dia} style={{ opacity:0.4 }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)' }}>{f.dia}</td>
+                                    <td style={{ textAlign:'center',fontWeight:500,background: esp.marcar ? 'rgba(255,215,0,0.15)' : 'var(--surface2)',color: esp.marcar ? '#FFD700' : undefined }}>{f.dia}</td>
                                     <td colSpan={4} style={{ fontSize:10,color:'var(--text-hint)' }}>Sin guardia</td>
                                   </tr>
                                 )
                                 return f.entradas.map((e,i) => (
                                   <tr key={`${f.dia}-${i}`} style={{ background:e.confirmado?'rgba(29,158,117,0.08)':e.manual?'rgba(200,168,75,0.06)':'' }}>
-                                    <td style={{ textAlign:'center',fontWeight:500,background:'var(--surface2)',borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
+                                    <td style={{ textAlign:'center',fontWeight:500,background: esp.marcar ? 'rgba(255,215,0,0.15)' : 'var(--surface2)',color: esp.marcar && i===0 ? '#FFD700' : undefined,borderTop:i===0?'2px solid var(--border2)':'' }}>{i===0?f.dia:''}</td>
                                     <td style={{ color:e.horario.startsWith('08')?'#EF9F27':e.horario.startsWith('16')?'#AFA9EC':'#85B7EB',fontWeight:500 }}>{e.horario}</td>
                                     <td><input type="number" min="0" max="12" defaultValue={e.horas||''} style={{ width:'100%',padding:'3px 6px',border:'0.5px solid var(--border)',borderRadius:4,background:'var(--surface2)',color:'var(--text)',fontSize:12,textAlign:'center' }} onBlur={ev => guardarHoraManual(ef.legajo,f.dia,e.horario,ev.target.value,e.sector)} /></td>
                                     <td style={{ fontSize:11,color:'var(--text-muted)' }}>{e.sector||'—'}</td>
