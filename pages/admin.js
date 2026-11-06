@@ -1317,7 +1317,7 @@ export default function AdminApp() {
 
   // Asigna a una lista de objetivos {legajo, objetivo} respetando descanso 12hs,
   // reparto espaciado, tope 180hs y máx 2 por slot. Mantiene la ocupación compartida.
-  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set()) {
+  async function procesarRapida(targets, legajos24hs = new Set(), legajosDoble = new Set(), legajosCantidadFija = null) {
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
     const turnosLugar = L === 'MODULAR' ? ['m', 't', 'n'] : ['d', 'n']
@@ -1640,7 +1640,7 @@ export default function AdminApp() {
         )
         if (!turnoOk) continue
         // Necesitan un puesto completamente libre para entrar juntos los dos
-        const sectorLibre = sectores.find(s => (ocupacion[dia + '-' + turnoOk + '-' + s] || 0) === 0)
+        const sectorLibre = sectores.find(s => (ocupacion[dia + '-' + turnoOk + '-' + s] || 0) === 0 && cupoSlot(s, turnoOk) >= 2)
         if (!sectorLibre) continue
 
         ;[a, b].forEach(legajo => {
@@ -1926,6 +1926,71 @@ export default function AdminApp() {
         }
       }
 
+
+      // ===== Fase 5: cubrir todo lo posible =====
+      // Con todos ya asignados a su cantidad, los lugares que sigan vacíos se llenan con efectivos
+      // que tengan disponibilidad ese día. Se recorre de los que MÁS guardias tienen a los que
+      // menos, dándole una guardia más a cada uno por vuelta (así ninguno se lleva todo) hasta
+      // que no quede lugar posible. En cada caso se elige el mejor día automáticamente: primero
+      // fines de semana y feriados, después el que más ayuda a tener un uniformado y a igualar
+      // mujeres y varones, y evitando días pegados a otra guardia suya. Respeta descanso y tope de
+      // 180 hs. NO se les suma a quien tiene cantidad fija, ni a los de puesto fijo, 24hs, doble
+      // turno o pareja: esos quedan exactamente como se configuraron.
+      if (legajosCantidadFija) {
+        const enEspeciales = new Set()
+        ;(especiales || []).forEach(e => { if (e.legajo1) enEspeciales.add(String(e.legajo1)); if (e.legajo2) enEspeciales.add(String(e.legajo2)) })
+        const aptos = targetsFase2.map(t => t.legajo).filter(leg =>
+          !fijoPorLegajo[normLegajo(leg)] && !legajos24hs.has(leg) && !legajosDoble.has(leg) &&
+          !legajosCantidadFija.has(leg) && !enEspeciales.has(String(leg)))
+        const bal5 = calcularBalance()
+        const vecinas5 = (leg, dia) => (turnosPorLegajo[leg] || []).filter(a => a.dia === dia - 1 || a.dia === dia + 1).length
+        for (let vuelta = 0; vuelta < 20; vuelta++) {
+          let diouna = false
+          const orden = [...aptos].sort((a, b) => ((turnosPorLegajo[b] || []).length - (turnosPorLegajo[a] || []).length))
+          for (const leg of orden) {
+            if ((hsMap[leg] || 0) + horasTurno > MAX_HS) continue
+            const dm = dispMap[normLegajo(leg)] || {}
+            const esUnif = tipoDe(leg) === 'Uniformado', sx = sexoDe(leg)
+            const op = sx === 'femenino' ? 'masculino' : 'femenino'
+            let mejor = null
+            for (const dia of Object.keys(dm).map(d => parseInt(d))) {
+              for (const t of turnosLugar) {
+                if (!(dm[dia] || '').includes(t) || !sinChoque(leg, dia, t)) continue
+                const libres = sectores.filter(x => (ocupacion[dia + '-' + t + '-' + x] || 0) < cupoSlot(x, t))
+                if (libres.length === 0) continue
+                const c = bal5[dia + '-' + t]
+                const sinUnif = !c || c.uniformados === 0
+                let p = 0
+                if (esDiaPrimero(dia)) p += 5000
+                if (esUnif && sinUnif) p += 1000
+                if (!esUnif && sinUnif) p -= 500
+                if (sx && c) p += 10 * (c[op] - c[sx])
+                p -= 30 * vecinas5(leg, dia)
+                if (!mejor || p > mejor.p) mejor = { dia, t, p, libres }
+              }
+            }
+            if (!mejor) continue
+            const cp = conteosPersona[leg] ? conteosPersona[leg].s : {}
+            const sectorX = mejor.libres.sort((a, b) => (cp[a] || 0) - (cp[b] || 0))[0]
+            const g = { legajo: leg, mes: MES, anio: ANIO, dia: mejor.dia, turno: mejor.t, sector: sectorX }
+            nuevos.push(g); movibles.add(g)
+            if (!turnosPorLegajo[leg]) turnosPorLegajo[leg] = []
+            turnosPorLegajo[leg].push({ dia: mejor.dia, turno: mejor.t })
+            ocupacion[mejor.dia + '-' + mejor.t + '-' + sectorX] = (ocupacion[mejor.dia + '-' + mejor.t + '-' + sectorX] || 0) + 1
+            hsMap[leg] = (hsMap[leg] || 0) + horasTurno
+            if (conteosPersona[leg]) conteosPersona[leg].s[sectorX] = (conteosPersona[leg].s[sectorX] || 0) + 1
+            const k5 = mejor.dia + '-' + mejor.t
+            if (!bal5[k5]) bal5[k5] = { femenino: 0, masculino: 0, uniformados: 0 }
+            if (sx) bal5[k5][sx]++
+            if (esUnif) bal5[k5].uniformados++
+            const rr = reporte.find(r => r.legajo === leg)
+            if (rr) rr.asignadas++
+            diouna = true
+          }
+          if (!diouna) break
+        }
+      }
+
       // ===== Fase 4: pulido del equilibrio entre mujeres y varones =====
       // Se intercambian de lugar dos efectivos de ESTA MISMA corrida (una mujer y un varón)
       // cuando eso deja más parejos los dos turnos. El lugar y el sector no cambian: solo
@@ -2028,7 +2093,7 @@ export default function AdminApp() {
     const listaAsignar = eq.lista
     if (!confirm(`¿Asignar a ${listaAsignar.length} efectivos?${aviso24hs}${avisoDoble}`)) return
     setRapidaProcesando(true); setRapidaMsg(null)
-    const { total, reporte, conflictos, sinUniformado = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble)
+    const { total, reporte, conflictos, sinUniformado = [] } = await procesarRapida(listaAsignar.map(i => ({ legajo: i.legajo, objetivo: i.objetivo })), rapida24hs, rapidaDoble, new Set(listaAsignar.filter(i => i.objetivoFijo).map(i => i.legajo)))
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
