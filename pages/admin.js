@@ -401,6 +401,8 @@ export default function AdminApp() {
   const [efectivos, setEfectivos] = useState([])
   const [disponibilidad, setDisponibilidad] = useState({})
   const [turnos, setTurnos] = useState({})
+  const [quitarSel, setQuitarSel] = useState({}) // legajo -> ids de guardias marcadas para sacar (tarjeta del efectivo)
+  const [quitando, setQuitando] = useState(false)
   const [horasAsig, setHorasAsig] = useState({})
   const [loading, setLoading] = useState(true)
   const [notificados, setNotificados] = useState(new Map()) // legajo → timestamp ISO
@@ -2216,7 +2218,7 @@ export default function AdminApp() {
       else if (!partes.length) partes.push('ya usó todos sus días cargados (una guardia por día)')
       r.motivo = partes.join('; ')
     })
-    return { total: nuevos.length, reporte, conflictos, sinUniformado, excepciones }
+    return { total: nuevos.length, reporte, conflictos, sinUniformado, excepciones, nuevos: nuevos.map(g => ({ legajo: g.legajo, dia: g.dia, turno: g.turno, sector: g.sector })) }
   }
 
   async function asignarUnoRapida(item) {
@@ -2263,6 +2265,14 @@ export default function AdminApp() {
     const sinUniformado = etapa2.sinUniformado || []
     const excepciones = etapa1.excepciones || []
     const deMas = etapa2.total
+    // Detalle de las guardias de más: quién las recibió, cuántas, y en qué días/turnos.
+    const extrasPorLegajo = {}
+    ;(etapa2.nuevos || []).forEach(g => { (extrasPorLegajo[g.legajo] = extrasPorLegajo[g.legajo] || []).push(g) })
+    const listaExtras = Object.entries(extrasPorLegajo).map(([leg, gs]) => ({
+      legajo: leg, gs: gs.sort((a, b) => a.dia - b.dia),
+      base: baseDe[leg] ?? 0,
+      total: (etapa1.reporte.find(r => r.legajo === leg)?.previas || 0) + (etapa1.reporte.find(r => r.legajo === leg)?.asignadas || 0) + gs.length,
+    })).sort((a, b) => b.gs.length - a.gs.length)
     await cargarTodo(lugarDetectado); await cargarRapida()
 
     // Verificación: ¿cuántos días del mes quedaron con turnos asignados?
@@ -2290,6 +2300,16 @@ export default function AdminApp() {
           return `   • ${n}: ${(r.previas || 0) + r.asignadas} de ${r.objetivo} (cargó ${r.dias} día${r.dias === 1 ? '' : 's'}) — ${r.motivo || ''}`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
+    }
+    if (listaExtras.length) {
+      const nt = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
+      m += `\n\n➕ ${deMas} guardia(s) DE MÁS, ya completos todos (equilibrio entre mujeres y varones y lugares vacíos), a ${listaExtras.length} efectivo(s):\n` +
+        listaExtras.slice(0, 30).map(x => {
+          const n = (efectivos.find(e => e.legajo === x.legajo)?.nombre || x.legajo).split(',')[0]
+          const sx = String(efectivos.find(e => e.legajo === x.legajo)?.sexo || '').toLowerCase()
+          return `   • ${n}${sx === 'femenino' ? ' (F)' : sx === 'masculino' ? ' (M)' : ''}: +${x.gs.length} (tenía ${x.base} del mes anterior, queda con ${x.total}) — ${x.gs.map(g => `${g.dia} ${nt(g.turno)}`).join(', ')}`
+        }).join('\n')
+      if (listaExtras.length > 30) m += `\n   …y ${listaExtras.length - 30} más.`
     }
     if (excepciones.length) {
       m += `\n\nℹ ${excepciones.length} guardia(s) se dieron como EXCEPCIÓN (día y noche seguidas, sin el descanso de 12 hs) para cumplir la cantidad fija:\n` +
@@ -2347,6 +2367,34 @@ export default function AdminApp() {
     }
     await supabase.from('turnos').update({ legajo: t.legajo, turno: t.turno, sector: t.sector }).eq('id', t.id)
     setModalTurno(null); await cargarTodo()
+  }
+  // Sacar guardias de UN efectivo desde su tarjeta (vista Disponibilidad). Borra solo esas filas de `turnos`;
+  // como el cronograma, las planillas a imprimir y la pantalla del efectivo leen de esa misma tabla,
+  // el cambio se ve en todos lados. No toca la disponibilidad ni las guardias de otras personas.
+  async function quitarGuardiasSeleccionadas(legajo) {
+    const ids = quitarSel[legajo] || []
+    if (ids.length === 0) return
+    const nombre = efectivos.find(e => e.legajo === legajo)?.nombre || legajo
+    const filas = (turnos[legajo] || []).filter(t => ids.includes(t.id)).sort((a, b) => a.dia - b.dia)
+    const nt = t => ({ d: 'día', n: 'noche', m: 'mañana', t: 'tarde' }[t] || t)
+    const detalle = filas.map(t => `   • Día ${t.dia} — ${nt(t.turno)} — ${t.sector}`).join('\n')
+    if (!confirm(`¿Sacar ${filas.length} guardia(s) a ${nombre}?\n\n${detalle}\n\nSe borran del cronograma y de las planillas. Su disponibilidad no se modifica.`)) return
+    setQuitando(true)
+    const { error } = await supabase.from('turnos').delete().in('id', ids)
+    if (error) { setQuitando(false); alert('❌ Error al sacar las guardias: ' + error.message); return }
+    setQuitarSel(prev => { const n = { ...prev }; delete n[legajo]; return n })
+    await cargarTodo(lugarDetectado); await cargarRapida()
+    setQuitando(false)
+  }
+  function alternarQuitar(legajo, ids) {
+    setQuitarSel(prev => {
+      const act = prev[legajo] || []
+      const todas = ids.every(i => act.includes(i))
+      const nuevo = todas ? act.filter(i => !ids.includes(i)) : [...new Set([...act, ...ids])]
+      const n = { ...prev }
+      if (nuevo.length) n[legajo] = nuevo; else delete n[legajo]
+      return n
+    })
   }
   async function handleEliminarTurno(t) {
     const { error } = await supabase.from('turnos').delete().eq('id', t.id)
@@ -3805,14 +3853,28 @@ export default function AdminApp() {
                                         ? ts.map(t => (t.turno || '?').toUpperCase()).join('+')
                                         : (ts[0]?.turno || '?').toUpperCase()
                                       const tooltip = ts.map(t => `${t.sector || ''} (${t.turno || ''})`).join(', ')
+                                      const idsDia = ts.map(t => t.id).filter(i => i != null)
+                                      const marcado = idsDia.length > 0 && idsDia.every(i => (quitarSel[e.legajo] || []).includes(i))
                                       return (
-                                        <span key={dia} title={tooltip} style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background:bg, fontSize:esMultiple?7:9, color, border:`0.5px solid ${color}88`, fontWeight:700, cursor:'default' }}>
+                                        <span key={dia} title={`${tooltip} — tocá para marcar y sacar`} onClick={() => idsDia.length && alternarQuitar(e.legajo, idsDia)}
+                                          style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:28, height:32, borderRadius:4, background: marcado ? 'rgba(226,75,74,0.28)' : bg, fontSize:esMultiple?7:9, color: marcado ? '#F09595' : color, border: marcado ? '1px solid #E24B4A' : `0.5px solid ${color}88`, fontWeight:700, cursor: idsDia.length ? 'pointer' : 'default' }}>
                                           <span style={{ fontSize:8, fontWeight:400, opacity:0.8 }}>{dia}</span>
-                                          <span>{label}</span>
+                                          <span>{marcado ? '✕' : label}</span>
                                         </span>
                                       )
                                     })}
                                   </div>
+                                  <div style={{ marginTop:8, fontSize:10, color:'var(--text-hint)' }}>Tocá una guardia para marcarla y poder sacarla.</div>
+                                  {(quitarSel[e.legajo] || []).length > 0 && (
+                                    <div style={{ marginTop:8, display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                                      <button className="btn btn-sm" disabled={quitando} onClick={() => quitarGuardiasSeleccionadas(e.legajo)}
+                                        style={{ background:'rgba(226,75,74,0.15)', color:'#F09595', border:'0.5px solid rgba(226,75,74,0.5)' }}>
+                                        {quitando ? 'Sacando…' : `Sacar ${(quitarSel[e.legajo] || []).length} guardia${(quitarSel[e.legajo] || []).length === 1 ? '' : 's'} marcada${(quitarSel[e.legajo] || []).length === 1 ? '' : 's'}`}
+                                      </button>
+                                      <button className="btn btn-sm" disabled={quitando} onClick={() => setQuitarSel(prev => { const n = { ...prev }; delete n[e.legajo]; return n })}
+                                        style={{ color:'var(--text-muted)' }}>Cancelar</button>
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })()}
