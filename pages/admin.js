@@ -1745,7 +1745,10 @@ export default function AdminApp() {
     ;(especiales || []).forEach(e => { if (e.legajo1) especialesAmb.add(String(e.legajo1)); if (e.legajo2) especialesAmb.add(String(e.legajo2)) })
     function completarConAmbos(P, relajado) {
       if (L === 'MODULAR') return
-      if (fijoPorLegajo[normLegajo(P)] || legajos24hs.has(P) || legajosDoble.has(P) || especialesAmb.has(String(P))) return
+      if (fijoPorLegajo[normLegajo(P)]) return
+      // A los de cantidad fija se les cumple aunque estén en Casos especiales; al resto no se les toca lo especial.
+      const esFijoCant = !!(legajosCantidadFija && legajosCantidadFija.has(P))
+      if (!esFijoCant && (legajos24hs.has(P) || legajosDoble.has(P) || especialesAmb.has(String(P)))) return
       const unifP = tipoDe(P) === 'Uniformado'
       const libre = (dia, t) => sectores.find(x => (ocupacion[dia + '-' + t + '-' + x] || 0) < cupoSlot(x, t)) || null
       while ((turnosPorLegajo[P] || []).length < (objetivoPorLegajo[P] ?? 0) && (hsMap[P] || 0) + horasTurno <= MAX_HS) {
@@ -1753,6 +1756,7 @@ export default function AdminApp() {
         const prevP = turnosPorLegajo[P] || []
         const bal3b = calcularBalance()
         let mejor = null
+        // (1) Días "Ambos" donde ya tiene una guardia: se le suma la otra.
         for (const dia of Object.keys(dmapP).map(d => parseInt(d))) {
           if (!(turnosLugar.every(tk => (dmapP[dia] || '').includes(tk)))) continue          // cargó Ambos ese día
           const hoy = prevP.filter(a => a.dia === dia)
@@ -1761,9 +1765,9 @@ export default function AdminApp() {
           const t1 = turnosLugar.find(tk => tk !== hoy[0].turno)
           if (!t1) continue
           const mananaP = prevP.find(a => a.dia === dia + 1)
-          if (!relajado && mananaP && mananaP.turno === 'd') continue                       // terminaría a las 08 y entra a las 08
           const ayer = prevP.find(a => a.dia === dia - 1)
-          if (!relajado && ayer && ayer.turno === 'n') continue                             // saldría de noche y entra a las 08
+          const sinDescanso = !!((mananaP && mananaP.turno === 'd') || (ayer && ayer.turno === 'n'))
+          if (!relajado && sinDescanso) continue
           if (conflictoOtroLugar(P, dia, t1)) continue
           const sec = libre(dia, t1)
           if (!sec) continue
@@ -1773,7 +1777,30 @@ export default function AdminApp() {
           if (esDiaPrimero(dia)) p += 5000
           if (unifP && sinUnif) p += 1000
           if (!unifP && sinUnif) p -= 500
-          if (!mejor || p > mejor.p) mejor = { dia, t1, sec, p }
+          if (sinDescanso) p -= 3000
+          if (!mejor || p > mejor.p) mejor = { dia, t1, sec, p, exc: sinDescanso }
+        }
+        // (2) Solo en la excepción (cantidad fija): si no hay día Ambos posible, se usa cualquier día cargado
+        //     que le quede sin guardia aunque no tenga el descanso completo (queda anotado).
+        if (!mejor && relajado) {
+          for (const dia of Object.keys(dmapP).map(d => parseInt(d))) {
+            if (prevP.some(a => a.dia === dia)) continue
+            if ((diasBloqueados24hs[P] || new Set()).has(dia) || (diasBloqueadosDoble[P] || new Set()).has(dia)) continue
+            for (const tk of turnosLugar) {
+              if (!(dmapP[dia] || '').includes(tk)) continue
+              if (conflictoOtroLugar(P, dia, tk)) continue
+              const sec = libre(dia, tk)
+              if (!sec) continue
+              const normal = cumpleDescanso(P, dia, tk)
+              const c = bal3b[dia + '-' + tk]
+              const sinUnif = !c || c.uniformados === 0
+              let p = normal ? 2000 : 0
+              if (esDiaPrimero(dia)) p += 5000
+              if (unifP && sinUnif) p += 1000
+              if (!unifP && sinUnif) p -= 500
+              if (!mejor || p > mejor.p) mejor = { dia, t1: tk, sec, p, exc: !normal }
+            }
+          }
         }
         if (!mejor) break
         const g = { legajo: P, mes: MES, anio: ANIO, dia: mejor.dia, turno: mejor.t1, sector: mejor.sec }
@@ -1783,7 +1810,7 @@ export default function AdminApp() {
         hsMap[P] = (hsMap[P] || 0) + horasTurno
         const rr = reporte.find(r => r.legajo === P)
         if (rr) rr.asignadas++
-        if (relajado) excepciones.push({ legajo: P, dia: mejor.dia })
+        if (relajado && mejor.exc) excepciones.push({ legajo: P, dia: mejor.dia })
       }
     }
     // Primero se les cumple TODO a los de cantidad fija (fines de semana y feriados, y después el resto
@@ -2150,6 +2177,40 @@ export default function AdminApp() {
       const { error } = await supabase.from('turnos').insert(nuevos.slice(i, i + 100))
       if (error) { alert('❌ Error guardando guardias: ' + error.message + '\n\nEs posible que no se hayan guardado todas. Revisá antes de seguir.'); return { total: 0, reporte, conflictos, error: true } }
     }
+    // Motivo por el que cada efectivo que no llegó a su número se quedó corto (para el aviso final).
+    reporte.forEach(r => {
+      if ((r.previas || 0) + r.asignadas >= r.objetivo) return
+      const leg = r.legajo
+      const partes = []
+      const hs = hsMap[leg] || 0
+      if (hs + horasTurno > MAX_HS) partes.push(`llegó al tope de ${MAX_HS} hs (${hs} hs, contando otros lugares)`)
+      if (fijoPorLegajo[normLegajo(leg)]) partes.push('tiene puesto fijo (solo se cubre en su sector)')
+      if (legajos24hs.has(leg)) partes.push('está marcado para guardias de 24hs')
+      if (legajosDoble.has(leg)) partes.push('está marcado para doble turno')
+      const dmap = dispMap[normLegajo(leg)] || {}
+      const usados = new Set((turnosPorLegajo[leg] || []).map(a => a.dia))
+      let nDesc = 0, nLleno = 0, nCruce = 0, nLibre = 0
+      Object.keys(dmap).map(d => parseInt(d)).forEach(dia => {
+        if (usados.has(dia)) return
+        let motivo = null
+        turnosLugar.forEach(tk => {
+          if (!(dmap[dia] || '').includes(tk) || motivo === 'libre') return
+          if (conflictoOtroLugar(leg, dia, tk)) { motivo = motivo || 'cruce'; return }
+          if (!cumpleDescanso(leg, dia, tk)) { motivo = motivo || 'desc'; return }
+          if (!sectores.some(x => (ocupacion[dia + '-' + tk + '-' + x] || 0) < cupoSlot(x, tk))) { motivo = motivo || 'lleno'; return }
+          motivo = 'libre'
+        })
+        if (motivo === 'desc') nDesc++; else if (motivo === 'lleno') nLleno++; else if (motivo === 'cruce') nCruce++; else if (motivo === 'libre') nLibre++
+      })
+      const dd = []
+      if (nDesc) dd.push(`${nDesc} por descanso`)
+      if (nLleno) dd.push(`${nLleno} sin lugar libre`)
+      if (nCruce) dd.push(`${nCruce} por cruce con otro lugar`)
+      if (nLibre) dd.push(`${nLibre} libre${nLibre === 1 ? '' : 's'} sin usar`)
+      if (dd.length) partes.push('días cargados sin usar: ' + dd.join(', '))
+      else if (!partes.length) partes.push('ya usó todos sus días cargados (una guardia por día)')
+      r.motivo = partes.join('; ')
+    })
     return { total: nuevos.length, reporte, conflictos, sinUniformado, excepciones }
   }
 
@@ -2202,7 +2263,7 @@ export default function AdminApp() {
       m += `\n\n⚠ ${incompletos.length} efectivo(s) no llegaron al número:\n` +
         incompletos.slice(0, 12).map(r => {
           const n = (efectivos.find(e => e.legajo === r.legajo)?.nombre || r.legajo).split(',')[0]
-          return `   • ${n}: ${(r.previas || 0) + r.asignadas} de ${r.objetivo} (cargó ${r.dias} día${r.dias === 1 ? '' : 's'} de disponibilidad)`
+          return `   • ${n}: ${(r.previas || 0) + r.asignadas} de ${r.objetivo} (cargó ${r.dias} día${r.dias === 1 ? '' : 's'}) — ${r.motivo || ''}`
         }).join('\n')
       if (incompletos.length > 12) m += `\n   …y ${incompletos.length - 12} más.`
     }
