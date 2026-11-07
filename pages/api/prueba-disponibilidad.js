@@ -19,6 +19,7 @@
 //   vista  → muestra qué se cargaría, sin cambiar nada
 //   cargar → carga la disponibilidad simulada (se rechaza si diciembre ya tiene disponibilidad)
 //   borrar → borra TODO diciembre 2026 (disponibilidad, guardias, asistencia, planilla manual y firmas)
+//   borrar_disponibilidad → borra SOLO la disponibilidad de diciembre 2026 de HIGA, UPA y MODULAR (necesita confirmar=SI)
 
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
@@ -260,6 +261,15 @@ export default async function handler(req, res) {
       LUGARES.forEach(l => { enBase[l] = new Set(luego.filter(r => r.lugar === l).map(r => norm(r.legajo))).size })
       resumen.forEach(r => { r.enLaBase = enBase[r.lugar] })
       return salir(200, { ok: true, cargado: true, resumen })
+    }
+
+    // Borra SOLO la disponibilidad de DICIEMBRE 2026, en los tres lugares (HIGA, UPA y MODULAR).
+    // No toca guardias, asistencia, firmas, planilla manual ni ningún otro mes.
+    if (accion === 'borrar_disponibilidad') {
+      if (confirmar !== 'SI') return salir(400, { error: 'Falta la confirmación (confirmar=SI).' })
+      const { error, count } = await supabase.from('disponibilidad').delete({ count: 'exact' }).eq('mes', DESTINO.mes).eq('anio', DESTINO.anio)
+      if (error) return salir(500, { error: `Error borrando la disponibilidad de diciembre: ${error.message}` })
+      return salir(200, { ok: true, borrado: { 'disponibilidad de diciembre 2026 (HIGA, UPA y MODULAR)': count } })
     }
 
     if (accion === 'borrar') {
