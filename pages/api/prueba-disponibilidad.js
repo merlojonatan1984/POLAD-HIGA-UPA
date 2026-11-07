@@ -2,8 +2,9 @@
 //
 // TEMPORAL — solo para la prueba de diciembre 2026. Se borra del repositorio al terminar.
 //
-// En HIGA, como suelen cargar más personas, se suman efectivos con ficha que no cargaron en noviembre
-// hasta llegar a exactamente 81 efectivos.
+// SOLO UPA y MODULAR (HIGA no se toca). Cada lugar queda con una cantidad exacta de efectivos cargados en diciembre: UPA 24 y MODULAR 30.
+// Si en noviembre cargaron menos, se suman efectivos con ficha que no cargaron (copiando el patrón de alguien que sí
+// cargó); si cargaron más, se dejan solo los pedidos (siempre los mismos).
 //
 // Copia la disponibilidad que cargaron los efectivos en NOVIEMBRE 2026 a DICIEMBRE 2026,
 // para HIGA, UPA y MODULAR: las mismas personas, con la misma cantidad de días y de
@@ -29,11 +30,12 @@ const supabase = createClient(
 
 const ORIGEN = { mes: 11, anio: 2026 }
 const DESTINO = { mes: 12, anio: 2026 }
-const LUGARES = ['HIGA', 'UPA', 'MODULAR']
+// SOLO se cargan UPA y MODULAR. HIGA no se toca: ni se carga ni se borra su disponibilidad de diciembre.
+const LUGARES = ['UPA', 'MODULAR']
 // Cada efectivo conserva exactamente su disponibilidad de noviembre (mismo patrón por día de la semana)
 const PORCENTAJE_CAMBIO = 0
-// HIGA queda con exactamente esta cantidad de efectivos cargados
-const HIGA_OBJETIVO = 81
+// Cada lugar queda con exactamente esta cantidad de efectivos cargados en diciembre
+const OBJETIVOS = { UPA: 24, MODULAR: 30 }
 
 // Código temporal para usar la prueba sin pantalla (se abre la dirección en el navegador).
 // Este archivo se borra del repositorio al terminar la prueba.
@@ -89,11 +91,27 @@ function mapaDias() {
 }
 
 async function leerTodo(tabla, filtros) {
-  let q = supabase.from(tabla).select('*')
-  Object.entries(filtros || {}).forEach(([k, v]) => { q = q.eq(k, v) })
-  const { data, error } = await q.limit(20000)
-  if (error) throw new Error(`No se pudo leer ${tabla}: ${error.message}`)
-  return data || []
+  // Supabase entrega como máximo 1000 filas por consulta aunque se pida más: se lee por páginas para no perder datos.
+  const PAG = 1000
+  const armar = () => {
+    let q = supabase.from(tabla).select('*')
+    Object.entries(filtros || {}).forEach(([k, v]) => { q = q.eq(k, v) })
+    return q
+  }
+  const r1 = await armar().range(0, PAG - 1)
+  if (r1.error) throw new Error(`No se pudo leer ${tabla}: ${r1.error.message}`)
+  let filas = r1.data || []
+  if (filas.length === PAG) {
+    const todas = []
+    for (let desde = 0; desde < 200000; desde += PAG) {
+      const rr = await armar().order('id', { ascending: true }).range(desde, desde + PAG - 1)
+      if (rr.error) throw new Error(`No se pudo leer ${tabla} completa: ${rr.error.message}`)
+      todas.push(...(rr.data || []))
+      if ((rr.data || []).length < PAG) break
+    }
+    filas = todas
+  }
+  return filas
 }
 
 async function armarPlan() {
@@ -143,45 +161,40 @@ async function armarPlan() {
     return filas
   }
 
-  const donantesHIGA = []
-  const cargadoresHIGA = []
+  const donantes = {}, cargadores = {}
+  LUGARES.forEach(l => { donantes[l] = []; cargadores[l] = [] })
   Object.entries(porPersona).forEach(([k, p]) => {
     if (admins.has(k)) return
     const info = plan[p.lugar]
     if (!fichas.has(k)) { info.sinFicha++; return }
     info.cargaronNov++   // igual que el panel: solo cuentan los que hoy tienen ficha en ese lugar
     const filasP = filasDe(k, p.dias, p.lugar, legajoFicha[k] || p.legajo)
-    if (p.lugar === 'HIGA') {
-      cargadoresHIGA.push({ k, filas: filasP })
-      if (Object.keys(p.dias).length > 0) donantesHIGA.push(p)
-    } else {
-      info.conFicha++
-      info.filas.push(...filasP)
+    cargadores[p.lugar].push({ k, filas: filasP })
+    if (Object.keys(p.dias).length > 0) donantes[p.lugar].push(p)
+  })
+  LUGARES.forEach(l => {
+    const objetivo = OBJETIVOS[l]
+    // Si hubiera más de los pedidos, se quedan solo los pedidos (siempre los mismos)
+    cargadores[l].sort((a, b) => azar('t' + a.k)() - azar('t' + b.k)())
+    cargadores[l].slice(0, objetivo).forEach(c => { plan[l].conFicha++; plan[l].filas.push(...c.filas) })
+    plan[l].recortados = Math.max(0, cargadores[l].length - objetivo)
+    // Si faltan, se suman personas con ficha que no cargaron en noviembre, copiando el patrón de alguien que sí cargó
+    plan[l].sumados = 0
+    const candidatos = efectivos
+      .filter(e => lugaresDe(e).includes(l) && e.es_admin !== true && !porPersona[`${l}|${norm(e.legajo)}`])
+      .sort((a, b) => azar('c' + norm(a.legajo))() - azar('c' + norm(b.legajo))())
+    plan[l].fichasSinCargar = candidatos.length
+    const faltan = Math.max(0, objetivo - plan[l].conFicha)
+    if (donantes[l].length > 0) {
+      candidatos.slice(0, faltan).forEach(e => {
+        const k = `${l}|${norm(e.legajo)}`
+        const donante = donantes[l][Math.floor(azar('d' + k)() * donantes[l].length)]
+        plan[l].filas.push(...filasDe(k, donante.dias, l, e.legajo))
+        plan[l].conFicha++
+        plan[l].sumados++
+      })
     }
   })
-  // HIGA: si hubiera más de los pedidos, se quedan solo los pedidos (siempre los mismos)
-  cargadoresHIGA.sort((a, b) => azar('t' + a.k)() - azar('t' + b.k)())
-  cargadoresHIGA.slice(0, HIGA_OBJETIVO).forEach(c => { plan.HIGA.conFicha++; plan.HIGA.filas.push(...c.filas) })
-  plan.HIGA.recortados = Math.max(0, cargadoresHIGA.length - HIGA_OBJETIVO)
-
-  // HIGA: sumar personas con ficha que no cargaron en noviembre, copiando el patrón de alguien que sí cargó
-  plan.HIGA.sumados = 0
-  plan.HIGA.fichasSinCargar = 0
-  const objetivoHIGA = HIGA_OBJETIVO
-  const candidatos = efectivos
-    .filter(e => lugaresDe(e).includes('HIGA') && e.es_admin !== true && !porPersona[`HIGA|${norm(e.legajo)}`])
-    .sort((a, b) => azar('c' + norm(a.legajo))() - azar('c' + norm(b.legajo))())
-  plan.HIGA.fichasSinCargar = candidatos.length
-  const faltan = Math.max(0, objetivoHIGA - plan.HIGA.conFicha)
-  if (donantesHIGA.length > 0) {
-    candidatos.slice(0, faltan).forEach(e => {
-      const k = `HIGA|${norm(e.legajo)}`
-      const donante = donantesHIGA[Math.floor(azar('d' + k)() * donantesHIGA.length)]
-      plan.HIGA.filas.push(...filasDe(k, donante.dias, 'HIGA', e.legajo))
-      plan.HIGA.conFicha++
-      plan.HIGA.sumados++
-    })
-  }
   return plan
 }
 
@@ -214,7 +227,7 @@ export default async function handler(req, res) {
     if (accion === 'vista' || accion === 'cargar' || accion === 'reiniciar') {
       const [plan, existentes] = await Promise.all([
         armarPlan(),
-        leerTodo('disponibilidad', { mes: DESTINO.mes, anio: DESTINO.anio }),
+        leerTodo('disponibilidad', { mes: DESTINO.mes, anio: DESTINO.anio }).then(f => f.filter(r => LUGARES.includes(r.lugar))),
       ])
       const resumen = LUGARES.map(l => ({
         lugar: l, cargaronNoviembre: plan[l].cargaronNov, sinFichaVigente: plan[l].sinFicha,
@@ -224,11 +237,11 @@ export default async function handler(req, res) {
       if (accion === 'vista') return salir(200, { ok: true, resumen, filasYaEnDiciembre: existentes.length })
 
       if (accion === 'reiniciar' && existentes.length > 0) {
-        // Solo la disponibilidad de diciembre 2026; nada más
-        const { error: eDel } = await supabase.from('disponibilidad').delete().eq('mes', DESTINO.mes).eq('anio', DESTINO.anio)
+        // Solo la disponibilidad de diciembre 2026 de UPA y MODULAR; nada más (HIGA no se toca)
+        const { error: eDel } = await supabase.from('disponibilidad').delete().eq('mes', DESTINO.mes).eq('anio', DESTINO.anio).in('lugar', LUGARES)
         if (eDel) return salir(500, { error: `No se pudo limpiar diciembre: ${eDel.message}` })
       } else if (existentes.length > 0) {
-        return salir(409, { error: `Diciembre ya tiene ${existentes.length} filas de disponibilidad. Primero borrá diciembre para no mezclar la simulación con datos reales.` })
+        return salir(409, { error: `UPA y MODULAR ya tienen ${existentes.length} filas de disponibilidad en diciembre. Primero usá "reiniciar" (o borrá diciembre) para no mezclar la simulación con datos reales.` })
       }
       for (const l of LUGARES) {
         const filas = plan[l].filas
@@ -242,7 +255,7 @@ export default async function handler(req, res) {
         }
       }
       // Comprobación contra la base: cuántos efectivos quedaron realmente cargados en cada lugar
-      const luego = await leerTodo('disponibilidad', { mes: DESTINO.mes, anio: DESTINO.anio })
+      const luego = (await leerTodo('disponibilidad', { mes: DESTINO.mes, anio: DESTINO.anio })).filter(r => LUGARES.includes(r.lugar))
       const enBase = {}
       LUGARES.forEach(l => { enBase[l] = new Set(luego.filter(r => r.lugar === l).map(r => norm(r.legajo))).size })
       resumen.forEach(r => { r.enLaBase = enBase[r.lugar] })
