@@ -157,7 +157,7 @@ function filaEfectivo(f, L) {
   const celdas = MESES.map((m, i) => `<td class="pt ${f.meses.has(i + 1) ? 'si' : ''} ${i + 1 > MES_ACTUAL ? 'fut' : ''}" title="${m}"></td>`).join('')
   const total = [...f.meses].filter(m => m <= MES_ACTUAL).length
   return `<tr data-l="${L}" data-s="${esc(f.sexo || 'sin dato')}" data-u="${f.unif ? 'u' : 'n'}" data-m="${total}" data-t="${esc(sinTildes(f.nombre) + ' ' + norm(f.legajo))}">
-    <td>${esc(f.nombre)}</td><td class="num">${esc(f.legajo)}</td><td>${f.sexo === 'femenino' ? 'F' : f.sexo === 'masculino' ? 'M' : '—'}</td><td>${esc(f.tipo || '—')}</td>${celdas}<td class="num"><b>${total}</b></td></tr>`
+    <td class="sit">${L}</td><td>${esc(f.nombre)}</td><td class="num">${esc(f.legajo)}</td><td>${f.sexo === 'femenino' ? 'F' : f.sexo === 'masculino' ? 'M' : '—'}</td><td>${esc(f.tipo || '—')}</td>${celdas}<td class="num"><b>${total}</b></td></tr>`
 }
 
 function pagina(d) {
@@ -229,7 +229,7 @@ small{color:var(--mu)}
 .filtros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .filtros input{min-width:200px;flex:1}
 .scroll{overflow-x:auto;background:var(--card);border:1px solid var(--bd);border-radius:12px}
-.det td:nth-child(n+5):nth-child(-n+16){padding:3px 2px}
+.det td:nth-child(n+6):nth-child(-n+17){padding:3px 2px}
 td.pt{width:16px;min-width:16px;text-align:center}
 td.pt::before{content:"";display:inline-block;width:11px;height:11px;border-radius:3px;background:var(--bd)}
 td.pt.si::before{background:var(--ok)}
@@ -238,13 +238,37 @@ td.pt.fut::before{opacity:.45}
 .ok{color:var(--ok);font-weight:600}.mal{color:var(--mal);font-weight:600}.inf{color:var(--inf)}
 details{margin-top:10px}
 summary{cursor:pointer;color:var(--ac)}
+.sit{display:none}
+.btn{font:inherit;padding:8px 16px;border:0;border-radius:8px;background:var(--ac);color:var(--bg);font-weight:600;cursor:pointer;margin-top:12px}
 .pie{margin-top:30px;color:var(--mu);font-size:12px}
+@media print{
+:root,:root:not([data-theme=light]){--bg:#fff;--card:#fff;--tx:#111;--mu:#555;--bd:#ccd;--ac:#1f4f8f;--fem:#8b5cc4;--masc:#2f7fd1;--nd:#aab3bf;--unif:#2f8f5b;--no:#c98a1b;--ok:#1f7a45;--mal:#b3261e;--inf:#8a6d1a}
+@page{size:A4;margin:12mm}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-size:11px}
+.w{max-width:none;padding:0}
+.btn,.tabs,.filtros,#cuenta{display:none!important}
+#cuerpo tr{display:table-row!important}
+.sit{display:table-cell!important}
+.sitio,.kpi,tr{break-inside:avoid}
+h2{break-after:avoid}
+h2.nuevo{break-before:page}
+.scroll{overflow:visible;border:0}
+.dos{grid-template-columns:1fr 1fr}
+details>*{display:block}
+.det td,.det th{white-space:nowrap;font-size:10px;padding:2px 4px}
+.det td.pt{padding:2px 1px}
+.sitio{padding:10px;margin-bottom:10px}
+h2{margin-top:18px}
+.kpi .gr{font-size:30px}
+}
 </style></head><body><div class="w">
 <h1>Tablero de efectivos</h1>
 <div class="mu">Datos leídos de la base ahora: ${esc(d.hora)} · Solo lectura, no se modificó nada.</div>
 <div class="kpis">${kpi}</div>
 <p class="chico">Se cuentan las fichas de personal (sin administradores). Una ficha con dos lugares cuenta en cada uno; el total no la repite. ${d.sinLugar ? `Fichas sin ningún lugar válido: ${d.sinLugar}.` : ''}</p>
 
+<button class="btn" onclick="window.print()">Guardar como PDF</button>
 <h2>Sexo, tipo y meses cargados por sitio</h2>
 ${LUGARES.map(L => seccionSitio(L, d.listas[L], d.stats[L])).join('')}
 <p class="chico">Enero a noviembre son meses reales. Diciembre aparece atenuado porque es la prueba (su disponibilidad puede estar borrada). El conteo de "cuántos meses" llega hasta noviembre.</p>
@@ -252,14 +276,14 @@ ${LUGARES.map(L => seccionSitio(L, d.listas[L], d.stats[L])).join('')}
 <h2>Control de la limpieza (bajas del 08/11)</h2>
 <table style="max-width:640px"><thead><tr><th>Sitio</th><th class="num">En la lista de bajas</th><th class="num">Ya no figuran</th><th class="num">Siguen</th><th class="num">Quedan hoy</th><th class="num">Antes (estimado)</th></tr></thead><tbody>${resBajas}</tbody></table>
 <p class="chico">"Antes" = quedan hoy + los que ya no figuran. La comparación es por nombre; si la ficha está escrita distinto puede no detectarse.</p>
-<details><summary>Ver los ${d.totalBajas} nombres uno por uno</summary><table style="margin-top:8px"><thead><tr><th>Sitio</th><th>Nombre</th><th>Estado</th></tr></thead><tbody>${filasBajas.join('')}</tbody></table></details>
+<details open><summary>Ver los ${d.totalBajas} nombres uno por uno</summary><table style="margin-top:8px"><thead><tr><th>Sitio</th><th>Nombre</th><th>Estado</th></tr></thead><tbody>${filasBajas.join('')}</tbody></table></details>
 
 <h2>Datos sueltos (legajos sin ficha)</h2>
 <p>Disponibilidad ${ANIO}: <b>${sueltos.disp.length}</b> legajos sin ficha${sueltos.disp.length ? ` (${sueltos.filasDisp} filas)` : ''}. Guardias de noviembre ${ANIO}: <b>${sueltos.turnos.length}</b> legajos sin ficha${sueltos.turnos.length ? ` (${sueltos.filasTurnos} guardias)` : ''}.</p>
 <p class="chico">Son datos de personas dadas de baja: la baja borra solo la ficha. No se tocó nada.</p>
 ${sueltos.disp.length || sueltos.turnos.length ? `<details><summary>Ver legajos</summary><p class="chico">Disponibilidad: ${esc(sueltos.disp.slice(0, 120).join(', ')) || '—'}${sueltos.disp.length > 120 ? ' …' : ''}<br>Guardias de noviembre: ${esc(sueltos.turnos.slice(0, 120).join(', ')) || '—'}${sueltos.turnos.length > 120 ? ' …' : ''}</p></details>` : ''}
 
-<h2>Detalle por efectivo</h2>
+<h2 class="nuevo">Detalle por efectivo</h2>
 <div class="tabs" id="tabs">${LUGARES.map((L, i) => `<button data-l="${L}" class="${i === 0 ? 'on' : ''}">${L} (${d.stats[L].n})</button>`).join('')}</div>
 <div class="filtros">
   <input id="q" type="search" placeholder="Buscar por nombre o legajo">
@@ -267,7 +291,7 @@ ${sueltos.disp.length || sueltos.turnos.length ? `<details><summary>Ver legajos<
   <select id="fu"><option value="">Tipo: todos</option><option value="u">Uniformados</option><option value="n">No uniformados</option></select>
   <select id="fm"><option value="">Meses cargados: todos</option><option value="0">Ninguno</option><option value="1">1 o menos</option><option value="3">3 o menos</option><option value="6">6 o menos</option></select>
 </div>
-<div class="scroll"><table class="det"><thead><tr><th>Nombre</th><th class="num">Legajo</th><th>Sexo</th><th>Tipo</th>${MESES.map(m => `<th class="m">${m[0]}</th>`).join('')}<th class="num">Meses</th></tr></thead><tbody id="cuerpo">${detalle}</tbody></table></div>
+<div class="scroll"><table class="det"><thead><tr><th class="sit">Sitio</th><th>Nombre</th><th class="num">Legajo</th><th>Sexo</th><th>Tipo</th>${MESES.map(m => `<th class="m">${m[0]}</th>`).join('')}<th class="num">Meses</th></tr></thead><tbody id="cuerpo">${detalle}</tbody></table></div>
 <p class="chico" id="cuenta"></p>
 <p class="pie">Cada cuadrito verde es un mes (Ene a Dic ${ANIO}) en el que el efectivo cargó disponibilidad. "Meses" cuenta de enero a noviembre.</p>
 </div>
