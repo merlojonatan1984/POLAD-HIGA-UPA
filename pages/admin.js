@@ -22,6 +22,9 @@ function _detectLugar() {
 }
 // APP_LUGAR se recalcula en cliente via useEffect — ver hook useLugar en AdminApp
 const APP_LUGAR = _detectLugar()
+// Recordatorio de disponibilidad (botón "Recordar por WhatsApp" en Disponibilidad).
+// Para cambiar el día/horario límite, se edita SOLO esta línea.
+const RECORDATORIO_LIMITE = 'mañana domingo 15 de noviembre, de 08:00 a 11:00 hs'
 const SECTORES_POR_LUGAR = {
   'HIGA': ['Salud Mental', 'Giratoria', 'Llaves', 'Guardia', 'Estacionamiento', 'Rondin Externo'],
   'UPA': ['UPA'],
@@ -432,6 +435,7 @@ export default function AdminApp() {
   const [horasAsig, setHorasAsig] = useState({})
   const [loading, setLoading] = useState(true)
   const [notificados, setNotificados] = useState(new Map()) // legajo → timestamp ISO
+  const [recordados, setRecordados] = useState(new Map()) // legajo → timestamp ISO (recordatorio de disponibilidad)
   const [generando, setGenerando] = useState(false)
   const [msgGen, setMsgGen] = useState(null)
   const [modalTurno, setModalTurno] = useState(null)
@@ -595,6 +599,29 @@ export default function AdminApp() {
       return next
     })
   }
+
+  function marcarRecordado(legajo) {
+    setRecordados(prev => {
+      const next = new Map(prev)
+      next.set(legajo, new Date().toISOString())
+      try { localStorage.setItem(`polad_recordo_${MES}_${ANIO}_${APP_LUGAR}`, JSON.stringify([...next])) } catch(e) {}
+      return next
+    })
+  }
+  function desmarcarRecordado(legajo) {
+    setRecordados(prev => {
+      const next = new Map(prev)
+      next.delete(legajo)
+      try { localStorage.setItem(`polad_recordo_${MES}_${ANIO}_${APP_LUGAR}`, JSON.stringify([...next])) } catch(e) {}
+      return next
+    })
+  }
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`polad_recordo_${MES}_${ANIO}_${APP_LUGAR}`)
+      setRecordados(new Map(saved ? JSON.parse(saved) : []))
+    } catch(e) { setRecordados(new Map()) }
+  }, [MES, ANIO])
 
   function desmarcarNotificado(legajo) {
     setNotificados(prev => {
@@ -4084,6 +4111,35 @@ export default function AdminApp() {
                             )}
                           </div>
                         </div>
+                        {!cargo && !seleccionado && (() => {
+                          const digitos = String(e.telefono || '').replace(/\D/g, '')
+                          if (digitos.length < 8) return (
+                            <div style={{ marginTop:4, padding:'5px 10px', borderRadius:6, border:'0.5px dashed rgba(255,255,255,0.15)', fontSize:10, color:'var(--text-hint)', textAlign:'center' }}>Sin teléfono cargado — no se puede recordar por WhatsApp</div>
+                          )
+                          const jerarquia = e.jerarquia ? e.jerarquia + ' ' : ''
+                          const nombreFormateado = String(e.nombre || '').split(',').map(x => x.trim()).reverse().join(' ')
+                          const mensaje = `Estimado/a ${jerarquia}${nombreFormateado}:\n\nTe recordamos que *${RECORDATORIO_LIMITE}* es el *ÚLTIMO DÍA* para cargar tus días de disponibilidad para realizar POLAD *${lugarDetectado || APP_LUGAR}* respecto al mes de *${NOMBRE_MES_SOLO.toLowerCase()}*.\n\nMuchas gracias.`
+                          const href = `https://wa.me/549${digitos}?text=${encodeURIComponent(mensaje)}`
+                          if (recordados.has(e.legajo)) {
+                            const d = new Date(recordados.get(e.legajo))
+                            const hora = d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })
+                            const dia = d.toLocaleDateString('es-AR', { day:'numeric', month:'numeric' })
+                            return (
+                              <div style={{ marginTop:4, padding:'5px 10px', borderRadius:6, border:'0.5px solid rgba(29,158,117,0.4)', background:'rgba(29,158,117,0.08)', display:'flex', alignItems:'center', gap:8, fontSize:10 }}>
+                                <span style={{ color:'#1D9E75', fontWeight:600, flex:1 }}>✓ Recordado el {dia} a las {hora}</span>
+                                <a href={href} target="_blank" rel="noopener noreferrer" onClick={() => marcarRecordado(e.legajo)} style={{ color:'#25D366', textDecoration:'underline' }}>reenviar</a>
+                                <button onClick={() => desmarcarRecordado(e.legajo)} style={{ fontSize:10, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:0 }}>desmarcar</button>
+                              </div>
+                            )
+                          }
+                          return (
+                            <a href={href} target="_blank" rel="noopener noreferrer" onClick={() => marcarRecordado(e.legajo)}
+                              style={{ marginTop:4, display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'9px 12px', borderRadius:8, background:'linear-gradient(135deg,#ff7a00,#e8350e)', color:'#fff', fontSize:12, fontWeight:700, textDecoration:'none', boxShadow:'0 0 0 1px rgba(255,122,0,0.6), 0 2px 10px rgba(232,53,14,0.35)' }}>
+                              <span style={{ fontSize:15 }}>📲</span>
+                              <span>Recordar por WhatsApp</span>
+                            </a>
+                          )
+                        })()}
                         {seleccionado && (
                           <div style={{ border:'0.5px solid rgba(200,168,75,0.3)', borderTop:'none', borderRadius: cargo ? 0 : '0 0 8px 8px', padding:'8px 12px', background:'rgba(200,168,75,0.04)' }}>
                             <button className="btn btn-sm" style={{ width:'100%', justifyContent:'center', background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.35)' }} onClick={() => abrirDispAdmin(e)}>
