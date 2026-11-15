@@ -181,6 +181,7 @@ const PHG_ICONOS = {
 const PHG_NAV_PRINCIPAL = [
   { v:'personal', label:'Personal' },
   { v:'disponibilidad', label:'Disponibilidad' },
+  { v:'calendario', label:'Calendario' },
   // Se saca "Guardias" (vista 'turnos') del menú: mostraba el cronograma
   // día por día, que ya se ve en Resumen y en la planilla para imprimir,
   // así que quedaba redundante y confundía. El botón "Generar turnos
@@ -207,6 +208,189 @@ const PHG_NAV_SECUNDARIO = [
   { v:'planillas', label:'Planillas' },
   { v:'descarga', label:'Planilla Guardia' },
 ]
+
+// ===== Calendario de disponibilidad (pestaña "Calendario") =====
+// SOLO MUESTRA. No pide nada nuevo a la base: usa exactamente los mismos datos que ya carga la pestaña
+// "Disponibilidad" (la lista de efectivos de este lugar y su disponibilidad del mes), y cuenta igual que ella
+// (un turno cuenta si el texto del turno cargado lo incluye). Por eso los números coinciden con esa pestaña.
+function CalendarioDisponibilidad({ efectivos, disponibilidad, turnosLugar, mes, anio, nombreMes, lugar, diasMes }) {
+  const [filtro, setFiltro] = useState('todos')
+  const [diaSel, setDiaSel] = useState(null)
+  const NOMBRE_TURNO = { d: 'Día', n: 'Noche', m: 'Mañana', t: 'Tarde' }
+  const COLOR_TURNO = { d: '#f0a43a', n: '#4a8df0', m: '#3fc79a', t: '#e8734a' }
+  const DIAS_SEM = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do']
+  const primerDia = (new Date(anio, mes - 1, 1).getDay() + 6) % 7
+
+  const pasa = e => {
+    const sx = String(e.sexo || '').toLowerCase()
+    if (filtro === 'fem') return sx === 'femenino'
+    if (filtro === 'masc') return sx === 'masculino'
+    if (filtro === 'unif') return e.tipo === 'Uniformado'
+    if (filtro === 'nounif') return e.tipo !== 'Uniformado'
+    return true
+  }
+  const efs = efectivos.filter(pasa)
+  const porDia = {}
+  for (let d = 1; d <= diasMes; d++) { porDia[d] = {}; turnosLugar.forEach(t => { porDia[d][t] = [] }) }
+  let cargaron = 0, filas = 0, sumaDias = 0
+  efs.forEach(e => {
+    const dias = disponibilidad[normLegajo(e.legajo)] || {}
+    const claves = Object.keys(dias)
+    if (claves.length) { cargaron++; sumaDias += claves.length }
+    claves.forEach(d => {
+      const tu = (dias[d] && dias[d].turno) || ''
+      turnosLugar.forEach(t => { if (porDia[d] && tu.includes(t)) { porDia[d][t].push(e); filas++ } })
+    })
+  })
+  let max = 1
+  const totDia = {}
+  for (let d = 1; d <= diasMes; d++) {
+    let s = 0
+    turnosLugar.forEach(t => { const n = porDia[d][t].length; s += n; if (n > max) max = n })
+    totDia[d] = s
+  }
+  let dMax = 1, dMin = 1
+  for (let d = 1; d <= diasMes; d++) { if (totDia[d] > totDia[dMax]) dMax = d; if (totDia[d] < totDia[dMin]) dMin = d }
+  const pct = efs.length ? Math.round(cargaron / efs.length * 100) : 0
+  const prom = cargaron ? (Math.round(sumaDias / cargaron * 10) / 10).toString().replace('.', ',') : '0'
+  const sinCargar = efs.filter(e => Object.keys(disponibilidad[normLegajo(e.legajo)] || {}).length === 0)
+  // Legajos que tienen disponibilidad cargada pero no figuran en la lista de Personal de este lugar (no se cuentan arriba).
+  const legajosFicha = new Set(efectivos.map(e => normLegajo(e.legajo)))
+  const sueltos = Object.keys(disponibilidad).filter(k => !legajosFicha.has(k) && Object.keys(disponibilidad[k] || {}).length > 0)
+
+  const fechaSel = diaSel ? DIAS_SEM[(primerDia + diaSel - 1) % 7] + ' ' + diaSel + ' de ' + nombreMes.split(' ')[0].toLowerCase() : ''
+  const espSel = diaSel ? infoDiaEspecial(diaSel, mes, anio) : null
+
+  return (
+    <div className="panel">
+      <style>{`
+        .cdp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+        .cdp-kpi{background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px 12px;animation:cdpSubir .45s both}
+        .cdp-kv{font-size:24px;font-weight:700;line-height:1.1}.cdp-kv.s{font-size:18px}.cdp-bajo{color:#ff8a6b}
+        .cdp-kl{color:#8b91a5;font-size:11.5px;margin-top:3px}
+        .cdp-fil{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+        .cdp-chip{background:rgba(255,255,255,0.04);color:#9aa1b6;border:0.5px solid rgba(255,255,255,0.1);border-radius:999px;padding:5px 13px;font-size:12.5px;cursor:pointer;transition:.2s}
+        .cdp-chip:hover{color:#e8eaf0;transform:translateY(-1px)}.cdp-chip.on{background:#2a3350;color:#e8eaf0;border-color:#4a8df0}
+        .cdp-ley{display:flex;flex-wrap:wrap;gap:14px;color:#8b91a5;font-size:11.5px;margin-bottom:8px}
+        .cdp-ley i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+        .cdp-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+        .cdp-sem{text-align:center;color:#8b91a5;font-size:11px;padding:3px 0}
+        .cdp-dia{font:inherit;color:inherit;text-align:left;background:linear-gradient(rgba(74,141,240,calc(var(--h)*.28)),rgba(74,141,240,calc(var(--h)*.28))),rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.09);border-radius:10px;padding:6px;cursor:pointer;min-height:84px;animation:cdpSubir .45s both;animation-delay:calc(var(--i)*18ms);transition:transform .15s,border-color .15s,box-shadow .15s}
+        .cdp-dia:hover{transform:translateY(-3px) scale(1.02);border-color:#c8a84b;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+        .cdp-dia.sel{border-color:#c8a84b;box-shadow:0 0 0 2px rgba(200,168,75,.35)}
+        .cdp-dia.cero{opacity:.55}
+        .cdp-num{font-weight:700;font-size:13px;display:block;margin-bottom:3px}.cdp-num.esp{color:#ff9d7a}
+        .cdp-tr{display:flex;align-items:center;gap:4px;font-size:10.5px;margin-top:3px}
+        .cdp-tl{width:9px;color:#8b91a5;font-weight:700}
+        .cdp-bar{flex:1;height:7px;border-radius:5px;background:rgba(255,255,255,.07);overflow:hidden}
+        .cdp-bar i{display:block;height:100%;border-radius:5px;animation:cdpCrece .9s cubic-bezier(.2,.8,.2,1) both;animation-delay:.25s}
+        .cdp-tr b{width:20px;text-align:right;font-size:11.5px}
+        .cdp-det{margin-top:14px;background:rgba(255,255,255,0.04);border:0.5px solid rgba(255,255,255,0.09);border-radius:12px;padding:12px;animation:cdpSubir .4s both}
+        .cdp-dt{font-weight:700;font-size:15px;color:#c8a84b;margin-bottom:8px}.cdp-dt small{color:#ffd77a;font-weight:600;font-size:12px}
+        .cdp-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+        .cdp-col{background:rgba(255,255,255,0.04);border-radius:10px;padding:10px;border-top:3px solid var(--c)}
+        .cdp-ch{display:flex;justify-content:space-between;font-weight:700;margin-bottom:6px}.cdp-ch b{color:var(--c)}
+        .cdp-per{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:0.5px solid rgba(255,255,255,0.08);font-size:12.5px}
+        .cdp-per em{color:#8b91a5;font-style:normal;font-size:11px;white-space:nowrap}
+        .cdp-det details{margin-top:14px}
+        .cdp-sin{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+        .cdp-n{background:rgba(255,255,255,0.06);border-radius:999px;padding:4px 10px;font-size:12px}.cdp-n small{color:#8b91a5}
+        @keyframes cdpSubir{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+        @keyframes cdpCrece{from{width:0}to{width:var(--w)}}
+        @media(max-width:640px){.cdp-dia{min-height:96px;padding:4px}.cdp-tr{flex-wrap:wrap;gap:0 3px;margin-top:4px;font-size:9.5px}.cdp-tr b{margin-left:auto;width:auto;font-size:12px}.cdp-bar{order:3;flex-basis:100%;height:4px}}
+        @media(prefers-reduced-motion:reduce){.cdp-kpi,.cdp-dia,.cdp-det,.cdp-bar i{animation:none!important}.cdp-bar i{width:var(--w)!important}}
+      `}</style>
+      <div className="panel-header">
+        <h3>Calendario de disponibilidad — {lugar} · {nombreMes}</h3>
+        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{cargaron} de {efs.length} cargaron</span>
+      </div>
+      <div style={{ padding:14 }}>
+        <div className="cdp-fil">
+          {[['todos', 'Todos'], ['fem', 'Femeninos'], ['masc', 'Masculinos'], ['unif', 'Uniformados'], ['nounif', 'No uniformados']].map(([k, n]) => (
+            <button key={k} className={'cdp-chip' + (filtro === k ? ' on' : '')} onClick={() => setFiltro(k)}>{n}</button>
+          ))}
+        </div>
+        <div className="cdp-kpis">
+          <div className="cdp-kpi"><div className="cdp-kv">{cargaron}<span style={{ fontSize:13, color:'#8b91a5' }}> / {efs.length}</span></div><div className="cdp-kl">cargaron ({pct}%)</div></div>
+          <div className="cdp-kpi"><div className="cdp-kv">{filas}</div><div className="cdp-kl">disponibilidades cargadas (día/turno)</div></div>
+          <div className="cdp-kpi"><div className="cdp-kv">{prom}</div><div className="cdp-kl">días promedio por persona que cargó</div></div>
+          <div className="cdp-kpi"><div className="cdp-kv s">Día {dMax}</div><div className="cdp-kl">con más gente ({totDia[dMax]})</div></div>
+          <div className="cdp-kpi"><div className="cdp-kv s cdp-bajo">Día {dMin}</div><div className="cdp-kl">con menos gente ({totDia[dMin]})</div></div>
+        </div>
+        <div className="cdp-ley">
+          {turnosLugar.map(t => <span key={t}><i style={{ background: COLOR_TURNO[t] }} />{t.toUpperCase()} = {NOMBRE_TURNO[t]}</span>)}
+          <span>Cuanto más celeste el día, más gente disponible · número naranja = fin de semana o feriado</span>
+        </div>
+        <div className="cdp-cal">
+          {DIAS_SEM.map(x => <div key={x} className="cdp-sem">{x}</div>)}
+          {Array.from({ length: primerDia }).map((_, i) => <div key={'v' + i} style={{ visibility:'hidden' }} />)}
+          {Array.from({ length: diasMes }).map((_, i) => {
+            const d = i + 1
+            const intens = Math.min(1, totDia[d] / (max * turnosLugar.length))
+            const esp = infoDiaEspecial(d, mes, anio)
+            return (
+              <button key={d} className={'cdp-dia' + (d === diaSel ? ' sel' : '') + (totDia[d] === 0 ? ' cero' : '')}
+                style={{ '--i': d, '--h': intens.toFixed(2) }} onClick={() => setDiaSel(d === diaSel ? null : d)}>
+                <span className={'cdp-num' + (esp && esp.marcar ? ' esp' : '')}>{d}</span>
+                {turnosLugar.map(t => {
+                  const n = porDia[d][t].length
+                  return (
+                    <div key={t} className="cdp-tr">
+                      <span className="cdp-tl">{t.toUpperCase()}</span>
+                      <span className="cdp-bar"><i style={{ '--w': Math.round(n / max * 100) + '%', width: Math.round(n / max * 100) + '%', background: COLOR_TURNO[t] }} /></span>
+                      <b>{n}</b>
+                    </div>
+                  )
+                })}
+              </button>
+            )
+          })}
+        </div>
+        <div className="cdp-det">
+          {!diaSel ? (
+            <div style={{ color:'#8b91a5', textAlign:'center', padding:10 }}>Tocá un día del calendario para ver quiénes cargaron disponibilidad.</div>
+          ) : (
+            <>
+              <div className="cdp-dt">{fechaSel} {espSel && espSel.marcar && <small>· {motivoDia(espSel)}</small>}</div>
+              <div className="cdp-g">
+                {turnosLugar.map(t => {
+                  const lista = porDia[diaSel][t].slice().sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)))
+                  return (
+                    <div key={t} className="cdp-col" style={{ '--c': COLOR_TURNO[t] }}>
+                      <div className="cdp-ch"><span>{NOMBRE_TURNO[t]}</span><b>{lista.length}</b></div>
+                      {lista.length === 0 ? <div style={{ color:'#8b91a5', fontSize:12, padding:'6px 0' }}>Nadie cargó este turno</div> : lista.map(e => {
+                        const sx = String(e.sexo || '').toLowerCase()
+                        return (
+                          <div key={e.legajo} className="cdp-per">
+                            <span>{e.nombre} <small style={{ color:'#8b91a5' }}>Leg. {e.legajo}</small></span>
+                            <em>{sx === 'femenino' ? 'F' : sx === 'masculino' ? 'M' : '·'} · {e.tipo === 'Uniformado' ? 'Unif.' : 'No unif.'}</em>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <details style={{ marginTop:14 }}>
+          <summary style={{ cursor:'pointer', fontWeight:600 }}>Efectivos que todavía no cargaron ({sinCargar.length})</summary>
+          <div className="cdp-sin">
+            {sinCargar.length === 0
+              ? <span style={{ color:'#5fd39b' }}>Todos los efectivos de esta vista cargaron.</span>
+              : sinCargar.map(e => <span key={e.legajo} className="cdp-n">{e.nombre} <small>{e.legajo}</small></span>)}
+          </div>
+        </details>
+        {sueltos.length > 0 && (
+          <div style={{ marginTop:10, fontSize:11.5, color:'#ffb86b' }}>
+            Aviso: hay {sueltos.length} legajo(s) con disponibilidad cargada que no figuran en Personal de {lugar} y no se cuentan acá (ni en Disponibilidad): {sueltos.join(', ')}.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ModalTurno({ turno, efectivos, horasAsig, onClose, onGuardar, onEliminar, onAgregar, diasMes, mes, anio, turnosDelDia }) {
   const esNuevo = !turno.id
@@ -641,7 +825,7 @@ export default function AdminApp() {
   }, [vista, mesSeleccionado, anioSeleccionado, mounted])
   // Refresca la grilla de Disponibilidad cada vez que se entra a esa pestaña, para que no
   // quede desactualizada si alguien cargó disponibilidad después de la carga inicial de la página.
-  useEffect(() => { if (mounted && adminLoggedIn.current && vista === 'disponibilidad') cargarTodo(lugarDetectado) }, [vista])
+  useEffect(() => { if (mounted && adminLoggedIn.current && (vista === 'disponibilidad' || vista === 'calendario')) cargarTodo(lugarDetectado) }, [vista])
 
   useEffect(() => {
     if (!mounted) return
@@ -4238,6 +4422,10 @@ export default function AdminApp() {
               </div>
             </div>
           </div>
+        )}
+
+        {vista === 'calendario' && (
+          <CalendarioDisponibilidad efectivos={efectivos} disponibilidad={disponibilidad} turnosLugar={TURNOS_LUGAR} mes={MES} anio={ANIO} nombreMes={NOMBRE_MES} lugar={APP_LUGAR} diasMes={DIAS_MES} />
         )}
 
         {vista === 'turnos' && (
