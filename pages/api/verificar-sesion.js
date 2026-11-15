@@ -17,7 +17,7 @@ const supabase = createClient(
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' })
 
-  const { legajo, lugar, id } = req.body || {}
+  const { legajo, lugar, id, password } = req.body || {}
   if (!legajo || !id || !['HIGA', 'UPA', 'MODULAR'].includes(lugar)) {
     return res.status(400).json({ error: 'Faltan datos' })
   }
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   try {
     const { data, error } = await supabase
       .from('efectivos')
-      .select('id')
+      .select('id, password')
       .eq('legajo', String(legajo).trim())
       .eq('lugar', lugar)
       .maybeSingle()
@@ -34,6 +34,12 @@ export default async function handler(req, res) {
 
     // Ficha inexistente o distinta (fue borrada y dada de alta de nuevo): hay que volver a entrar.
     if (!data || String(data.id) !== String(id)) return res.status(200).json({ ok: false, abierta: false })
+
+    // Si la clave guardada en el celular ya no coincide con la de la ficha (se la resetearon o la cambió),
+    // se avisa para que vuelva a entrar. Solo se compara si el celular mandó la clave (versiones viejas no la mandan).
+    if (typeof password === 'string' && password !== (data.password || String(legajo).trim())) {
+      return res.status(200).json({ ok: false, abierta: false, motivo: 'clave' })
+    }
 
     const { data: cfg, error: errCfg } = await supabase
       .from('configuracion').select('*').eq('lugar', lugar).maybeSingle()
