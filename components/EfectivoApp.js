@@ -96,7 +96,12 @@ export default function EfectivoApp() {
     async function revisar() {
       const r = await verificarSesion(parsed)
       if (!vivo) return
-      if (r && r.ok === false) { localStorage.removeItem('polad_user'); router.push('/'); return }
+      if (r && r.ok === false) {
+        localStorage.removeItem('polad_user')
+        if (r.motivo === 'clave') alert('Tu clave fue modificada. Entrá de nuevo con tu clave actual (si no la cambiaste vos, es tu número de legajo).')
+        router.push('/')
+        return
+      }
       setAcceso(r && r.ok && r.abierta ? 'abierto' : 'cerrado')
     }
     revisar()
@@ -110,7 +115,7 @@ export default function EfectivoApp() {
       const resp = await fetch('/api/verificar-sesion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ legajo: u.legajo, id: u.id, lugar: detectLugar() }),
+        body: JSON.stringify({ legajo: u.legajo, id: u.id, lugar: detectLugar(), password: u.password || u.legajo }),
       })
       if (!resp.ok) return null
       return await resp.json()
@@ -235,6 +240,13 @@ export default function EfectivoApp() {
       if (body.codigo === 'baja') {
         localStorage.removeItem('polad_user')
         alert(body.error)
+        router.push('/')
+        return
+      }
+      if (body.codigo === 'clave') {
+        // Clave desactualizada: no se guardó nada. Se avisa con un cartel que no desaparece solo y se cierra la sesión.
+        localStorage.removeItem('polad_user')
+        alert('NO SE GUARDÓ tu disponibilidad. ' + body.error)
         router.push('/')
         return
       }
