@@ -663,6 +663,10 @@ export default function AdminApp() {
   // cada uno que haya"). Se guarda por legajo porque puede haber varias
   // tarjetas abiertas a la vez, cada una con su propio valor.
   const [camposRapidaNuevos, setCamposRapidaNuevos] = useState({})
+  // Referencia temporal para los que no tuvieron guardias el mes anterior: vive solo en esta pantalla (no se guarda en la base
+  // ni crea ninguna regla). Si se recarga la página, vuelven a quedar como antes.
+  const [nuevosReferencia, setNuevosReferencia] = useState(null)
+  const [refNuevosInput, setRefNuevosInput] = useState('5')
   const [rapida24hs, setRapida24hs] = useState(new Set())
   const [rapidaDoble, setRapidaDoble] = useState(new Set())
   const [especiales, setEspeciales] = useState([])
@@ -1662,7 +1666,7 @@ export default function AdminApp() {
     await cargarRapida()
   }
 
-  async function cargarRapida() {
+  async function cargarRapida(refOverride) {
     setRapidaCargando(true); setRapidaMsg(null)
     const L = lugarDetectado
     const sectores = SECTORES_POR_LUGAR[L] || SECTORES_POR_LUGAR['HIGA']
@@ -1700,8 +1704,19 @@ export default function AdminApp() {
       .filter(e => cargaron.has(normLegajo(e.legajo)) && (countPrev[e.legajo] || 0) === 0 && objetivoFijoPorLegajo[normLegajo(e.legajo)] == null)
       .map(e => ({ legajo: e.legajo, nombre: e.nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
-    setRapidaNuevos(nuevos)
-    setRapidaLista(lista); setRapidaCargando(false)
+    // Referencia temporal (pedido del administrador): si se eligió "Incluir a todos", los que no tuvieron guardias el mes
+    // anterior pasan a la lista principal con esa cantidad (total del mes) para que "Asignar todos" los tome con el mismo
+    // motor y las mismas reglas que al resto. No se guarda ninguna regla en la base.
+    const refN = refOverride !== undefined ? refOverride : nuevosReferencia
+    if (refN) {
+      const extra = nuevos.map(n => ({ legajo: n.legajo, nombre: n.nombre, objetivo: refN, objetivoFijo: false, referenciaTemporal: true, yaAsignadas: countAct[normLegajo(n.legajo)] || 0 }))
+      setRapidaNuevos([])
+      setRapidaLista([...lista, ...extra].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+    } else {
+      setRapidaNuevos(nuevos)
+      setRapidaLista(lista)
+    }
+    setRapidaCargando(false)
   }
 
   // ── Equilibrio entre varones y mujeres (pedido) ──
@@ -4925,6 +4940,7 @@ export default function AdminApp() {
                                 <td style={{ textAlign:'center', fontWeight:500, color:COLOR_APP }}>
                                   {i.objetivo}
                                   {i.objetivoFijo && <div style={{ fontSize:9, color:'#AFA9EC', fontWeight:400 }}>🎯 fijo</div>}
+                                  {i.referenciaTemporal && <div style={{ fontSize:9, color:'#ffd77a', fontWeight:400 }}>⭐ referencia {i.objetivo}</div>}
                                 </td>
                                 <td style={{ textAlign:'center', fontWeight:500, color: deMasN > 0 ? '#5B9BF0' : completo ? '#1D9E75' : i.yaAsignadas > 0 ? '#EF9F27' : 'var(--text-muted)' }}>{i.yaAsignadas}</td>
                                 <td style={{ textAlign:'center' }}>
@@ -4957,11 +4973,37 @@ export default function AdminApp() {
                   )}
                 </div>
               </div>
+              {nuevosReferencia != null && (
+                <div className="panel">
+                  <div style={{ padding:'10px 14px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:10, fontSize:12 }}>
+                    <span style={{ color:'#ffd77a' }}>⭐ {rapidaLista.filter(x => x.referenciaTemporal).length} efectivo(s) sin guardias el mes anterior están incluidos en la lista con {nuevosReferencia} guardias de referencia (total del mes). Es solo en esta pantalla: no se guardó ninguna regla, y si recargás la página vuelven a quedar afuera.</span>
+                    <button className="btn btn-sm" disabled={rapidaProcesando}
+                      style={{ fontSize:11, padding:'3px 10px' }}
+                      onClick={async () => { setNuevosReferencia(null); await cargarRapida(null) }}>Quitar de la lista</button>
+                  </div>
+                </div>
+              )}
               {rapidaNuevos.length > 0 && (
                 <div className="panel">
                   <div className="panel-header">
                     <h3>Sin guardias el mes anterior — {rapidaNuevos.length}</h3>
                     <span style={{ fontSize:11, color:'var(--text-muted)' }}>Cargaron disponibilidad este mes pero no tienen número de referencia — poné cantidad y turno y asigná directo, o configurá una "Cantidad fija" en Reglas especiales</span>
+                  </div>
+                  <div style={{ padding:'10px 14px', display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, borderBottom:'0.5px solid var(--border)' }}>
+                    <span style={{ fontSize:12 }}>Incluir a los {rapidaNuevos.length} en la lista de <b>Asignar todos</b> con</span>
+                    <input type="number" min="1" max="31" value={refNuevosInput}
+                      onChange={e => setRefNuevosInput(e.target.value)}
+                      style={{ width:52, padding:'4px 6px', fontSize:12, border:'0.5px solid var(--border)', borderRadius:6, background:'var(--surface)', color:'var(--text)', outline:'none' }} />
+                    <span style={{ fontSize:12 }}>guardias de referencia (total del mes)</span>
+                    <button className="btn btn-sm" disabled={rapidaProcesando || !(parseInt(refNuevosInput, 10) > 0)}
+                      style={{ fontSize:11, padding:'4px 12px', background:'rgba(200,168,75,0.12)', color:'#c8a84b', border:'0.5px solid rgba(200,168,75,0.4)', whiteSpace:'nowrap' }}
+                      onClick={async () => {
+                        const n = parseInt(refNuevosInput, 10)
+                        if (!(n > 0)) return
+                        if (!confirm(`¿Incluir a ${rapidaNuevos.length} efectivo(s) en la lista con ${n} guardias de referencia?\n\nSolo los suma a la lista: todavía no se asigna nada. Después usás "Asignar todos" como siempre.`)) return
+                        setNuevosReferencia(n)
+                        await cargarRapida(n)
+                      }}>Incluir a todos</button>
                   </div>
                   <div style={{ padding:14, display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:8 }}>
                     {rapidaNuevos.map(n => {
